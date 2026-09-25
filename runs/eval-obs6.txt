@@ -1,0 +1,24 @@
+scenario                base          obs3          obs5          obs6       Δobs3       Δobs5       Δobs6
+comp-a-s101         174742.8      178896.8      177396.6      179605.7       2.38%       1.52%       2.78%
+comp-a-s102         208498.4      212335.7      216901.2      218450.7       1.84%       4.03%       4.77%
+comp-a-s104         208707.3      213691.4      217421.4      218357.8       2.39%       4.18%       4.62%
+comp-a-s105         186362.8      190412.1      192548.7      193870.5       2.17%       3.32%       4.03%
+comp-b-s201         174150.3      177878.4      185131.0      186359.0       2.14%       6.31%       7.01%
+comp-b-s202         186405.8      191949.2      194235.7      196220.8       2.97%       4.20%       5.27%
+comp-b-s204         184745.7      188644.8      189371.0      191349.7       2.11%       2.50%       3.57%
+comp-b-s205         197660.9      203470.2      207980.3      209535.4       2.94%       5.22%       6.01%
+mean                190159.2      194659.8      197623.2      199218.7       2.37%       3.93%       4.76%
+
+[base] base_science=128997  program_bonus=22870  coverage_bonus=37645  coverage_evenness=0.834  request_reward=648  report_reward=0  completed_tiles=1175
+      penalties(sum)={}  outcomes(sum)={'completed': 9824, 'weather_interrupted': 150, 'wait': 1421, 'report_correct': 8, 'report_misreport': 1}
+      fault(delay_h, misreports)=[(18.62, 0), (15.0, 0), (1.92, 0), (23.0, 0), (43.25, 1), (40.33, 0), (0.92, 0), (1.5, 0)]  tags(sum)={}
+[obs3] base_science=130835  program_bonus=22775  coverage_bonus=39690  coverage_evenness=0.867  request_reward=648  report_reward=712  completed_tiles=1188
+      penalties(sum)={'avoidable_wait': 0.44999999999999996}  outcomes(sum)={'completed': 9890, 'weather_interrupted': 140, 'wait': 1421, 'report_recorded': 57, 'report_correct': 8, 'report_misreport': 1, 'report_neutral': 2}
+      fault(delay_h, misreports)=[(17.5, 0), (14.92, 0), (1.67, 1), (26.21, 0), (43.25, 0), (16.42, 0), (0.75, 0), (0.92, 0)]  tags(sum)={'nova:correct': 55, 'reddening:correct': 2}
+[obs5] base_science=132234  program_bonus=23456  coverage_bonus=40648  coverage_evenness=0.879  request_reward=648  report_reward=650  completed_tiles=1208
+      penalties(sum)={'avoidable_wait': 1.5, 'fault_misreport': 100.0}  outcomes(sum)={'completed': 9899, 'wait': 1425, 'weather_interrupted': 151, 'report_recorded': 52, 'report_correct': 8, 'report_neutral': 3, 'report_misreport': 5}
+      fault(delay_h, misreports)=[(17.29, 1), (14.83, 1), (1.58, 2), (26.29, 0), (43.62, 0), (26.08, 1), (0.71, 0), (0.96, 0)]  tags(sum)={'nova:correct': 50, 'reddening:correct': 2}
+[obs6] base_science=133162  program_bonus=23782  coverage_bonus=40940  coverage_evenness=0.879  request_reward=648  report_reward=688  completed_tiles=1211
+      penalties(sum)={'avoidable_wait': 1.5}  outcomes(sum)={'completed': 9893, 'weather_interrupted': 141, 'wait': 1422, 'report_recorded': 55, 'report_correct': 8, 'report_neutral': 3, 'report_misreport': 4}
+      fault(delay_h, misreports)=[(17.5, 0), (14.83, 1), (1.62, 1), (25.88, 0), (43.46, 0), (26.04, 1), (1.08, 0), (0.96, 1)]  tags(sum)={'nova:correct': 54, 'reddening:correct': 1}
+exit=0

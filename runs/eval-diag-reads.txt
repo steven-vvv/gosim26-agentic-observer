@@ -1,0 +1,8 @@
+scenario          diag-reads
+comp-a-s101         177396.6
+mean                177396.6
+
+[diag-reads] base_science=119914  program_bonus=20207  coverage_bonus=35976  coverage_evenness=0.857  request_reward=700  report_reward=600  completed_tiles=1178
+      penalties(sum)={}  outcomes(sum)={'completed': 1180, 'wait': 196, 'weather_interrupted': 15, 'report_recorded': 6, 'report_correct': 1, 'report_neutral': 1, 'report_misreport': 1}
+      fault(delay_h, misreports)=[(17.29, 1)]  tags(sum)={'nova:correct': 6}
+exit=0

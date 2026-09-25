@@ -1,0 +1,18 @@
+{
+  "schema_version": "observing-calendar-v1",
+  "site": {
+    "latitude_deg": 31.9634,
+    "longitude_deg": -111.599,
+    "sun_altitude_limit_deg": -12.0,
+    "utc_offset_hours": -7.0
+  },
+  "solver": {
+    "coarse_step_seconds": 300,
+    "crossing_tolerance_seconds": 1
+  },
+  "survey": {
+    "days": 30,
+    "slot_seconds": 900,
+    "start_date": "2026-11-01"
+  }
+}

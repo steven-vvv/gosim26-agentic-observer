@@ -1,0 +1,23 @@
+scenario                base
+mc-a-9109           193967.9
+mc-a-9110           173579.5
+mc-a-9111           134436.5
+mc-a-9112           172501.2
+mc-a-9113           161674.6
+mc-a-9114           166683.0
+mc-a-9115           164123.7
+mc-a-9116           177332.8
+mc-b-9209           168503.7
+mc-b-9210           177185.9
+mc-b-9211           195676.7
+mc-b-9212           201683.1
+mc-b-9213           177694.9
+mc-b-9214           152567.9
+mc-b-9215           191215.8
+mc-b-9216           217010.4
+mean                176614.8
+
+[base] base_science=120730  program_bonus=20357  coverage_bonus=35318  coverage_evenness=0.835  request_reward=210  report_reward=0  completed_tiles=1168
+      penalties(sum)={}  outcomes(sum)={'completed': 19778, 'wait': 2709, 'weather_interrupted': 278, 'report_correct': 14, 'report_misreport': 1}
+      fault(delay_h, misreports)=[(41.5, 0), (2.96, 0), (17.29, 0), (2.29, 0), (91.83, 0), (21.04, 0), (1.04, 0), (7.29, 0), (20.25, 1), (15.67, 0), (5.42, 0), (18.79, 0), (None, 0), (1.08, 0), (None, 0), (4.21, 0)]  tags(sum)={}
+exit=done

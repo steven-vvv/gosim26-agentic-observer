@@ -1,0 +1,2 @@
+request_id,issued_at_utc,available_from_utc,deadline_utc,deadline_class,completion_mode,required_tile_count,completion_reward,miss_penalty,reason
+RQ0001,2026-11-23T01:30:00Z,2026-11-23T01:30:00Z,2026-12-23T01:30:00Z,ONE_MONTH,AT_LEAST_N,1,140.0,190.0,time-domain follow-up

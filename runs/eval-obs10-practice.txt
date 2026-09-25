@@ -1,0 +1,12 @@
+scenario                base         obs10      Δobs10
+dev-reference        12287.5       12929.9       5.23%
+demo-week             5909.1        6628.7      12.18%
+finals-preview        8214.3        8687.6       5.76%
+mean                  8803.6        9415.4       6.95%
+
+[base] base_science=6288  program_bonus=1099  coverage_bonus=637  coverage_evenness=0.901  request_reward=1447  report_reward=0  completed_tiles=56
+      penalties(sum)={'flexible_shortfall': 1000.0, 'required_miss': 1000.0}  outcomes(sum)={'completed': 372, 'weather_interrupted': 6, 'wait': 8175, 'report_correct': 1}
+      fault(delay_h, misreports)=[(None, 0), (None, 0), (43.5, 0)]  tags(sum)={}
+[obs10] base_science=6634  program_bonus=1261  coverage_bonus=647  coverage_evenness=0.901  request_reward=1447  report_reward=100  completed_tiles=56
+      penalties(sum)={'avoidable_wait': 18.0, 'flexible_shortfall': 1000.0, 'required_miss': 1000.0}  outcomes(sum)={'completed': 309, 'wait': 8227, 'weather_interrupted': 3, 'report_recorded': 3, 'report_correct': 1}
+      fault(delay_h, misreports)=[(None, 0), (None, 0), (53.5, 0)]  tags(sum)={'nova:correct': 1, 'reddening:correct': 2}

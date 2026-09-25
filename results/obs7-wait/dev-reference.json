@@ -1,0 +1,35 @@
+{
+ "agent": "obs7-wait",
+ "scenario": "dev-reference",
+ "elapsed": 65.2,
+ "total": 12083.004732,
+ "base_science": 7396.501423,
+ "program_bonus": 1225.053309,
+ "coverage_bonus": 0.0,
+ "coverage_evenness": 1.0,
+ "request_reward": 3920.0,
+ "report_reward": 0.0,
+ "penalties": {
+  "avoidable_wait": 458.55
+ },
+ "completed_tiles": 64,
+ "region_counts": {
+  "R00": 8,
+  "R01": 8,
+  "R02": 8,
+  "R03": 8,
+  "R04": 8,
+  "R05": 8,
+  "R06": 8,
+  "R07": 8
+ },
+ "outcomes": {
+  "completed": 90,
+  "wait": 7851
+ },
+ "fault_correct_reports": 0,
+ "fault_misreports": 0,
+ "tag_results": {},
+ "termination_reason": "survey_complete",
+ "wall_seconds": 62.705
+}

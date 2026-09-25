@@ -1,0 +1,22 @@
+[project]
+name = "gosim26-observer"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.8",
+    "scipy>=1.18.1",
+]
+
+[tool.ruff]
+# agents/ 要在平台的 Python 3.12 上运行，入门包也要求兼容 3.9，所以按 3.9 检查语法
+target-version = "py39"
+line-length = 130
+# 原样复制自官方入门包的文件不改动，便于与 kit 更新比对
+extend-exclude = ["agents/*/protocol.py"]

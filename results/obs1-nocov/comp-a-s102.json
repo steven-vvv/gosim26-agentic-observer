@@ -1,0 +1,46 @@
+{
+ "agent": "obs1-nocov",
+ "scenario": "comp-a-s102",
+ "elapsed": 235.8,
+ "fault_regions": [
+  "R05",
+  "R06"
+ ],
+ "fault_multiplier": 0.402077,
+ "fault_delay_hours": 14.92,
+ "total": 210740.414369,
+ "base_science": 142258.394763,
+ "program_bonus": 26885.862253,
+ "coverage_bonus": 40536.157353,
+ "coverage_evenness": 0.814135,
+ "request_reward": 560.0,
+ "report_reward": 500.0,
+ "penalties": {},
+ "completed_tiles": 1145,
+ "region_counts": {
+  "R00": 200,
+  "R01": 200,
+  "R02": 191,
+  "R03": 98,
+  "R04": 13,
+  "R05": 69,
+  "R06": 174,
+  "R07": 200
+ },
+ "outcomes": {
+  "completed": 1195,
+  "report_recorded": 5,
+  "wait": 170,
+  "weather_interrupted": 18,
+  "report_correct": 1,
+  "report_misreport": 1
+ },
+ "fault_correct_reports": 1,
+ "fault_misreports": 1,
+ "tag_results": {
+  "nova:correct": 4,
+  "reddening:correct": 1
+ },
+ "termination_reason": "survey_complete",
+ "wall_seconds": 212.247
+}

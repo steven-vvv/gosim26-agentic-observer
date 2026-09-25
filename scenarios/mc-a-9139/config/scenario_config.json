@@ -1,0 +1,23 @@
+{
+  "competition": {
+    "global_wallclock_seconds": 3600,
+    "per_decision_timeout": null
+  },
+  "configs": {
+    "calendar": "calendar_config.json",
+    "requests": "request_config.json",
+    "score": "score_config.json",
+    "tile": "tile_config.json",
+    "weather": "weather_config.json",
+    "workflow": "workflow_config.json"
+  },
+  "contract_semantics": {
+    "agent_time": "one global wall-clock deadline; no per-decision limit",
+    "intervals": "half-open [start, end)",
+    "simulation_time": "advances only through committed environment transitions",
+    "timestamp_format": "YYYY-MM-DDTHH:MM:SSZ"
+  },
+  "scenario_id": "mc-a-9139",
+  "schema_version": "example3-scenario-v2",
+  "seed": 9139
+}

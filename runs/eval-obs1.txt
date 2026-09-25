@@ -1,0 +1,10 @@
+scenario                obs1
+comp-a-s101         177608.7
+comp-a-s102         211634.9
+comp-b-s201         177572.1
+comp-b-s202         191945.5
+mean                189690.3
+
+[obs1] base_science=128010  program_bonus=21528  coverage_bonus=38697  coverage_evenness=0.864  request_reward=805  report_reward=650  completed_tiles=1192
+      penalties(sum)={}  outcomes(sum)={'completed': 4907, 'weather_interrupted': 71, 'wait': 729, 'report_recorded': 26, 'report_misreport': 4, 'report_correct': 4, 'report_neutral': 2}
+exit=0

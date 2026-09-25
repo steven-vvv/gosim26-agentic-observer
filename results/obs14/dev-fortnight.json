@@ -1,0 +1,39 @@
+{
+ "agent": "obs14",
+ "scenario": "dev-fortnight",
+ "elapsed": 6.6,
+ "runner": "fast_runner.py",
+ "python": "pypy3.11",
+ "total": 7090.095793,
+ "base_science": 7730.545223,
+ "program_bonus": 1519.550569,
+ "coverage_bonus": 0.0,
+ "coverage_evenness": 0.902446,
+ "request_reward": 140.0,
+ "report_reward": 0.0,
+ "penalties": {
+  "flexible_shortfall": 300.0,
+  "required_miss": 2000.0
+ },
+ "completed_tiles": 55,
+ "region_counts": {
+  "R00": 8,
+  "R01": 8,
+  "R02": 8,
+  "R03": 7,
+  "R04": 1,
+  "R05": 7,
+  "R06": 8,
+  "R07": 8
+ },
+ "outcomes": {
+  "completed": 55,
+  "weather_interrupted": 1,
+  "wait": 537
+ },
+ "fault_correct_reports": 0,
+ "fault_misreports": 0,
+ "tag_results": {},
+ "termination_reason": "survey_complete",
+ "wall_seconds": 4.725
+}

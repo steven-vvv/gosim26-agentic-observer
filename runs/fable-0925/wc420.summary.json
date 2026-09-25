@@ -1,0 +1,29 @@
+{
+  "base_science": 121343.026185,
+  "committed_actions": 1396,
+  "completed_tiles": 1169,
+  "final_cursor": "2026-11-04T12:45:00Z",
+  "flexible_shortfall_tiles": 0,
+  "global_wallclock_seconds": 420.0,
+  "outputs": {
+    "agent.log": "/tmp/fable-0925/wc420/agent.log",
+    "decisions.csv": "/tmp/fable-0925/wc420/decisions.csv",
+    "score_report.json": "/tmp/fable-0925/wc420/score_report.json",
+    "workflow_result.json": "/tmp/fable-0925/wc420/workflow_result.json"
+  },
+  "penalties": {
+    "flexible_shortfall": 0.0,
+    "request_miss": 0.0,
+    "required_miss": 0.0
+  },
+  "program_bonus": 20735.808496,
+  "request_reward": 700.0,
+  "requests": {
+    "completed": 3
+  },
+  "required_missing": 0,
+  "runner_seconds": 254.37,
+  "termination_reason": "survey_complete",
+  "total": 179675.981792,
+  "wall_seconds": 253.184
+}

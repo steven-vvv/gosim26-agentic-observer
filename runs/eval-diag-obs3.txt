@@ -1,0 +1,8 @@
+scenario           diag-obs3
+comp-a-s101         178896.8
+mean                178896.8
+
+[diag-obs3] base_science=120861  program_bonus=20584  coverage_bonus=36053  coverage_evenness=0.852  request_reward=700  report_reward=700  completed_tiles=1170
+      penalties(sum)={}  outcomes(sum)={'completed': 1180, 'weather_interrupted': 14, 'wait': 190, 'report_recorded': 7, 'report_correct': 1}
+      fault(delay_h, misreports)=[(17.5, 0)]  tags(sum)={'nova:correct': 7}
+exit=0

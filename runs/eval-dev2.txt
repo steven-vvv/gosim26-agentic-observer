@@ -1,0 +1,17 @@
+scenario                base          obs3          obs5       Δobs3       Δobs5
+comp-a-s104         208707.3      213691.4      217421.4       2.39%       4.18%
+comp-a-s105         186362.8      190412.1      192548.7       2.17%       3.32%
+comp-b-s204         184745.7      188644.8      189371.0       2.11%       2.50%
+comp-b-s205         197660.9      203470.2      207980.3       2.94%       5.22%
+mean                194369.2      199054.6      201830.3       2.41%       3.84%
+
+[base] base_science=131511  program_bonus=23987  coverage_bonus=38382  coverage_evenness=0.834  request_reward=490  report_reward=0  completed_tiles=1174
+      penalties(sum)={}  outcomes(sum)={'completed': 4941, 'weather_interrupted': 77, 'wait': 689, 'report_correct': 4}
+      fault(delay_h, misreports)=[(1.92, 0), (23.0, 0), (0.92, 0), (1.5, 0)]  tags(sum)={}
+[obs3] base_science=133351  program_bonus=23916  coverage_bonus=40598  coverage_evenness=0.870  request_reward=490  report_reward=700  completed_tiles=1185
+      penalties(sum)={'avoidable_wait': 0.15}  outcomes(sum)={'completed': 4983, 'report_recorded': 28, 'weather_interrupted': 70, 'wait': 687, 'report_correct': 4, 'report_misreport': 1, 'report_neutral': 2}
+      fault(delay_h, misreports)=[(1.67, 1), (26.21, 0), (0.75, 0), (0.92, 0)]  tags(sum)={'nova:correct': 28}
+[obs5] base_science=134654  program_bonus=24452  coverage_bonus=41509  coverage_evenness=0.881  request_reward=490  report_reward=750  completed_tiles=1208
+      penalties(sum)={'avoidable_wait': 0.75, 'fault_misreport': 100.0}  outcomes(sum)={'completed': 4978, 'report_recorded': 30, 'weather_interrupted': 78, 'wait': 690, 'report_correct': 4, 'report_misreport': 2, 'report_neutral': 2}
+      fault(delay_h, misreports)=[(1.58, 2), (26.29, 0), (0.71, 0), (0.96, 0)]  tags(sum)={'nova:correct': 29, 'reddening:correct': 1}
+exit=0

@@ -1,0 +1,15 @@
+scenario                base          obs3       Δobs3
+comp-a-s103         179783.6      184955.9       2.88%
+comp-b-s203         185199.3      188515.1       1.79%
+dev-reference        12287.5       12342.3       0.45%
+demo-week             5909.1        5938.9       0.50%
+finals-preview        8214.3        8561.8       4.23%
+mean                 78278.7       80062.8       2.28%
+
+[base] base_science=53642  program_bonus=9107  coverage_bonus=14921  coverage_evenness=0.874  request_reward=1008  report_reward=0  completed_tiles=501
+      penalties(sum)={'flexible_shortfall': 1000.0, 'required_miss': 1000.0}  outcomes(sum)={'completed': 2818, 'wait': 8523, 'weather_interrupted': 44, 'report_correct': 3}
+      fault(delay_h, misreports)=[(1.12, 0), (1.79, 0), (None, 0), (None, 0), (43.5, 0)]  tags(sum)={}
+[obs3] base_science=54502  program_bonus=8929  coverage_bonus=15785  coverage_evenness=0.888  request_reward=1008  report_reward=240  completed_tiles=510
+      penalties(sum)={'avoidable_wait': 7.8, 'flexible_shortfall': 1000.0, 'required_miss': 1000.0}  outcomes(sum)={'completed': 2784, 'wait': 8564, 'report_recorded': 12, 'weather_interrupted': 43, 'report_correct': 3}
+      fault(delay_h, misreports)=[(0.75, 0), (0.79, 0), (None, 0), (None, 0), (53.83, 0)]  tags(sum)={'nova:correct': 11, 'reddening:correct': 1}
+exit=0

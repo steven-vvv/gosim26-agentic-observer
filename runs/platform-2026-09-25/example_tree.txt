@@ -1,0 +1,11 @@
+.github
+.github/workflows
+.github/workflows/test.yml
+.gitignore
+README.md
+observer.project.json
+pyproject.toml
+src
+src/agent.py
+tests
+tests/test_protocol.py

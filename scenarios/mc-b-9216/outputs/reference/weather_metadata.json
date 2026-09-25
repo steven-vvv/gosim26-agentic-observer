@@ -1,0 +1,31 @@
+{
+  "closed_slot_count": 164,
+  "organizer_internal": [
+    "weather_events.csv"
+  ],
+  "participant_visible": [
+    "weather.csv",
+    "weather_forecasts.csv"
+  ],
+  "row_counts": {
+    "events": 30,
+    "forecasts": 186,
+    "weather": 1365
+  },
+  "schema_version": "weather-metadata-v2",
+  "scope_counts": {
+    "ALL": 11,
+    "HORIZON_SECTOR": 7,
+    "REGION_SET": 7,
+    "SKY_CAP_ICRS": 5
+  },
+  "seed": 9216,
+  "sha256": {
+    "config": "8b75fe5ff909a342bc40df6a9d656b94708f98348ffbc52878f0b33ed414c9d6",
+    "events": "5336048afff93284e43fe0a34692c796972126873b824f2ec698d6115672f1ec",
+    "forecasts": "8078368555c836220dee1ed7ff7858d3483674cba4a0086c365ad62e8406c32e",
+    "slots": "f21bd7cd017139a8dd2627104b54f5be51da4f01d81159a822528beccae1b478",
+    "tiles": "ca8f3ee9acbbcae03c3e3f6a84246cad3052e0d8b139c85ca170cd8e0df593a6",
+    "weather": "b6196619b06bfb06b2c6fbb2015ec178d9e6f83342ef2b46d35a57cb6a9ee011"
+  }
+}

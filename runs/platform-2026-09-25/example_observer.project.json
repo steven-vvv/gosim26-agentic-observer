@@ -1,0 +1,5 @@
+{
+  "schema_version": "observer-project-v1",
+  "image": "python:3.12-slim",
+  "run": ["python3", "-u", "src/agent.py"]
+}

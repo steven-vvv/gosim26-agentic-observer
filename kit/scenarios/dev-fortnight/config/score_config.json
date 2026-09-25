@@ -1,0 +1,16 @@
+{
+  "schema_version": "challenge-score-v3",
+  "quality_thresholds": {"dark": 0.65, "bright": 0.40},
+  "program_bonus": {"DARK": 0.25, "BRIGHT": 0.15, "BACKUP": 0.08},
+  "penalties": {
+    "unsafe_observation": 2000.0,
+    "invalid_action": 100.0,
+    "avoidable_wait_per_second": 0.001,
+    "required_miss": 1000.0,
+    "flexible_shortfall_per_tile": 100.0
+  },
+  "flexible_quota_per_region": 4,
+  "one_ordinary_credit_per_tile": true,
+  "interrupted_exposure_science_score": 0.0,
+  "coefficient_status": "provisional organizer calibration values"
+}

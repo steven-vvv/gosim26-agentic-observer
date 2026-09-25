@@ -1,0 +1,40 @@
+{
+  "schema_version": "challenge-score-v3",
+  "quality_thresholds": {
+    "dark": 0.65,
+    "bright": 0.4
+  },
+  "program_bonus": {
+    "DARK": 0.25,
+    "BRIGHT": 0.15,
+    "BACKUP": 0.08
+  },
+  "penalties": {
+    "unsafe_observation": 2000.0,
+    "invalid_action": 100.0,
+    "avoidable_wait_per_second": 0.001,
+    "required_miss": 1000.0,
+    "flexible_shortfall_per_tile": 100.0
+  },
+  "flexible_quota_per_region": 4,
+  "interrupted_exposure_science_score": 0.0,
+  "repeat_observation": {
+    "tile_score_aggregation": "max"
+  },
+  "reporting": {
+    "reward_correct": 100.0,
+    "penalty_wrong": 150.0,
+    "fault_misreport_free_allowance": 1,
+    "fault_misreport_penalty": 100.0
+  },
+  "anomaly_tags": {
+    "nova_factor": 1.5,
+    "reddening_factor": 0.8
+  },
+  "fault_response": {
+    "response_latency_days": 1,
+    "repair_duration_days": 2
+  },
+  "coefficient_status": "provisional organizer calibration values",
+  "coverage_bonus_weight": 0.35
+}

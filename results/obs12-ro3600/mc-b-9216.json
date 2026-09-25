@@ -1,0 +1,50 @@
+{
+ "agent": "obs12-ro3600",
+ "scenario": "mc-b-9216",
+ "elapsed": 126.9,
+ "runner": "fast_runner.py",
+ "python": "pypy3.11",
+ "fault_regions": [
+  "R01",
+  "R02",
+  "R03",
+  "R05"
+ ],
+ "fault_multiplier": 0.646232,
+ "fault_delay_hours": 3.71,
+ "total": 230837.544158,
+ "base_science": 151229.372983,
+ "program_bonus": 31332.24215,
+ "coverage_bonus": 47035.929026,
+ "coverage_evenness": 0.888639,
+ "request_reward": 140.0,
+ "report_reward": 1100.0,
+ "penalties": {},
+ "completed_tiles": 1235,
+ "region_counts": {
+  "R00": 200,
+  "R01": 200,
+  "R02": 196,
+  "R03": 156,
+  "R04": 96,
+  "R05": 42,
+  "R06": 147,
+  "R07": 198
+ },
+ "outcomes": {
+  "completed": 1263,
+  "weather_interrupted": 20,
+  "wait": 175,
+  "report_recorded": 11,
+  "report_correct": 1,
+  "report_neutral": 1
+ },
+ "fault_correct_reports": 1,
+ "fault_misreports": 0,
+ "tag_results": {
+  "nova:correct": 5,
+  "reddening:correct": 6
+ },
+ "termination_reason": "survey_complete",
+ "wall_seconds": 91.985
+}

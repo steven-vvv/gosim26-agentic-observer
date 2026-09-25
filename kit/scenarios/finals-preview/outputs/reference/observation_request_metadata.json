@@ -1,0 +1,18 @@
+{
+  "deadline_class_counts": {
+    "ONE_WEEK": 1
+  },
+  "row_counts": {
+    "request_tiles": 1,
+    "requests": 1
+  },
+  "schema_version": "observation-request-metadata-v1",
+  "seed": 20260920,
+  "sha256": {
+    "config": "752b1a2885d79ae9de3056ae15dc06c71dfd762058d988f246e1a4019c0029d2",
+    "nights": "11c1dce7f067178191270342905dbd235802a5b1d7f2911503a167afb27d8685",
+    "request_tiles": "3a704b2c2f7fa321256b4a6295e7c28646329ed344d041be7b26d388e017b83f",
+    "requests": "0afd0ec1c5b15dc6b56803c6782b45196ebc936c5a5e7294512bcf51b14808f5",
+    "tiles": "a934042f3fefbcbc61191de7d87d5311aca7ea2394e55201222cffb1d3bec97e"
+  }
+}

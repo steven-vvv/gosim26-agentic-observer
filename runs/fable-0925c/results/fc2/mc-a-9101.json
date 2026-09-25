@@ -1,0 +1,1 @@
+{"total": 198190.631918, "score": {"base_science": 132641.867986, "coverage_bonus": 39589.106304, "coverage_evenness": 0.85276, "penalties": {"flexible_shortfall": 0.0, "request_miss": 0.0, "required_miss": 0.0}, "program_bonus": 24679.657628, "report_reward": 1000.0, "request_reward": 280.0, "total": 198190.631918}, "completed_tiles": 1142}

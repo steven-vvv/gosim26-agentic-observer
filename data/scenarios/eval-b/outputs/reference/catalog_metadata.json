@@ -1,0 +1,18 @@
+{
+  "airmass_semantics": "instantaneous altitude-dependent value normalized to zenith=1",
+  "generator": "tile_geometry_simulator.py",
+  "lunar_quality_semantics": "continuous factor in (0, 1]; no lunar exclusion threshold; one when Moon altitude is non-positive",
+  "row_counts": {
+    "targets": 404120,
+    "tiles": 1600
+  },
+  "schema_version": "tile-catalog-metadata-v3",
+  "seed": 1808750,
+  "sha256": {
+    "calendar_config": "c2bbc14e662a471b61c83349486ae68951e2deca71544f0a817b99ca85d58c1d",
+    "night_calendar": "a4f5333afc2d580953667437c5d404ef87f75ad02bbd9bfb4e679d142461b028",
+    "targets": "99d7766f134b7edefa35b575d3b9f7df1699d0be9da4f948a4256fd982e7434b",
+    "tile_config": "c354e63746abaccead1a221ce3d193caf3bbb307b4bfdfa305738900a8a27829",
+    "tiles": "ca8f3ee9acbbcae03c3e3f6a84246cad3052e0d8b139c85ca170cd8e0df593a6"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "files": {
+    "config/calendar_config.json": {
+      "sha256": "c2bbc14e662a471b61c83349486ae68951e2deca71544f0a817b99ca85d58c1d"
+    },
+    "config/request_config.json": {
+      "sha256": "347e806cb99002728d4f6f5873ae17ef4c0a256986acb28b7cb1d77377567177"
+    },
+    "config/scenario_config.json": {
+      "sha256": "8fdcd95ff5af1880914db31ecdc82f4e777b8b3633b979da4b5bd4f7b2fbba9c"
+    },
+    "config/score_config.json": {
+      "sha256": "10ea90e736270b5fc5807008926627315474b747c56e1998ab845e8fcfdb944a"
+    },
+    "config/tile_config.json": {
+      "sha256": "c354e63746abaccead1a221ce3d193caf3bbb307b4bfdfa305738900a8a27829"
+    },
+    "config/weather_config.json": {
+      "sha256": "06a2be14916a88b4011eaf4d1408eba255b1071e079534b86d60fdb0ce840622"
+    },
+    "config/workflow_config.json": {
+      "sha256": "5ec1ab9e978be87cb023086f75246541af94a0dd30206b8273044b0f466ae7ec"
+    },
+    "outputs/reference/night_calendar.csv": {
+      "rows": 30,
+      "sha256": "a4f5333afc2d580953667437c5d404ef87f75ad02bbd9bfb4e679d142461b028"
+    },
+    "outputs/reference/observation_request_tiles.csv": {
+      "rows": 2,
+      "sha256": "0d378333b73a7da738fadbc8cccbe5a6b7a4fdf87f93c0317b35672a317c7924"
+    },
+    "outputs/reference/observation_requests.csv": {
+      "rows": 1,
+      "sha256": "827ffd1e97b427cd3151d806a78bbcb09967418ec7353bf16e18ac38cd171894"
+    },
+    "outputs/reference/slots.csv": {
+      "rows": 1365,
+      "sha256": "f21bd7cd017139a8dd2627104b54f5be51da4f01d81159a822528beccae1b478"
+    },
+    "outputs/reference/targets.csv": {
+      "rows": 404120,
+      "sha256": "99d7766f134b7edefa35b575d3b9f7df1699d0be9da4f948a4256fd982e7434b"
+    },
+    "outputs/reference/tile_anomalies.csv": {
+      "rows": 20,
+      "sha256": "53b0e63861ba9c074acb9eda28b50b892985c9eb448010c6c923d3d2c1ab9534"
+    },
+    "outputs/reference/tile_windows.csv": {
+      "rows": 3927,
+      "sha256": "45edb83f4ab7319e2bde035de84847ef4d481bd86c9ba8567f35c0163a9ecff8"
+    },
+    "outputs/reference/tiles.csv": {
+      "rows": 1600,
+      "sha256": "ca8f3ee9acbbcae03c3e3f6a84246cad3052e0d8b139c85ca170cd8e0df593a6"
+    },
+    "outputs/reference/weather.csv": {
+      "rows": 1365,
+      "sha256": "95948b9abc120b1a00d3b854bab8bdf7ca5e44d20ae3691468725d3e260d1dc2"
+    },
+    "outputs/reference/weather_events.csv": {
+      "rows": 30,
+      "sha256": "97d71a53374e25c43bac1dd4779da48eec74d134117828cd1fbe408abf17c454"
+    },
+    "outputs/reference/weather_forecasts.csv": {
+      "rows": 199,
+      "sha256": "80bfa9611cabf8b7ac93a683b80b13c891250eabd56f6062155994964d90bc7b"
+    }
+  },
+  "global_wallclock_seconds": 3600,
+  "scenario_id": "eval-b",
+  "schema_version": "example3-scenario-manifest-v2",
+  "seed": 1808750
+}

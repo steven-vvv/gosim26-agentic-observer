@@ -1,0 +1,16 @@
+scenario               obs10     obs11-off        obs11t  Δobs11-off     Δobs11t
+comp-a-s101         180906.0      180906.0      181306.0       0.00%       0.22%
+comp-b-s201         187438.5      187438.5      188038.5       0.00%       0.32%
+mc-a-9104           188270.4      188270.4      189070.4       0.00%       0.42%
+mc-b-9204           200814.5      200814.5      201514.5       0.00%       0.35%
+mean                189357.4      189357.4      189982.4       0.00%       0.33%
+
+[obs10] base_science=127201  program_bonus=21876  coverage_bonus=39035  coverage_evenness=0.876  request_reward=595  report_reward=650  completed_tiles=1213
+      penalties(sum)={}  outcomes(sum)={'completed': 4918, 'weather_interrupted': 77, 'wait': 658, 'report_recorded': 26, 'report_correct': 4, 'report_neutral': 2, 'report_misreport': 3}
+      fault(delay_h, misreports)=[(17.42, 0), (43.58, 1), (71.79, 0), (24.08, 2)]  tags(sum)={'nova:correct': 25, 'reddening:correct': 1}
+[obs11-off] base_science=127201  program_bonus=21876  coverage_bonus=39035  coverage_evenness=0.876  request_reward=595  report_reward=650  completed_tiles=1213
+      penalties(sum)={}  outcomes(sum)={'completed': 4918, 'weather_interrupted': 77, 'wait': 658, 'report_recorded': 26, 'report_correct': 4, 'report_neutral': 2, 'report_misreport': 3}
+      fault(delay_h, misreports)=[(17.42, 0), (43.58, 1), (71.79, 0), (24.08, 2)]  tags(sum)={'nova:correct': 25, 'reddening:correct': 1}
+[obs11t] base_science=127201  program_bonus=21876  coverage_bonus=39035  coverage_evenness=0.876  request_reward=595  report_reward=1275  completed_tiles=1213
+      penalties(sum)={}  outcomes(sum)={'completed': 4918, 'weather_interrupted': 77, 'wait': 658, 'report_recorded': 51, 'report_correct': 4, 'report_neutral': 2, 'report_misreport': 3}
+      fault(delay_h, misreports)=[(17.42, 0), (43.58, 1), (71.79, 0), (24.08, 2)]  tags(sum)={'reddening:correct': 25, 'nova:correct': 26}

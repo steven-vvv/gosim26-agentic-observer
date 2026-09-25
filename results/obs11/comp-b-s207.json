@@ -1,0 +1,50 @@
+{
+ "agent": "obs11",
+ "scenario": "comp-b-s207",
+ "elapsed": 133.0,
+ "runner": "fast_runner.py",
+ "python": "pypy3.11",
+ "fault_regions": [
+  "R01",
+  "R02",
+  "R05"
+ ],
+ "fault_multiplier": 0.668256,
+ "fault_delay_hours": 1.04,
+ "total": 190851.821645,
+ "base_science": 128158.224148,
+ "program_bonus": 21209.290804,
+ "coverage_bonus": 39704.606693,
+ "coverage_evenness": 0.885169,
+ "request_reward": 280.0,
+ "report_reward": 1500.0,
+ "penalties": {
+  "avoidable_wait": 0.3
+ },
+ "completed_tiles": 1233,
+ "region_counts": {
+  "R00": 200,
+  "R01": 200,
+  "R02": 200,
+  "R03": 164,
+  "R04": 98,
+  "R05": 38,
+  "R06": 141,
+  "R07": 192
+ },
+ "outcomes": {
+  "completed": 1276,
+  "report_recorded": 15,
+  "weather_interrupted": 17,
+  "wait": 178,
+  "report_correct": 1
+ },
+ "fault_correct_reports": 1,
+ "fault_misreports": 0,
+ "tag_results": {
+  "reddening:correct": 6,
+  "nova:correct": 9
+ },
+ "termination_reason": "survey_complete",
+ "wall_seconds": 97.821
+}

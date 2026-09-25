@@ -1,0 +1,69 @@
+{
+  "files": {
+    "config/calendar_config.json": {
+      "sha256": "49807181bde09c3df7c197bc141e8256cc35f62aab58a1519c6e364b09649e37"
+    },
+    "config/request_config.json": {
+      "sha256": "454a6f5098de86968d0d20d1d0da3e952a540cfd184b22c04e27c6bcf0113394"
+    },
+    "config/scenario_config.json": {
+      "sha256": "51fd1b61f6a227350acd8a24e0711dd88295d0500498f46184a23d47deca6cc1"
+    },
+    "config/score_config.json": {
+      "sha256": "e83a3c8b254bfd1a516f5a7e31f8b4338d8a1b306d4983346734364c36f7c4f6"
+    },
+    "config/tile_config.json": {
+      "sha256": "d47aa5bd93518c461cff5c00630e405938c271b6737e7daad1ef34517a0a7465"
+    },
+    "config/weather_config.json": {
+      "sha256": "c017ec296a2b78cc30e1fc09cc232052cca7f5c48c776cfdbd9f6f66339a75d1"
+    },
+    "config/workflow_config.json": {
+      "sha256": "3faf4c5da86ee3787a77d3bd4431c520d679c51f5c281e35d3efefe1431b11b0"
+    },
+    "outputs/reference/night_calendar.csv": {
+      "rows": 180,
+      "sha256": "4c9261a8e61e8ba7da0ed521861d6443ad3a6a0c9fe2387251e81548588720f0"
+    },
+    "outputs/reference/observation_request_tiles.csv": {
+      "rows": 31,
+      "sha256": "4a7808083471f1ffb8bd7c535db92b2f90b99b17796aac12e76e53343f69507c"
+    },
+    "outputs/reference/observation_requests.csv": {
+      "rows": 18,
+      "sha256": "b32e14de9eb850db1f149798b5f74ac82fc8b29eef124367e865daf4d0623a39"
+    },
+    "outputs/reference/slots.csv": {
+      "rows": 7928,
+      "sha256": "2a0944da85c4cfcdd165418f960b0d86b2e5d7c8b36e169199b776c942562ba2"
+    },
+    "outputs/reference/targets.csv": {
+      "rows": 15833,
+      "sha256": "dc12aff8ec552e5e8f96e9ac921b6861fb2602c97be46b59ecd691dc2ac2d199"
+    },
+    "outputs/reference/tile_windows.csv": {
+      "rows": 135,
+      "sha256": "e4f29f801e0e0841200e37979ae271f00caad1d50603af55977d2a8d3586d579"
+    },
+    "outputs/reference/tiles.csv": {
+      "rows": 64,
+      "sha256": "467eb288c7875ec7e8e2a1cd35e535364fffab2ee0aee0e78822581f7ce4ab53"
+    },
+    "outputs/reference/weather.csv": {
+      "rows": 7928,
+      "sha256": "126b3ecb8bd1852777f3a272c52100d5e34b9c84e8ac8e58844e66300e85b4d0"
+    },
+    "outputs/reference/weather_events.csv": {
+      "rows": 29,
+      "sha256": "04d570b6fd087357a95cb9316946dfe948091736504c46094a0a67526122cd44"
+    },
+    "outputs/reference/weather_forecasts.csv": {
+      "rows": 189,
+      "sha256": "3403be0d95f770e45c94776340e6e2ff5dfdb50b28b4431cc3167406ddc23a43"
+    }
+  },
+  "global_wallclock_seconds": 7200,
+  "scenario_id": "example3-reference-seed-20260909",
+  "schema_version": "example3-scenario-manifest-v2",
+  "seed": 20260909
+}

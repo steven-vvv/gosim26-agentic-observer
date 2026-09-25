@@ -1,0 +1,60 @@
+{
+  "schema_version": "tile-geometry-v2",
+  "seed": 20260909,
+  "geometry": {
+    "minimum_altitude_deg": 30.0
+  },
+  "catalog": {
+    "n_regions": 8,
+    "tiles_per_region": 8,
+    "required_per_region": 2,
+    "time_limited_required_per_region": 1,
+    "time_limited_window_days": 14,
+    "dec_min_deg": -5.0,
+    "dec_max_deg": 65.0,
+    "nominal_exptime_choices_seconds": [450, 600, 900, 1200, 1350]
+  },
+  "lunar_model": {
+    "angular_decay_scale_deg": 35.0,
+    "altitude_exponent": 1.0,
+    "maximum_penalty": 0.75
+  },
+  "target_models": {
+    "LRG": {
+      "mean_count_per_tile": 60,
+      "count_fractional_sigma": 0.18,
+      "flux_median": 0.35,
+      "flux_log_sigma": 0.35,
+      "redshift_mean": 0.70,
+      "redshift_sigma": 0.18,
+      "science_weight": 1.0
+    },
+    "ELG": {
+      "mean_count_per_tile": 100,
+      "count_fractional_sigma": 0.20,
+      "flux_median": 0.55,
+      "flux_log_sigma": 0.40,
+      "redshift_mean": 1.10,
+      "redshift_sigma": 0.28,
+      "science_weight": 1.0
+    },
+    "QSO": {
+      "mean_count_per_tile": 18,
+      "count_fractional_sigma": 0.25,
+      "flux_median": 0.18,
+      "flux_log_sigma": 0.50,
+      "redshift_mean": 2.10,
+      "redshift_sigma": 0.65,
+      "science_weight": 1.7
+    },
+    "BGS": {
+      "mean_count_per_tile": 75,
+      "count_fractional_sigma": 0.18,
+      "flux_median": 1.25,
+      "flux_log_sigma": 0.30,
+      "redshift_mean": 0.22,
+      "redshift_sigma": 0.09,
+      "science_weight": 0.45
+    }
+  }
+}

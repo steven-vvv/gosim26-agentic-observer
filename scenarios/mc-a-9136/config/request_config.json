@@ -1,0 +1,36 @@
+{
+  "completion_modes": {
+    "ALL": 0.7,
+    "AT_LEAST_N": 0.3
+  },
+  "deadline_classes": {
+    "ONE_MONTH": {
+      "days": 30,
+      "weight": 0.18
+    },
+    "ONE_WEEK": {
+      "days": 7,
+      "weight": 0.5
+    },
+    "TWO_WEEKS": {
+      "days": 14,
+      "weight": 0.32
+    }
+  },
+  "issue_every_n_nights": 7,
+  "miss_penalty_per_required_tile": 190.0,
+  "occurrence_probability": 0.55,
+  "reasons": [
+    "time-domain follow-up",
+    "external transient alert",
+    "cross-survey calibration",
+    "high-priority science trigger"
+  ],
+  "reward_per_required_tile": 140.0,
+  "schema_version": "observation-requests-v1",
+  "seed": 2580414,
+  "tiles_per_request": [
+    1,
+    3
+  ]
+}

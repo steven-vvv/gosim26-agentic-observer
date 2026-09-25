@@ -1,0 +1,38 @@
+[
+    {
+        "id": "049d6029-343d-4d16-80d5-94b56b350301",
+        "slug": "online",
+        "name_en": "Online Competition",
+        "name_zh": "\u7ebf\u4e0a\u6bd4\u8d5b",
+        "description_en": "October 5\u20137. Run your agent locally on competition scenarios A and B \u2014 their weather is published when the competition opens \u2014 and submit each decisions.csv; the score is the mean over both. These scenarios enable the full anomaly mechanics: hidden tile tags, an instrument fault, score feedback and the report channel \u2014 rehearse them on the kit's finals-preview scenario.",
+        "description_zh": "10 \u6708 5\u20137 \u65e5\u3002\u5728\u672c\u5730\u5bf9\u6bd4\u8d5b\u573a\u666f A\u3001B \u8fd0\u884c\u667a\u80fd\u4f53\uff08\u5929\u6c14\u5728\u5f00\u8d5b\u65f6\u516c\u5f00\uff09\uff0c\u5206\u522b\u63d0\u4ea4 decisions.csv\uff0c\u5f97\u5206\u4e3a\u4e24\u4e2a\u573a\u666f\u7684\u5e73\u5747\u503c\u3002\u6b63\u5f0f\u8d5b\u573a\u666f\u542f\u7528\u5b8c\u6574\u5f02\u5e38\u673a\u5236\uff1a\u9690\u85cf\u5929\u533a\u6807\u7b7e\u3001\u4eea\u5668\u6545\u969c\u3001\u5b9e\u73b0\u5206\u53cd\u9988\u4e0e\u4e0a\u62a5\u901a\u9053\u2014\u2014\u53ef\u7528\u5165\u95e8\u5305\u91cc\u7684 finals-preview \u573a\u666f\u6f14\u7ec3\u3002",
+        "sort_order": 1,
+        "starts_at": "2026-10-04T16:00:00+00:00",
+        "ends_at": "2026-10-07T15:59:00+00:00",
+        "allow_results": true,
+        "allow_agents": false,
+        "daily_limit": 10,
+        "leaderboard_mode": "live",
+        "counts_for_final": true,
+        "is_active": true,
+        "created_at": "2026-09-09T13:48:28.939237+00:00"
+    },
+    {
+        "id": "88908c68-ebb1-4475-b793-a437c857c932",
+        "slug": "practice",
+        "name_en": "Playground",
+        "name_zh": "Playground",
+        "description_en": "Open now. Run your agent locally on the public development scenarios and submit its decisions.csv. Unlimited practice; the practice board is informational.",
+        "description_zh": "\u73b0\u5df2\u5f00\u653e\u3002\u5728\u672c\u5730\u5bf9\u516c\u5f00\u5f00\u53d1\u573a\u666f\u8fd0\u884c\u667a\u80fd\u4f53\uff0c\u63d0\u4ea4 decisions.csv\u3002\u7ec3\u4e60\u4e0d\u9650\u6b21\u6570\uff0c\u7ec3\u4e60\u699c\u4ec5\u4f9b\u53c2\u8003\u3002",
+        "sort_order": 49,
+        "starts_at": null,
+        "ends_at": null,
+        "allow_results": true,
+        "allow_agents": false,
+        "daily_limit": 50,
+        "leaderboard_mode": "live",
+        "counts_for_final": false,
+        "is_active": true,
+        "created_at": "2026-09-09T13:48:27.129999+00:00"
+    }
+]

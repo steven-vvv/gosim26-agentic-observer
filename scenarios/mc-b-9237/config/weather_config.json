@@ -1,0 +1,167 @@
+{
+  "background_closure": {
+    "reopen_probability_per_closed_slot": 0.32,
+    "seasonal_probability_amplitude": 0.006,
+    "start_probability_per_open_slot": 0.008
+  },
+  "events": {
+    "cloudy": {
+      "count": 10,
+      "duration_slots": [
+        8,
+        32
+      ],
+      "force_close": false,
+      "instrument_efficiency_multiplier": 1.0,
+      "scope_weights": {
+        "HORIZON_SECTOR": 0.2,
+        "REGION_SET": 0.45,
+        "SKY_CAP_ICRS": 0.35
+      },
+      "seeing_multiplier": 1.25,
+      "sky_quality_multiplier": 0.65,
+      "transparency_multiplier": 0.55
+    },
+    "cold_wave": {
+      "count": 4,
+      "duration_slots": [
+        48,
+        192
+      ],
+      "force_close": false,
+      "instrument_efficiency_multiplier": 0.68,
+      "scope_weights": {
+        "ALL": 1.0
+      },
+      "seeing_multiplier": 1.05,
+      "sky_quality_multiplier": 0.98,
+      "transparency_multiplier": 0.96
+    },
+    "instrument_fault": {
+      "count": 1,
+      "force_close": false,
+      "instrument_efficiency_multiplier_range": [
+        0.4,
+        0.7
+      ],
+      "persists_until_survey_end": true,
+      "scope_weights": {
+        "REGION_SET": 1.0
+      },
+      "seeing_multiplier": 1.0,
+      "sky_quality_multiplier": 1.0,
+      "transparency_multiplier": 1.0
+    },
+    "rainy": {
+      "count": 6,
+      "duration_slots": [
+        8,
+        40
+      ],
+      "force_close": true,
+      "instrument_efficiency_multiplier": 1.0,
+      "scope_weights": {
+        "ALL": 1.0
+      },
+      "seeing_multiplier": 1.8,
+      "sky_quality_multiplier": 0.35,
+      "transparency_multiplier": 0.25
+    },
+    "rocket_launch": {
+      "count": 3,
+      "duration_slots": [
+        2,
+        6
+      ],
+      "force_close": true,
+      "instrument_efficiency_multiplier": 1.0,
+      "scope_weights": {
+        "HORIZON_SECTOR": 0.7,
+        "SKY_CAP_ICRS": 0.3
+      },
+      "seeing_multiplier": 1.0,
+      "sky_quality_multiplier": 1.0,
+      "transparency_multiplier": 1.0
+    },
+    "smoggy": {
+      "count": 5,
+      "duration_slots": [
+        24,
+        96
+      ],
+      "force_close": false,
+      "instrument_efficiency_multiplier": 1.0,
+      "scope_weights": {
+        "HORIZON_SECTOR": 0.65,
+        "REGION_SET": 0.35
+      },
+      "seeing_multiplier": 1.15,
+      "sky_quality_multiplier": 0.72,
+      "transparency_multiplier": 0.68
+    },
+    "tornado": {
+      "count": 1,
+      "duration_slots": [
+        4,
+        12
+      ],
+      "force_close": true,
+      "instrument_efficiency_multiplier": 0.8,
+      "scope_weights": {
+        "ALL": 1.0
+      },
+      "seeing_multiplier": 2.0,
+      "sky_quality_multiplier": 0.25,
+      "transparency_multiplier": 0.15
+    }
+  },
+  "forecast": {
+    "daily_revisions": true,
+    "false_positive_count": 6,
+    "horizon_days": 7,
+    "miss_probability": 0.12
+  },
+  "quality": {
+    "instrument_efficiency": {
+      "jitter_maximum": 1.0,
+      "jitter_minimum": 0.9,
+      "maximum": 1.0,
+      "minimum": 0.1,
+      "nominal": 1.0
+    },
+    "night_correlation": 0.82,
+    "seasonal_phase_day": 210,
+    "seeing_arcsec": {
+      "maximum": 4.0,
+      "minimum": 0.5,
+      "night_sigma": 0.16,
+      "nominal": 1.1,
+      "seasonal_amplitude": 0.15,
+      "slot_sigma": 0.07
+    },
+    "sky_quality": {
+      "maximum": 1.5,
+      "minimum": 0.05,
+      "night_sigma": 0.1,
+      "nominal": 1.0,
+      "seasonal_amplitude": 0.12,
+      "slot_sigma": 0.035
+    },
+    "slot_correlation": 0.88,
+    "transparency": {
+      "maximum": 1.0,
+      "minimum": 0.08,
+      "night_sigma": 0.06,
+      "nominal": 0.88,
+      "seasonal_amplitude": 0.07,
+      "slot_sigma": 0.025
+    }
+  },
+  "schema_version": "directional-weather-v2",
+  "score_interface": {
+    "airmass_exponent": 1.0,
+    "formula": "score: H(is_observable) * instrument_efficiency * transparency * sky_quality / (seeing_arcsec * airmass); program bands use the same quality without instrument_efficiency",
+    "maximum_weather_quality": 3.0
+  },
+  "seed": 9237
+}

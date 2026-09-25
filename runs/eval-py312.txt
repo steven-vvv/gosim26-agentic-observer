@@ -1,0 +1,8 @@
+scenario          obs8-py312
+comp-a-s101         179837.5
+mean                179837.5
+
+[obs8-py312] base_science=121031  program_bonus=21035  coverage_bonus=36372  coverage_evenness=0.859  request_reward=700  report_reward=700  completed_tiles=1175
+      penalties(sum)={}  outcomes(sum)={'completed': 1178, 'weather_interrupted': 18, 'wait': 195, 'report_recorded': 7, 'report_correct': 1, 'report_misreport': 1}
+      fault(delay_h, misreports)=[(17.29, 1)]  tags(sum)={'nova:correct': 6, 'reddening:correct': 1}
+exit=0

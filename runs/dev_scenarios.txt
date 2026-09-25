@@ -1,0 +1,1 @@
+--scenario scenarios/comp-a-s101 --scenario scenarios/comp-a-s102 --scenario scenarios/comp-a-s104 --scenario scenarios/comp-a-s105 --scenario scenarios/comp-b-s201 --scenario scenarios/comp-b-s202 --scenario scenarios/comp-b-s204 --scenario scenarios/comp-b-s205

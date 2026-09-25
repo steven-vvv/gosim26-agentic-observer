@@ -1,0 +1,70 @@
+{
+  "anomaly_tags": {
+    "nova_count": 10,
+    "reddening_count": 10
+  },
+  "catalog": {
+    "dec_max_deg": 65.0,
+    "dec_min_deg": -5.0,
+    "n_regions": 8,
+    "nominal_exptime_choices_seconds": [
+      450,
+      600,
+      900,
+      1200,
+      1350
+    ],
+    "required_per_region": 2,
+    "tiles_per_region": 200,
+    "time_limited_required_per_region": 1,
+    "time_limited_window_days": 14
+  },
+  "geometry": {
+    "minimum_altitude_deg": 30.0
+  },
+  "lunar_model": {
+    "altitude_exponent": 1.0,
+    "angular_decay_scale_deg": 35.0,
+    "maximum_penalty": 0.75
+  },
+  "schema_version": "tile-geometry-v2",
+  "seed": 9225,
+  "target_models": {
+    "BGS": {
+      "count_fractional_sigma": 0.18,
+      "flux_log_sigma": 0.3,
+      "flux_median": 1.25,
+      "mean_count_per_tile": 75,
+      "redshift_mean": 0.22,
+      "redshift_sigma": 0.09,
+      "science_weight": 0.45
+    },
+    "ELG": {
+      "count_fractional_sigma": 0.2,
+      "flux_log_sigma": 0.4,
+      "flux_median": 0.55,
+      "mean_count_per_tile": 100,
+      "redshift_mean": 1.1,
+      "redshift_sigma": 0.28,
+      "science_weight": 1.0
+    },
+    "LRG": {
+      "count_fractional_sigma": 0.18,
+      "flux_log_sigma": 0.35,
+      "flux_median": 0.35,
+      "mean_count_per_tile": 60,
+      "redshift_mean": 0.7,
+      "redshift_sigma": 0.18,
+      "science_weight": 1.0
+    },
+    "QSO": {
+      "count_fractional_sigma": 0.25,
+      "flux_log_sigma": 0.5,
+      "flux_median": 0.18,
+      "mean_count_per_tile": 18,
+      "redshift_mean": 2.1,
+      "redshift_sigma": 0.65,
+      "science_weight": 1.7
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+ "agent": "obs12-roev",
+ "scenario": "mc-a-9102",
+ "elapsed": 148.3,
+ "runner": "fast_runner.py",
+ "python": "pypy3.11",
+ "fault_regions": [
+  "R00"
+ ],
+ "fault_multiplier": 0.60228,
+ "fault_delay_hours": 20.79,
+ "total": 182148.673998,
+ "base_science": 122257.649374,
+ "program_bonus": 21438.468852,
+ "coverage_bonus": 36672.555773,
+ "coverage_evenness": 0.857032,
+ "request_reward": 280.0,
+ "report_reward": 1500.0,
+ "penalties": {},
+ "completed_tiles": 1146,
+ "region_counts": {
+  "R00": 200,
+  "R01": 197,
+  "R02": 163,
+  "R03": 111,
+  "R04": 24,
+  "R05": 95,
+  "R06": 157,
+  "R07": 199
+ },
+ "outcomes": {
+  "completed": 1156,
+  "report_recorded": 15,
+  "wait": 216,
+  "weather_interrupted": 14,
+  "report_correct": 1
+ },
+ "fault_correct_reports": 1,
+ "fault_misreports": 0,
+ "tag_results": {
+  "reddening:correct": 7,
+  "nova:correct": 8
+ },
+ "termination_reason": "survey_complete",
+ "wall_seconds": 111.225
+}

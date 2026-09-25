@@ -1,0 +1,14 @@
+scenario                obs7     obs7-wait  Δobs7-wait
+dev-reference        12332.2       12083.0      -2.02%
+demo-week             6066.4        6348.2       4.65%
+finals-preview        8815.6        8815.6       0.00%
+comp-a-s101         179605.7      179605.7       0.00%
+mean                 51705.0       51713.1       0.02%
+
+[obs7] base_science=35131  program_bonus=5995  coverage_bonus=9596  coverage_evenness=0.890  request_reward=1260  report_reward=225  completed_tiles=336
+      penalties(sum)={'avoidable_wait': 7.5, 'flexible_shortfall': 1000.0, 'required_miss': 1000.0}  outcomes(sum)={'completed': 1525, 'wait': 8395, 'weather_interrupted': 25, 'report_recorded': 9, 'report_correct': 2, 'report_neutral': 1}
+      fault(delay_h, misreports)=[(None, 0), (None, 0), (21.04, 0), (17.5, 0)]  tags(sum)={'nova:correct': 8, 'reddening:correct': 1}
+[obs7-wait] base_science=35227  program_bonus=6025  coverage_bonus=9596  coverage_evenness=0.890  request_reward=1260  report_reward=225  completed_tiles=336
+      penalties(sum)={'avoidable_wait': 476.55, 'flexible_shortfall': 1000.0, 'required_miss': 1000.0}  outcomes(sum)={'completed': 1524, 'wait': 8394, 'weather_interrupted': 25, 'report_recorded': 9, 'report_correct': 2, 'report_neutral': 1}
+      fault(delay_h, misreports)=[(None, 0), (None, 0), (21.04, 0), (17.5, 0)]  tags(sum)={'nova:correct': 8, 'reddening:correct': 1}
+exit=0

@@ -1,0 +1,16 @@
+# 环境与缓存
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# 本地生成的决赛同规模场景：每个约 20 MB，可用 kit/make_scenario.py 按种子重新生成（命令见 README）。
+# 蒙特卡洛场景（mc-*）很小（大文件是指向 data/scenarios 的符号链接），纳入版本库
+scenarios/comp-*/
+
+# 临时运行产物：评测的完整运行目录、剖析数据、零分结果文件，都可以重跑
+runs/eval/
+runs/perf/
+runs/prof/
+runs/zero/

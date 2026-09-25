@@ -1,0 +1,39 @@
+[local-runner] entry=main.py python=/tmp/py312np/bin/python dotenv_keys=[] wallclock=420s
+observer: params={"budget_disable_at": 0.85, "budget_frequent_at": 0.5, "budget_reduce_at": 0.6, "closure_prior": 0.014, "closure_risk": false, "cold_faults": true, "cold_min_reads": 3, "cold_reddening_band": [0.73, 0.79], "cold_tags": true, "coverage": true, "dip_filter": true, "dip_median": 0.85, "dip_window": 8, "exact_fault_threshold": 0.705, "exact_faults": true, "exact_nova_min": 1.3, "exact_reads": true, "exact_reddening_band": [0.71, 0.81], "fault_clear_threshold": 0.85, "fault_single_threshold": 0.72, "fault_threshold": 0.72, "fault_window": 8, "log_reads": false, "mean_jitter": 0.95, "nova_max": 1.7, "nova_threshold": 1.28, "numpy_planner": true, "persistence_phi": 0.82, "plan": true, "plan_allow_wait": false, "plan_beta": 1.0, "plan_coverage": true, "plan_every_seconds": 1800, "plan_fault_aware": false, "plan_first_iterations": 300, "plan_horizon_nights": 14, "plan_iterations": 150, "plan_lambda_average": 0, "plan_min_altitude": 30.0, "plan_persistence": false, "plan_required": true, "protect_lookahead": 2700, "protect_max_interval": 3600, "protect_required": true, "reddening_band": [0.68, 0.86], "refine_top_k": 12, "report_faults": true, "report_tags": true, "required_min_bins": 40, "required_min_nights": 5.0, "rollout_k": 5, "rollout_seconds": 3600, "segment_expectation": true, "single_fault": true, "timing_alpha": 1.0, "timing_future_nights": false}
+observer: plan #1 [numpy] bins=154 tiles=1338 priced=651 open_rate=0.871 took=2.8s total=2.8s
+observer: plan #2 [numpy] bins=154 tiles=1338 priced=581 open_rate=0.872 took=0.2s total=3.1s
+observer: plan #3 [numpy] bins=153 tiles=1330 priced=559 open_rate=0.873 took=0.2s total=3.3s
+observer: plan #4 [numpy] bins=153 tiles=1326 priced=565 open_rate=0.875 took=0.2s total=3.5s
+observer: plan #5 [numpy] bins=152 tiles=1322 priced=560 open_rate=0.876 took=0.3s total=3.8s
+observer: plan #6 [numpy] bins=152 tiles=1318 priced=565 open_rate=0.877 took=0.3s total=4.1s
+observer: plan #7 [numpy] bins=151 tiles=1314 priced=562 open_rate=0.878 took=0.2s total=4.3s
+observer: plan #8 [numpy] bins=151 tiles=1310 priced=566 open_rate=0.880 took=0.3s total=4.6s
+observer: plan #9 [numpy] bins=150 tiles=1306 priced=552 open_rate=0.881 took=0.3s total=4.8s
+observer: plan #10 [numpy] bins=150 tiles=1302 priced=567 open_rate=0.882 took=0.3s total=5.1s
+observer: plan #11 [numpy] bins=149 tiles=1298 priced=548 open_rate=0.884 took=0.2s total=5.3s
+observer: plan #12 [numpy] bins=149 tiles=1294 priced=548 open_rate=0.885 took=0.3s total=5.6s
+observer: plan #13 [numpy] bins=148 tiles=1290 priced=557 open_rate=0.887 took=0.2s total=5.8s
+observer: plan #14 [numpy] bins=148 tiles=1286 priced=555 open_rate=0.888 took=0.2s total=6.0s
+observer: plan #15 [numpy] bins=147 tiles=1282 priced=548 open_rate=0.889 took=0.2s total=6.2s
+observer: plan #16 [numpy] bins=147 tiles=1280 priced=544 open_rate=0.886 took=0.2s total=6.4s
+observer: plan #17 [numpy] bins=146 tiles=1276 priced=540 open_rate=0.887 took=0.2s total=6.7s
+observer: plan #18 [numpy] bins=146 tiles=1272 priced=527 open_rate=0.888 took=0.3s total=6.9s
+observer: plan #19 [numpy] bins=145 tiles=1268 priced=523 open_rate=0.890 took=0.3s total=7.3s
+observer: plan #20 [numpy] bins=145 tiles=1264 priced=544 open_rate=0.891 took=0.2s total=7.5s
+observer: plan #21 [numpy] bins=144 tiles=1260 priced=548 open_rate=0.892 took=0.2s total=7.7s
+observer: projected 383s > 85% of clock; planning off
+observer: decisions=100 wall=21.8s plan=7.7s
+observer: decisions=200 wall=30.4s plan=7.7s
+observer: projected 226s > 50% of clock; replanning at most hourly
+observer: decisions=300 wall=42.2s plan=7.7s
+observer: decisions=400 wall=53.2s plan=7.7s
+observer: projected 300s > 60% of clock; nightly planning only
+observer: decisions=500 wall=77.5s plan=7.7s
+observer: decisions=600 wall=89.6s plan=7.7s
+observer: decisions=700 wall=103.0s plan=7.7s
+observer: decisions=800 wall=117.9s plan=7.7s
+observer: decisions=900 wall=146.1s plan=7.7s
+observer: decisions=1000 wall=162.2s plan=7.7s
+observer: decisions=1100 wall=189.9s plan=7.7s
+observer: decisions=1200 wall=205.6s plan=7.7s
+observer: decisions=1300 wall=221.1s plan=7.7s

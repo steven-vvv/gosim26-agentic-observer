@@ -1,0 +1,21 @@
+{
+  "schema_version": "observation-requests-v1",
+  "seed": 20260909,
+  "issue_every_n_nights": 7,
+  "occurrence_probability": 0.55,
+  "tiles_per_request": [1, 3],
+  "deadline_classes": {
+    "ONE_WEEK": {"days": 7, "weight": 0.50},
+    "TWO_WEEKS": {"days": 14, "weight": 0.32},
+    "ONE_MONTH": {"days": 30, "weight": 0.18}
+  },
+  "completion_modes": {"ALL": 0.70, "AT_LEAST_N": 0.30},
+  "reward_per_required_tile": 140.0,
+  "miss_penalty_per_required_tile": 190.0,
+  "reasons": [
+    "time-domain follow-up",
+    "external transient alert",
+    "cross-survey calibration",
+    "high-priority science trigger"
+  ]
+}

@@ -1,0 +1,125 @@
+[local-runner] entry=main.py python=/tmp/py312np/bin/python dotenv_keys=[] wallclock=550s
+observer: params={"budget_disable_at": 0.85, "budget_frequent_at": 0.5, "budget_reduce_at": 0.6, "closure_prior": 0.014, "closure_risk": false, "cold_faults": true, "cold_min_reads": 3, "cold_reddening_band": [0.73, 0.79], "cold_tags": true, "coverage": true, "dip_filter": true, "dip_median": 0.85, "dip_window": 8, "exact_fault_threshold": 0.705, "exact_faults": true, "exact_nova_min": 1.3, "exact_reads": true, "exact_reddening_band": [0.71, 0.81], "fault_clear_threshold": 0.85, "fault_single_threshold": 0.72, "fault_threshold": 0.72, "fault_window": 8, "log_reads": false, "mean_jitter": 0.95, "nova_max": 1.7, "nova_threshold": 1.28, "numpy_planner": true, "persistence_phi": 0.82, "plan": true, "plan_allow_wait": false, "plan_beta": 1.0, "plan_coverage": true, "plan_every_seconds": 1800, "plan_fault_aware": false, "plan_first_iterations": 300, "plan_horizon_nights": 14, "plan_iterations": 150, "plan_lambda_average": 0, "plan_min_altitude": 30.0, "plan_persistence": false, "plan_required": true, "protect_lookahead": 2700, "protect_max_interval": 3600, "protect_required": true, "reddening_band": [0.68, 0.86], "refine_top_k": 12, "report_faults": true, "report_tags": true, "required_min_bins": 40, "required_min_nights": 5.0, "rollout_k": 5, "rollout_seconds": 3600, "segment_expectation": true, "single_fault": true, "timing_alpha": 1.0, "timing_future_nights": false}
+observer: plan #1 [numpy] bins=154 tiles=1338 priced=651 open_rate=0.871 took=2.8s total=2.8s
+observer: plan #2 [numpy] bins=154 tiles=1338 priced=581 open_rate=0.872 took=0.3s total=3.1s
+observer: plan #3 [numpy] bins=153 tiles=1330 priced=559 open_rate=0.873 took=0.2s total=3.3s
+observer: plan #4 [numpy] bins=153 tiles=1326 priced=565 open_rate=0.875 took=0.2s total=3.5s
+observer: plan #5 [numpy] bins=152 tiles=1322 priced=560 open_rate=0.876 took=0.3s total=3.8s
+observer: plan #6 [numpy] bins=152 tiles=1318 priced=565 open_rate=0.877 took=0.2s total=4.1s
+observer: plan #7 [numpy] bins=151 tiles=1314 priced=562 open_rate=0.878 took=0.2s total=4.3s
+observer: plan #8 [numpy] bins=151 tiles=1310 priced=566 open_rate=0.880 took=0.2s total=4.5s
+observer: plan #9 [numpy] bins=150 tiles=1306 priced=552 open_rate=0.881 took=0.3s total=4.8s
+observer: plan #10 [numpy] bins=150 tiles=1302 priced=567 open_rate=0.882 took=0.2s total=5.0s
+observer: plan #11 [numpy] bins=149 tiles=1298 priced=548 open_rate=0.884 took=0.2s total=5.2s
+observer: plan #12 [numpy] bins=149 tiles=1294 priced=548 open_rate=0.885 took=0.2s total=5.4s
+observer: plan #13 [numpy] bins=148 tiles=1290 priced=557 open_rate=0.887 took=0.2s total=5.7s
+observer: plan #14 [numpy] bins=148 tiles=1286 priced=555 open_rate=0.888 took=0.2s total=5.9s
+observer: plan #15 [numpy] bins=147 tiles=1282 priced=548 open_rate=0.889 took=0.2s total=6.1s
+observer: plan #16 [numpy] bins=147 tiles=1280 priced=544 open_rate=0.886 took=0.2s total=6.4s
+observer: plan #17 [numpy] bins=146 tiles=1276 priced=540 open_rate=0.887 took=0.2s total=6.5s
+observer: plan #18 [numpy] bins=146 tiles=1272 priced=527 open_rate=0.888 took=0.2s total=6.8s
+observer: plan #19 [numpy] bins=145 tiles=1268 priced=523 open_rate=0.890 took=0.2s total=7.0s
+observer: plan #20 [numpy] bins=145 tiles=1264 priced=544 open_rate=0.891 took=0.2s total=7.2s
+observer: plan #21 [numpy] bins=144 tiles=1260 priced=548 open_rate=0.892 took=0.2s total=7.4s
+observer: plan #22 [numpy] bins=154 tiles=1261 priced=592 open_rate=0.888 took=0.4s total=7.8s
+observer: plan #23 [numpy] bins=154 tiles=1261 priced=559 open_rate=0.884 took=0.2s total=8.0s
+observer: plan #24 [numpy] bins=153 tiles=1255 priced=586 open_rate=0.886 took=0.2s total=8.2s
+observer: plan #25 [numpy] bins=153 tiles=1251 priced=588 open_rate=0.887 took=0.2s total=8.4s
+observer: plan #26 [numpy] bins=152 tiles=1247 priced=578 open_rate=0.888 took=0.2s total=8.6s
+observer: plan #27 [numpy] bins=152 tiles=1243 priced=586 open_rate=0.889 took=0.2s total=8.8s
+observer: decisions=100 wall=23.4s plan=8.8s
+observer: plan #28 [numpy] bins=151 tiles=1241 priced=578 open_rate=0.890 took=0.3s total=9.1s
+observer: plan #29 [numpy] bins=151 tiles=1237 priced=549 open_rate=0.891 took=0.2s total=9.3s
+observer: plan #30 [numpy] bins=150 tiles=1233 priced=553 open_rate=0.893 took=0.2s total=9.5s
+observer: plan #31 [numpy] bins=150 tiles=1229 priced=531 open_rate=0.895 took=0.2s total=9.7s
+observer: plan #32 [numpy] bins=149 tiles=1225 priced=547 open_rate=0.896 took=0.2s total=9.9s
+observer: plan #33 [numpy] bins=149 tiles=1223 priced=555 open_rate=0.897 took=0.2s total=10.1s
+observer: plan #34 [numpy] bins=148 tiles=1219 priced=570 open_rate=0.899 took=0.2s total=10.3s
+observer: plan #35 [numpy] bins=147 tiles=1217 priced=558 open_rate=0.899 took=0.2s total=10.5s
+observer: plan #36 [numpy] bins=147 tiles=1213 priced=531 open_rate=0.901 took=0.2s total=10.7s
+observer: plan #37 [numpy] bins=146 tiles=1211 priced=556 open_rate=0.901 took=0.2s total=10.9s
+observer: plan #38 [numpy] bins=146 tiles=1207 priced=539 open_rate=0.902 took=0.2s total=11.1s
+observer: plan #39 [numpy] bins=145 tiles=1203 priced=527 open_rate=0.904 took=0.2s total=11.4s
+observer: plan #40 [numpy] bins=145 tiles=1199 priced=534 open_rate=0.905 took=0.2s total=11.6s
+observer: plan #41 [numpy] bins=144 tiles=1195 priced=521 open_rate=0.906 took=0.2s total=11.8s
+observer: plan #42 [numpy] bins=154 tiles=1196 priced=541 open_rate=0.908 took=0.4s total=12.1s
+observer: plan #43 [numpy] bins=154 tiles=1192 priced=561 open_rate=0.909 took=0.2s total=12.4s
+observer: plan #44 [numpy] bins=153 tiles=1182 priced=554 open_rate=0.910 took=0.2s total=12.6s
+observer: plan #45 [numpy] bins=153 tiles=1178 priced=553 open_rate=0.912 took=0.2s total=12.8s
+observer: plan #46 [numpy] bins=152 tiles=1174 priced=548 open_rate=0.913 took=0.2s total=13.0s
+observer: plan #47 [numpy] bins=152 tiles=1170 priced=544 open_rate=0.914 took=0.2s total=13.2s
+observer: plan #48 [numpy] bins=151 tiles=1166 priced=551 open_rate=0.915 took=0.2s total=13.5s
+observer: plan #49 [numpy] bins=151 tiles=1162 priced=553 open_rate=0.917 took=0.2s total=13.6s
+observer: plan #50 [numpy] bins=150 tiles=1158 priced=551 open_rate=0.919 took=0.2s total=13.9s
+observer: plan #51 [numpy] bins=150 tiles=1155 priced=547 open_rate=0.920 took=0.2s total=14.1s
+observer: plan #52 [numpy] bins=149 tiles=1152 priced=550 open_rate=0.921 took=0.2s total=14.3s
+observer: plan #53 [numpy] bins=149 tiles=1148 priced=531 open_rate=0.923 took=0.3s total=14.5s
+observer: plan #54 [numpy] bins=148 tiles=1144 priced=542 open_rate=0.924 took=0.2s total=14.8s
+observer: decisions=200 wall=43.9s plan=14.8s
+observer: plan #55 [numpy] bins=148 tiles=1140 priced=536 open_rate=0.925 took=0.2s total=15.0s
+observer: plan #56 [numpy] bins=147 tiles=1136 priced=549 open_rate=0.927 took=0.3s total=15.4s
+observer: plan #57 [numpy] bins=146 tiles=1132 priced=534 open_rate=0.928 took=0.2s total=15.6s
+observer: plan #58 [numpy] bins=146 tiles=1129 priced=519 open_rate=0.930 took=0.2s total=15.8s
+observer: plan #59 [numpy] bins=145 tiles=1125 priced=542 open_rate=0.932 took=0.2s total=16.0s
+observer: plan #60 [numpy] bins=144 tiles=1121 priced=534 open_rate=0.934 took=0.2s total=16.2s
+observer: projected 464s > 50% of clock; replanning at most hourly
+observer: plan #61 [numpy] bins=154 tiles=1122 priced=564 open_rate=0.935 took=0.3s total=16.6s
+observer: plan #62 [numpy] bins=153 tiles=1113 priced=556 open_rate=0.938 took=0.2s total=16.8s
+observer: plan #63 [numpy] bins=152 tiles=1109 priced=548 open_rate=0.940 took=0.3s total=17.1s
+observer: plan #64 [numpy] bins=151 tiles=1105 priced=545 open_rate=0.943 took=0.2s total=17.4s
+observer: plan #65 [numpy] bins=150 tiles=1102 priced=557 open_rate=0.945 took=0.2s total=17.6s
+observer: plan #66 [numpy] bins=149 tiles=1098 priced=546 open_rate=0.947 took=0.2s total=17.8s
+observer: plan #67 [numpy] bins=148 tiles=1094 priced=560 open_rate=0.950 took=0.2s total=18.0s
+observer: plan #68 [numpy] bins=147 tiles=1091 priced=561 open_rate=0.952 took=0.2s total=18.2s
+observer: plan #69 [numpy] bins=146 tiles=1088 priced=555 open_rate=0.945 took=0.2s total=18.5s
+observer: plan #70 [numpy] bins=145 tiles=1088 priced=528 open_rate=0.928 took=0.2s total=18.7s
+observer: plan #71 [numpy] bins=154 tiles=1089 priced=547 open_rate=0.930 took=0.4s total=19.1s
+observer: plan #72 [numpy] bins=153 tiles=1075 priced=571 open_rate=0.932 took=0.2s total=19.4s
+observer: plan #73 [numpy] bins=152 tiles=1071 priced=548 open_rate=0.935 took=0.2s total=19.6s
+observer: plan #74 [numpy] bins=151 tiles=1068 priced=547 open_rate=0.937 took=0.2s total=19.8s
+observer: plan #75 [numpy] bins=150 tiles=1064 priced=547 open_rate=0.939 took=0.2s total=20.0s
+observer: plan #76 [numpy] bins=149 tiles=1061 priced=546 open_rate=0.941 took=0.2s total=20.3s
+observer: plan #77 [numpy] bins=148 tiles=1057 priced=555 open_rate=0.943 took=0.2s total=20.5s
+observer: plan #78 [numpy] bins=147 tiles=1056 priced=535 open_rate=0.926 took=0.2s total=20.7s
+observer: plan #79 [numpy] bins=146 tiles=1056 priced=518 open_rate=0.909 took=0.2s total=20.9s
+observer: decisions=300 wall=66.9s plan=20.9s
+observer: plan #80 [numpy] bins=145 tiles=1056 priced=515 open_rate=0.891 took=0.2s total=21.0s
+observer: plan #81 [numpy] bins=154 tiles=1063 priced=530 open_rate=0.883 took=0.4s total=21.4s
+observer: plan #82 [numpy] bins=153 tiles=1052 priced=528 open_rate=0.886 took=0.3s total=21.7s
+observer: plan #83 [numpy] bins=152 tiles=1046 priced=531 open_rate=0.888 took=0.2s total=21.9s
+observer: plan #84 [numpy] bins=151 tiles=1040 priced=520 open_rate=0.890 took=0.2s total=22.1s
+observer: projected 332s > 60% of clock; nightly planning only
+observer: plan #85 [numpy] bins=154 tiles=1015 priced=531 open_rate=0.903 took=0.3s total=22.4s
+observer: plan #86 [numpy] bins=154 tiles=979 priced=548 open_rate=0.908 took=0.3s total=22.7s
+observer: decisions=400 wall=97.5s plan=22.7s
+observer: plan #87 [numpy] bins=154 tiles=972 priced=547 open_rate=0.892 took=0.4s total=23.1s
+observer: plan #88 [numpy] bins=154 tiles=939 priced=546 open_rate=0.892 took=0.4s total=23.5s
+observer: decisions=500 wall=114.3s plan=23.5s
+observer: plan #89 [numpy] bins=154 tiles=913 priced=555 open_rate=0.898 took=0.3s total=23.8s
+observer: plan #90 [numpy] bins=154 tiles=899 priced=542 open_rate=0.864 took=0.4s total=24.3s
+observer: plan #91 [numpy] bins=154 tiles=863 priced=555 open_rate=0.875 took=0.4s total=24.6s
+observer: decisions=600 wall=134.3s plan=24.6s
+observer: plan #92 [numpy] bins=154 tiles=838 priced=548 open_rate=0.860 took=0.3s total=25.0s
+observer: plan #93 [numpy] bins=154 tiles=782 priced=512 open_rate=0.862 took=0.3s total=25.3s
+observer: decisions=700 wall=163.5s plan=25.3s
+observer: plan #94 [numpy] bins=155 tiles=755 priced=511 open_rate=0.835 took=0.4s total=25.6s
+observer: plan #95 [numpy] bins=156 tiles=729 priced=495 open_rate=0.836 took=0.3s total=26.0s
+observer: decisions=800 wall=182.5s plan=26.0s
+observer: plan #96 [numpy] bins=145 tiles=706 priced=454 open_rate=0.819 took=0.2s total=26.2s
+observer: plan #97 [numpy] bins=134 tiles=667 priced=437 open_rate=0.829 took=0.2s total=26.3s
+observer: plan #98 [numpy] bins=123 tiles=635 priced=412 open_rate=0.836 took=0.1s total=26.4s
+observer: decisions=900 wall=200.4s plan=26.4s
+observer: plan #99 [numpy] bins=112 tiles=596 priced=390 open_rate=0.844 took=0.1s total=26.6s
+observer: plan #100 [numpy] bins=101 tiles=551 priced=364 open_rate=0.851 took=0.1s total=26.6s
+observer: plan #101 [numpy] bins=90 tiles=520 priced=331 open_rate=0.856 took=0.1s total=26.7s
+observer: decisions=1000 wall=230.5s plan=26.7s
+observer: plan #102 [numpy] bins=79 tiles=472 priced=289 open_rate=0.862 took=0.1s total=26.8s
+observer: plan #103 [numpy] bins=68 tiles=454 priced=252 open_rate=0.837 took=0.1s total=26.9s
+observer: decisions=1100 wall=248.2s plan=26.9s
+observer: plan #104 [numpy] bins=57 tiles=408 priced=212 open_rate=0.844 took=0.1s total=26.9s
+observer: plan #105 [numpy] bins=46 tiles=353 priced=164 open_rate=0.848 took=0.0s total=27.0s
+observer: decisions=1200 wall=264.5s plan=27.0s
+observer: plan #106 [numpy] bins=35 tiles=315 priced=134 open_rate=0.853 took=0.0s total=27.0s
+observer: plan #107 [numpy] bins=24 tiles=296 priced=91 open_rate=0.836 took=0.0s total=27.0s
+observer: decisions=1300 wall=285.6s plan=27.0s
+observer: plan #108 [numpy] bins=12 tiles=247 priced=51 open_rate=0.836 took=0.0s total=27.0s

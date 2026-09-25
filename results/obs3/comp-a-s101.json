@@ -1,0 +1,46 @@
+{
+ "agent": "obs3",
+ "scenario": "comp-a-s101",
+ "elapsed": 264.2,
+ "fault_regions": [
+  "R00",
+  "R03",
+  "R04",
+  "R05"
+ ],
+ "fault_multiplier": 0.444597,
+ "fault_delay_hours": 17.5,
+ "total": 178896.807449,
+ "base_science": 120860.668425,
+ "program_bonus": 20583.59186,
+ "coverage_bonus": 36052.547164,
+ "coverage_evenness": 0.852281,
+ "request_reward": 700.0,
+ "report_reward": 700.0,
+ "penalties": {},
+ "completed_tiles": 1170,
+ "region_counts": {
+  "R00": 200,
+  "R01": 200,
+  "R02": 173,
+  "R03": 112,
+  "R04": 25,
+  "R05": 86,
+  "R06": 174,
+  "R07": 200
+ },
+ "outcomes": {
+  "completed": 1180,
+  "weather_interrupted": 14,
+  "wait": 190,
+  "report_recorded": 7,
+  "report_correct": 1
+ },
+ "fault_correct_reports": 1,
+ "fault_misreports": 0,
+ "tag_results": {
+  "nova:correct": 7
+ },
+ "termination_reason": "survey_complete",
+ "wall_seconds": 235.845
+}

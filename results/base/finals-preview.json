@@ -1,0 +1,42 @@
+{
+ "agent": "base",
+ "scenario": "finals-preview",
+ "elapsed": 3.5,
+ "fault_regions": [
+  "R01"
+ ],
+ "fault_multiplier": 0.649228,
+ "fault_delay_hours": 43.5,
+ "total": 8214.257133,
+ "base_science": 6457.167126,
+ "program_bonus": 1207.382829,
+ "coverage_bonus": 1909.707177,
+ "coverage_evenness": 0.845,
+ "request_reward": 140.0,
+ "report_reward": 0.0,
+ "penalties": {
+  "flexible_shortfall": 500.0,
+  "required_miss": 1000.0
+ },
+ "completed_tiles": 52,
+ "region_counts": {
+  "R00": 8,
+  "R01": 8,
+  "R02": 8,
+  "R03": 4,
+  "R05": 8,
+  "R06": 8,
+  "R07": 8
+ },
+ "outcomes": {
+  "completed": 230,
+  "weather_interrupted": 5,
+  "wait": 76,
+  "report_correct": 1
+ },
+ "fault_correct_reports": 1,
+ "fault_misreports": 0,
+ "tag_results": {},
+ "termination_reason": "survey_complete",
+ "wall_seconds": 2.58
+}

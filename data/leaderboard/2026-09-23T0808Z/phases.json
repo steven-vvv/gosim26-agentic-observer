@@ -1,0 +1,126 @@
+[
+    {
+        "id": "049d6029-343d-4d16-80d5-94b56b350301",
+        "slug": "online",
+        "name_en": "Online Competition",
+        "name_zh": "线上比赛",
+        "description_en": "October 5–7. Agents run on the platform against hidden weather replays A and B (one global wall clock per scenario); the score is the mean over both. These scenarios enable the full anomaly mechanics: hidden tile tags, an instrument fault, score feedback and the report channel — rehearse them on the kit's finals-preview scenario.",
+        "description_zh": "10 月 5–7 日。智能体在平台上对隐藏天气回放 A、B 运行（每个场景一个全局时钟），得分为两个场景的平均值。正式赛场景启用完整异常机制：隐藏天区标签、仪器故障、实现分反馈与上报通道——可用入门包里的 finals-preview 场景演练。",
+        "sort_order": 1,
+        "starts_at": "2026-10-04T16:00:00+00:00",
+        "ends_at": "2026-10-07T15:59:00+00:00",
+        "allow_results": true,
+        "allow_agents": true,
+        "daily_limit": 10,
+        "leaderboard_mode": "live",
+        "counts_for_final": true,
+        "is_active": true,
+        "created_at": "2026-09-09T13:48:28.939237+00:00",
+        "phase_scenarios": [
+            {
+                "scenarios": {
+                    "id": "2cd07892-771c-4060-a95d-420a0d40adf5",
+                    "name": "Competition scenario A (hidden weather)",
+                    "slug": "eval-a",
+                    "n_slots": 1289,
+                    "n_tiles": 1600,
+                    "contract": "challenge-score-v3",
+                    "n_nights": 30,
+                    "is_active": true,
+                    "n_targets": 403975,
+                    "created_at": "2026-09-10T15:44:56.353925+00:00",
+                    "n_requests": 2,
+                    "description": "Online competition replay A: 30 nights from 2026-10-05, 1600 tiles. Weather, forecasts and events are hidden; coverage evenness is scored.",
+                    "tiles_public": true,
+                    "events_public": false,
+                    "weather_public": false,
+                    "forecasts_public": false,
+                    "global_wallclock_seconds": 3600
+                }
+            },
+            {
+                "scenarios": {
+                    "id": "ae58b662-24c3-41ec-91a9-0e793bd4db6f",
+                    "name": "Competition scenario B (hidden weather)",
+                    "slug": "eval-b",
+                    "n_slots": 1365,
+                    "n_tiles": 1600,
+                    "contract": "challenge-score-v3",
+                    "n_nights": 30,
+                    "is_active": true,
+                    "n_targets": 404120,
+                    "created_at": "2026-09-10T15:45:20.058784+00:00",
+                    "n_requests": 1,
+                    "description": "Online competition replay B: 30 nights from 2026-11-01, 1600 tiles, different seed. Weather, forecasts and events are hidden; coverage evenness is scored.",
+                    "tiles_public": true,
+                    "events_public": false,
+                    "weather_public": false,
+                    "forecasts_public": false,
+                    "global_wallclock_seconds": 3600
+                }
+            }
+        ]
+    },
+    {
+        "id": "88908c68-ebb1-4475-b793-a437c857c932",
+        "slug": "practice",
+        "name_en": "Playground",
+        "name_zh": "Playground",
+        "description_en": "Open now. Score decisions.csv files or run your agent on the public development scenarios. Unlimited practice; the practice board is informational.",
+        "description_zh": "现已开放。可对公开开发场景提交 decisions.csv 或直接运行智能体。练习不限次数，练习榜仅供参考。",
+        "sort_order": 49,
+        "starts_at": null,
+        "ends_at": null,
+        "allow_results": true,
+        "allow_agents": true,
+        "daily_limit": 50,
+        "leaderboard_mode": "live",
+        "counts_for_final": false,
+        "is_active": true,
+        "created_at": "2026-09-09T13:48:27.129999+00:00",
+        "phase_scenarios": [
+            {
+                "scenarios": {
+                    "id": "fffd5f23-868c-4ce1-a4a0-6c76a0abbb64",
+                    "name": "Development reference (180 nights, seed 20260909)",
+                    "slug": "dev-reference",
+                    "n_slots": 7928,
+                    "n_tiles": 64,
+                    "contract": "challenge-score-v3",
+                    "n_nights": 180,
+                    "is_active": true,
+                    "n_targets": 15833,
+                    "created_at": "2026-09-10T15:43:25.055982+00:00",
+                    "n_requests": 18,
+                    "description": "The published example3 reference scenario. Everything public, including weather events, so local scoring reproduces the platform.",
+                    "tiles_public": true,
+                    "events_public": true,
+                    "weather_public": true,
+                    "forecasts_public": true,
+                    "global_wallclock_seconds": 7200
+                }
+            },
+            {
+                "scenarios": {
+                    "id": "f4ec5e2f-f7c6-40bb-a46a-c132914ccd36",
+                    "name": "Development fortnight (14 nights, seed 2026)",
+                    "slug": "dev-fortnight",
+                    "n_slots": 590,
+                    "n_tiles": 64,
+                    "contract": "challenge-score-v3",
+                    "n_nights": 14,
+                    "is_active": true,
+                    "n_targets": 16012,
+                    "created_at": "2026-09-10T15:43:48.747495+00:00",
+                    "n_requests": 1,
+                    "description": "A short public scenario for quick iteration: 14 nights from 2026-10-05, all files public.",
+                    "tiles_public": true,
+                    "events_public": true,
+                    "weather_public": true,
+                    "forecasts_public": true,
+                    "global_wallclock_seconds": 1800
+                }
+            }
+        ]
+    }
+]

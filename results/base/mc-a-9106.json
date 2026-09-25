@@ -1,0 +1,39 @@
+{
+ "agent": "base",
+ "scenario": "mc-a-9106",
+ "elapsed": 242.6,
+ "fault_regions": [
+  "R01"
+ ],
+ "fault_multiplier": 0.671022,
+ "fault_delay_hours": null,
+ "total": 161335.334448,
+ "base_science": 112031.305659,
+ "program_bonus": 17257.324711,
+ "coverage_bonus": 31766.704078,
+ "coverage_evenness": 0.810149,
+ "request_reward": 280.0,
+ "report_reward": 0.0,
+ "penalties": {},
+ "completed_tiles": 1110,
+ "region_counts": {
+  "R00": 200,
+  "R01": 200,
+  "R02": 179,
+  "R03": 93,
+  "R04": 17,
+  "R05": 62,
+  "R06": 159,
+  "R07": 200
+ },
+ "outcomes": {
+  "completed": 1198,
+  "weather_interrupted": 21,
+  "wait": 200
+ },
+ "fault_correct_reports": 0,
+ "fault_misreports": 0,
+ "tag_results": {},
+ "termination_reason": "survey_complete",
+ "wall_seconds": 216.699
+}

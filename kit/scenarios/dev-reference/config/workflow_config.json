@@ -1,0 +1,9 @@
+{
+  "schema_version": "challenge-workflow-v1",
+  "global_wallclock_seconds": 7200.0,
+  "weekly_horizon_days": 7,
+  "tile_window_horizon_days": 7,
+  "per_decision_timeout_seconds": null,
+  "synthetic_timeout_action": null,
+  "clock_starts_after_initial_publication": true
+}

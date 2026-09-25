@@ -1,0 +1,22 @@
+{
+  "generator": "observing_calendar.py",
+  "row_counts": {
+    "nights": 7,
+    "slots": 294
+  },
+  "schema_version": "observing-calendar-metadata-v1",
+  "semantics": {
+    "intervals": "half-open [start, end)",
+    "night_source": "configured site coordinates and solar altitude",
+    "slot_alignment": "full slots wholly inside [solar_dusk, solar_dawn)"
+  },
+  "sha256": {
+    "config": "82709dfa37fa4157c2f2709702183f35257873a7dfe18ba4ce6b0ae8bbd033e2",
+    "night_calendar": "11c1dce7f067178191270342905dbd235802a5b1d7f2911503a167afb27d8685",
+    "slots": "43adcd8e33dbb06ca0bdf3fb3334ddbf1d3a521fd48b2455ce3fbf61a58ab6ea"
+  },
+  "slot_count_range": [
+    42,
+    42
+  ]
+}
