@@ -12,10 +12,12 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,7 +40,9 @@ def scenarios(screen: bool) -> list[Path]:
     return [ROOT / "scenarios" / name for name in names]
 
 
-def run_one(name: str, agent: Path, scenario: Path, force: bool, direct: bool) -> tuple[str, float, str]:
+def run_one(name: str, agent: Path, scenario: Path, force: bool, direct: bool, stop: threading.Event) -> tuple[str, float, str]:
+    if stop.is_set():
+        raise CancelledError()
     out = OUTPUT / name / scenario.name
     report_path = out / "score_report.json"
     if report_path.exists() and not force:
@@ -46,15 +50,34 @@ def run_one(name: str, agent: Path, scenario: Path, force: bool, direct: bool) -
         if cached.get("termination_reason") == "survey_complete":
             return scenario.name, cached["score"]["total"], "cached"
     out.mkdir(parents=True, exist_ok=True)
+    if force:
+        report_path.unlink(missing_ok=True)
     command = [sys.executable, str(RUNNER), "--scenario", str(scenario), "--agent", str(agent),
                "--out", str(out), "--no-replay", "--quiet", "--python", sys.executable]
     if direct:
         command.append("--direct")
     started = time.monotonic()
     with (out / "runner.stdout").open("w") as stdout, (out / "runner.stderr").open("w") as stderr:
-        result = subprocess.run(command, cwd=ROOT, stdout=stdout, stderr=stderr, check=False)
-    if result.returncode or not report_path.exists():
-        raise RuntimeError(f"{scenario.name}: runner exited {result.returncode}; see {out / 'runner.stderr'}")
+        process = subprocess.Popen(command, cwd=ROOT, stdout=stdout, stderr=stderr, start_new_session=True)
+        while process.poll() is None:
+            if stop.is_set():
+                process.send_signal(signal.SIGINT)
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                raise CancelledError()
+            try:
+                process.wait(timeout=0.25)
+            except subprocess.TimeoutExpired:
+                pass
+    if process.returncode or not report_path.exists():
+        raise RuntimeError(f"{scenario.name}: runner exited {process.returncode}; see {out / 'runner.stderr'}")
     report = json.loads(report_path.read_text())
     if report.get("termination_reason") != "survey_complete":
         raise RuntimeError(f"{scenario.name}: {report.get('termination_reason')}; see {out / 'agent.log'}")
@@ -101,12 +124,25 @@ def main() -> None:
             parser.error(f"scenario not found in selected corpus: {', '.join(sorted(missing))}")
         jobs = [scenario for scenario in jobs if scenario.name in args.only]
     print(f"{args.name}: {len(jobs)} scenarios, {args.jobs} workers, direct={args.direct}, params={params}", flush=True)
+    stop = threading.Event()
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futures = [pool.submit(run_one, args.name, work_agent / "main.py", scenario, args.force, args.direct)
+        futures = [pool.submit(run_one, args.name, work_agent / "main.py", scenario, args.force, args.direct, stop)
                    for scenario in jobs]
-        for future in as_completed(futures):
-            scenario, score, elapsed = future.result()
-            print(f"{scenario}: {score:.3f} ({elapsed})", flush=True)
+        try:
+            for future in as_completed(futures):
+                scenario, score, elapsed = future.result()
+                print(f"{scenario}: {score:.3f} ({elapsed})", flush=True)
+        except KeyboardInterrupt:
+            stop.set()
+            for future in futures:
+                future.cancel()
+            print(f"{args.name}: interrupted; stopping active runners", file=sys.stderr, flush=True)
+            raise SystemExit(130) from None
+        except Exception:
+            stop.set()
+            for future in futures:
+                future.cancel()
+            raise
 
 
 if __name__ == "__main__":
