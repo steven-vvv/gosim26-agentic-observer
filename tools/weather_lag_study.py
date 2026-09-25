@@ -24,6 +24,7 @@ def main() -> None:
     scenarios = sorted((ROOT / "scenarios").glob("comp-*"))
     scenarios += sorted((ROOT / "scenarios").glob("mc-*"))
     pairs = defaultdict(list)
+    averaged_pairs = defaultdict(list)
     clean_means = []
     for scenario in scenarios:
         reference = scenario / "outputs" / "reference"
@@ -43,10 +44,17 @@ def main() -> None:
         for night in nights.values():
             for lag in LAGS:
                 pairs[lag].extend((x, y) for x, y in zip(night, night[lag:]) if x is not None and y is not None)
+                averaged_pairs[lag].extend(
+                    (statistics.mean(night[t - 3:t + 1]), night[t + lag])
+                    for t in range(3, len(night) - lag)
+                    if night[t + lag] is not None and all(w is not None for w in night[t - 3:t + 1])
+                )
     print(f"scenarios={len(clean_means)} clean_mean={statistics.mean(clean_means):.4f}")
     for lag in LAGS:
         slope, correlation, drift = covariance_slope(pairs[lag])
-        print(f"lag={lag * 15:3d} min pairs={len(pairs[lag]):6d} slope={slope:.3f} correlation={correlation:.3f} drift={drift:+.4f}")
+        averaged_slope, averaged_correlation, _ = covariance_slope(averaged_pairs[lag])
+        print(f"lag={lag * 15:3d} min pairs={len(pairs[lag]):6d} slope={slope:.3f} correlation={correlation:.3f} "
+              f"drift={drift:+.4f} prior4_slope={averaged_slope:.3f} prior4_correlation={averaged_correlation:.3f}")
 
 
 if __name__ == "__main__":
