@@ -370,3 +370,19 @@ def test_cold_factor_uses_clean_reads_then_forecast_then_default():
     assert abs(policy._cold_factor(snap, now) - 0.84) < 1e-12
     policy.cold_clean["EV0026"] = [0.70, 0.72, 0.74]
     assert abs(policy._cold_factor(snap, now) - 0.72 / 0.95) < 1e-12
+
+
+def test_forecast_closure_risk_only_when_rain_starts_at_the_boundary():
+    """按预报的中断风险：降雨预计在曝光跨过的边界处开始时风险明显（启用折算）；没有预报时不折算。"""
+    import events as events_mod
+    from planner import Planner
+    policy = ObserverPolicy(initial(), dict(DEFAULTS, closure_risk_forecast=True))
+    start = epoch("2026-10-06T03:00:00Z")
+    assert policy._forecast_risks(start, [450.0, 450.0]) is None  # 还没有规划器 / 预报
+    policy.planner = Planner(policy.initial, policy.p)
+    rain = events_mod.Event(start + 450.0, start + 4 * 3600.0, 900.0, 0.9, "ALL", {}, True, 0.1, 1.0)
+    policy.planner.set_events([rain], "forecast", start + 7 * 86400.0)
+    risks = policy._forecast_risks(start, [450.0, 450.0])
+    assert risks is not None and risks[0] > 0.3
+    policy.planner.set_events([], "forecast", start + 7 * 86400.0)
+    assert policy._forecast_risks(start, [450.0, 450.0]) is None

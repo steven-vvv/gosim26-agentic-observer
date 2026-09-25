@@ -88,6 +88,8 @@ DEFAULTS = {
     "cold_default_factor": 0.75,    # 既没有读数也没有预报时的乘数：1 + severity·(0.68 − 1)，severity ~ U(0.55, 1) 的均值
     "closure_risk": False,          # 跨时隙边界的曝光按“下一时隙关闭”的风险折算收益与耗时
     "closure_prior": 0.014,         # 开 → 关的每时隙概率先验（公开的决赛天气配置：10–11 月约 0.0136–0.014）
+    "closure_risk_forecast": False, # 只在预报显示下一时隙闭站风险明显时，才对跨时隙曝光做中断风险折算
+    "closure_risk_min": 0.1,        # 曝光跨过的边界里最大的“下一时隙关闭”概率超过它才折算（平时与不折算逐位相同）
 }
 
 _EPOCH_CACHE: dict = {}
@@ -297,15 +299,48 @@ class ObserverPolicy:
         prior = float(self.p["closure_prior"])
         return (self.closures + prior * 200.0) / (self.open_transitions + 200.0)
 
-    def _risk_adjust(self, net: float, exposure: float, durations) -> tuple:
-        """跨时隙边界的曝光：下一时隙关闭就中断（已用时间作废，天区不消耗，净值记 0）。返回 (期望净值, 期望耗时)。"""
+    def _risk_adjust(self, net: float, exposure: float, durations, risks=None) -> tuple:
+        """跨时隙边界的曝光：下一时隙关闭就中断（已用时间作废，天区不消耗，净值记 0）。返回 (期望净值, 期望耗时)。
+        risks 给出每个边界各自的关闭概率；不给时都用背景关闭率。"""
         p = self._closure_probability()
         survive, elapsed, expected_time = 1.0, 0.0, 0.0
-        for seconds in durations[:-1]:
+        for k, seconds in enumerate(durations[:-1]):
+            if risks is not None:
+                p = risks[k]
             elapsed += seconds
             expected_time += survive * p * elapsed
             survive *= 1.0 - p
         return survive * net, expected_time + survive * exposure
+
+    def _boundary_risks(self, start: float, durations):
+        """曝光跨过的每个时隙边界上“下一时隙关闭”的概率：背景关闭率，叠加预报开放率在边界前后的下降（降雨、龙卷风开始）。
+        没有可用的预报时返回 None。"""
+        planner = self.planner if self.planning else None
+        if planner is None or planner.events is None or planner.events_mode != "forecast":
+            return None
+        try:
+            background = self._closure_probability()
+            rate = planner._open_rate()
+            risks, t = [], start
+            for seconds in durations[:-1]:
+                t += seconds
+                p = background
+                if t < planner.events_until:
+                    before, after = planner._site_open(t - 450.0, rate), planner._site_open(t + 450.0, rate)
+                    if before > 0.0:
+                        p = 1.0 - (1.0 - background) * min(1.0, after / before)
+                risks.append(p)
+            return risks
+        except Exception:  # noqa: BLE001  风险估计出错就不折算
+            traceback.print_exc(file=sys.stderr)
+            return None
+
+    def _forecast_risks(self, start: float, durations):
+        """closure_risk_forecast：最大的边界关闭概率超过阈值时返回各边界的概率，否则返回 None（不折算）。"""
+        if not self.p["closure_risk_forecast"] or len(durations) < 2:
+            return None
+        risks = self._boundary_risks(start, durations)
+        return risks if risks and max(risks) > float(self.p["closure_risk_min"]) else None
 
     def _consume_feedback(self, snapshot: dict, now: float) -> list:
         reports = []
@@ -841,10 +876,12 @@ class ObserverPolicy:
             taken = {tile}
             reward = gain - first[9]
             clock = now + first[2]
-            if self.p["closure_risk"]:
+            if self.p["closure_risk"] or self.p["closure_risk_forecast"]:
                 segments = self._segment_geometry(finalist[1], now, self._snapshot) or []
-                if len(segments) > 1:
-                    reward, spent = self._risk_adjust(reward, first[2], [f * first[2] for f, _am, _lunar in segments])
+                durations = [f * first[2] for f, _am, _lunar in segments]
+                risks = self._forecast_risks(now, durations) if not self.p["closure_risk"] else None
+                if len(segments) > 1 and (self.p["closure_risk"] or risks is not None):
+                    reward, spent = self._risk_adjust(reward, first[2], durations, risks)
                     clock = now + spent
             while clock < now + horizon:
                 moments = {}
@@ -897,9 +934,12 @@ class ObserverPolicy:
                 after = (total_done + 1) ** 2 / (len(counts) * (sum_sq + 2 * x + 1))
                 coverage = self.coverage_weight * ((self.base_total + base) * after - self.base_total * evenness)
         gain = science + coverage + terminal + request_value
-        if self.p["closure_risk"] and len(segments) > 1:
-            net, expected_time = self._risk_adjust(gain - opportunity, exposure, [f * exposure for f, _q in segments])
-            return (net / expected_time * timing, gain, tile, request_id), program
+        if len(segments) > 1 and (self.p["closure_risk"] or self.p["closure_risk_forecast"]):
+            durations = [f * exposure for f, _q in segments]
+            risks = self._forecast_risks(now, durations) if not self.p["closure_risk"] else None
+            if self.p["closure_risk"] or risks is not None:
+                net, expected_time = self._risk_adjust(gain - opportunity, exposure, durations, risks)
+                return (net / expected_time * timing, gain, tile, request_id), program
         return ((gain - opportunity) / exposure * timing, gain, tile, request_id), program
 
     # ------------------------------------------------------------------ 决策入口
@@ -915,7 +955,7 @@ class ObserverPolicy:
                   file=sys.stderr, flush=True)
         self._sync_progress(snapshot)
         self._snapshot = snapshot
-        if self.p["closure_risk"]:
+        if self.p["closure_risk"] or self.p["closure_risk_forecast"]:
             self._track_closures(snapshot)
         self._load_windows(snapshot, now)
         weekly = snapshot.get("weekly")
