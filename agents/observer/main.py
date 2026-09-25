@@ -14,6 +14,11 @@ import sys
 import traceback
 from pathlib import Path
 
+try:  # Local CPython evaluations may provide orjson; the submitted agent also works without it.
+    import orjson as fast_json
+except ImportError:
+    fast_json = json
+
 AGENT_DIR = Path(__file__).resolve().parent
 if str(AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(AGENT_DIR))
@@ -67,7 +72,7 @@ def main() -> None:
         if not line.strip():
             continue
         try:
-            message = json.loads(line)
+            message = fast_json.loads(line)
             if not isinstance(message, dict):
                 raise TypeError("message is not a JSON object")
         except Exception as exc:  # noqa: BLE001
