@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import signal
 import subprocess
@@ -25,6 +26,13 @@ CORPUS = Path("/tmp/robust/cold")
 OUTPUT = Path("/tmp/robust")
 AGENT = ROOT / "agents" / "observer"
 RUNNER = ROOT / "tools" / "fast_runner.py"
+
+
+def signal_group(process: subprocess.Popen, sig: signal.Signals) -> None:
+    try:
+        os.killpg(process.pid, sig)
+    except ProcessLookupError:
+        pass
 
 
 def scenarios(screen: bool) -> list[Path]:
@@ -61,15 +69,15 @@ def run_one(name: str, agent: Path, scenario: Path, force: bool, direct: bool, s
         process = subprocess.Popen(command, cwd=ROOT, stdout=stdout, stderr=stderr, start_new_session=True)
         while process.poll() is None:
             if stop.is_set():
-                process.send_signal(signal.SIGINT)
+                signal_group(process, signal.SIGINT)
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    process.terminate()
+                    signal_group(process, signal.SIGTERM)
                     try:
                         process.wait(timeout=5)
                     except subprocess.TimeoutExpired:
-                        process.kill()
+                        signal_group(process, signal.SIGKILL)
                         process.wait()
                 raise CancelledError()
             try:
@@ -133,6 +141,7 @@ def main() -> None:
                 scenario, score, elapsed = future.result()
                 print(f"{scenario}: {score:.3f} ({elapsed})", flush=True)
         except KeyboardInterrupt:
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
             stop.set()
             for future in futures:
                 future.cancel()
