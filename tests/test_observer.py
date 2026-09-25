@@ -250,6 +250,36 @@ def test_recent_weather_keeps_night_level_signal():
     assert factor[bins[0]](0.6) >= factor[bins[-1]](0.6)
 
 
+def test_value_factor_numpy_matches_python_fallback(monkeypatch):
+    import planner as planner_module
+
+    if planner_module.np is None:
+        pytest.skip("numpy not installed")
+    planner = planner_module.Planner(initial(), dict(DEFAULTS))
+    quantiles = [0.4 + 0.025 * k for k in range(20)]
+    vectorized = planner._value_factor(quantiles)
+    monkeypatch.setattr(planner_module, "np", None)
+    fallback = planner._value_factor(quantiles)
+    for q in (0.0, 0.3, 0.6, 0.8, 1.0, 1.05):
+        assert vectorized(q) == pytest.approx(fallback(q), abs=1e-12)
+
+
+def test_recent_weather_conditional_reduces_distribution_spread(monkeypatch):
+    from planner import Planner
+
+    planner = Planner(initial(), dict(DEFAULTS, plan_recent_weather=True,
+                                      plan_recent_weather_floor=0.82,
+                                      plan_recent_weather_conditional=True))
+    quantiles = planner._weather_quantiles()
+    now = planner.nights[0][0] + planner.slot
+    planner.last_clean_weather = (now, sum(quantiles) / len(quantiles), 0)
+    monkeypatch.setattr(planner, "_value_factor", lambda samples: max(samples) - min(samples))
+    bins = [b for b, (night, start, _stop, _samples) in enumerate(planner.bins)
+            if night == 0 and now <= start < now + 3 * 3600]
+    factors = planner._recent_weather_factors(quantiles, now, bins)
+    assert factors and all(width < max(quantiles) - min(quantiles) for width in factors.values())
+
+
 def test_current_bin_price_uses_only_remaining_geometry_samples():
     from planner import Planner
 

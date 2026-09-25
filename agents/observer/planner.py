@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta
 from events import TRUE_BACKGROUND_OPEN, open_from_probability
 from geometry import Site, TileGeometry
 
-try:  # 平台按 requirements.txt 装 numpy；装不上（或本地 PyPy 没有 numpy）时用纯 Python，两条路径结果逐位相同
+try:  # 平台按 requirements.txt 装 numpy；不可用时用纯 Python
     import numpy as np
 except ImportError:  # pragma: no cover
     np = None
@@ -134,20 +134,28 @@ class Planner:
 
     def _value_factor(self, w_quantiles: list):
         """g(q) = E[W0·(1+档位加成(W0·q))]，在 q 网格上预先算好，返回查表函数。"""
-        grid = [k / 100.0 for k in range(106)]
-        table = []
-        for q in grid:
-            total = 0.0
-            for w in w_quantiles:
-                q0 = min(w, self.max_quality) * q
-                band = "DARK" if q0 >= self.dark else ("BRIGHT" if q0 >= self.bright else "BACKUP")
-                total += w * (1.0 + self.bonus[band])
-            table.append(total / len(w_quantiles))
+        if np is not None:
+            weather = np.asarray(w_quantiles, dtype=float)
+            q0 = np.minimum(weather, self.max_quality)[:, None] * (np.arange(106) / 100.0)
+            bonus = np.where(q0 >= self.dark, 1.0 + self.bonus["DARK"],
+                             np.where(q0 >= self.bright, 1.0 + self.bonus["BRIGHT"],
+                                      1.0 + self.bonus["BACKUP"]))
+            table = (weather[:, None] * bonus).sum(axis=0) / len(weather)
+        else:
+            table = []
+            for k in range(106):
+                q = k / 100.0
+                total = 0.0
+                for w in w_quantiles:
+                    q0 = min(w, self.max_quality) * q
+                    band = "DARK" if q0 >= self.dark else ("BRIGHT" if q0 >= self.bright else "BACKUP")
+                    total += w * (1.0 + self.bonus[band])
+                table.append(total / len(w_quantiles))
 
         def factor(q: float) -> float:
             x = min(1.05, max(0.0, q)) * 100.0
             k = min(104, int(x))
-            return table[k] + (table[k + 1] - table[k]) * (x - k)
+            return float(table[k] + (table[k + 1] - table[k]) * (x - k))
         return factor
 
     def _persistence_factors(self, quantiles: list, current: int, horizon: int) -> dict:
@@ -185,7 +193,8 @@ class Planner:
             midpoint = (max(start, now) + stop) / 2.0
             rho = floor + (1.0 - floor) * 0.88 ** (max(0.0, midpoint - observed_at) / self.slot)
             shift = rho * (observed_w - mean)
-            factors[b] = self._value_factor([max(0.05, w + shift) for w in quantiles])
+            spread = math.sqrt(max(0.0, 1.0 - rho * rho)) if self.p.get("plan_recent_weather_conditional") else 1.0
+            factors[b] = self._value_factor([max(0.05, mean + spread * (w - mean) + shift) for w in quantiles])
         return factors
 
     # ------------------------------------------------------------------ 几何预计算

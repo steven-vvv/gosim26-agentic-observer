@@ -11,13 +11,15 @@ ROOT = Path(__file__).resolve().parent.parent
 LAGS = (1, 4, 8, 12, 24, 32)
 
 
-def covariance_slope(pairs: list[tuple[float, float]]) -> tuple[float, float, float]:
+def covariance_slope(pairs: list[tuple[float, float]]) -> tuple[float, float, float, float]:
     xs, ys = zip(*pairs)
     mx, my = statistics.mean(xs), statistics.mean(ys)
     xx = sum((x - mx) ** 2 for x in xs)
     yy = sum((y - my) ** 2 for y in ys)
     xy = sum((x - mx) * (y - my) for x, y in pairs)
-    return xy / xx, xy / (xx * yy) ** 0.5, (my - mx)
+    slope = xy / xx
+    residual = sum((y - my - slope * (x - mx)) ** 2 for x, y in pairs)
+    return slope, xy / (xx * yy) ** 0.5, (my - mx), (residual / yy) ** 0.5
 
 
 def main() -> None:
@@ -51,10 +53,11 @@ def main() -> None:
                 )
     print(f"scenarios={len(clean_means)} clean_mean={statistics.mean(clean_means):.4f}")
     for lag in LAGS:
-        slope, correlation, drift = covariance_slope(pairs[lag])
-        averaged_slope, averaged_correlation, _ = covariance_slope(averaged_pairs[lag])
+        slope, correlation, drift, residual_ratio = covariance_slope(pairs[lag])
+        averaged_slope, averaged_correlation, _, _ = covariance_slope(averaged_pairs[lag])
         print(f"lag={lag * 15:3d} min pairs={len(pairs[lag]):6d} slope={slope:.3f} correlation={correlation:.3f} "
-              f"drift={drift:+.4f} prior4_slope={averaged_slope:.3f} prior4_correlation={averaged_correlation:.3f}")
+              f"drift={drift:+.4f} residual_std={residual_ratio:.3f} "
+              f"prior4_slope={averaged_slope:.3f} prior4_correlation={averaged_correlation:.3f}")
 
 
 if __name__ == "__main__":
