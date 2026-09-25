@@ -76,6 +76,7 @@ class Planner:
         self.qtime: dict = {tid: {} for tid in self.tiles}  # tile -> {时段序号: 取到最佳几何的采样时刻（时隙中点）}
         self.qsamples: dict = {tid: {} for tid in self.tiles} if self.p.get("plan_trim_current_bin") else {}
         self.events = None          # 天气事件（events.Event）；None 时规划与不看预报时逐位相同
+        self.closing_events = []
         self.events_mode = None     # "forecast"：每周预报；"truth"：真实事件（只用于本地上限试验）
         self.events_until = -math.inf  # 预报的有效期末（之后的时段按平均开放率）
         self._bin_events: dict = {}  # 时段序号 -> 可能起作用的事件（全站闭站的除外）
@@ -240,17 +241,17 @@ class Planner:
 
     def set_events(self, events: list, mode: str, until: float = math.inf) -> None:
         self.events, self.events_mode, self.events_until = list(events), mode, until
+        self.closing_events = [e for e in self.events if e.scope == "ALL" and e.force_close]
         self._bin_events, self._effects = {}, {}
 
     def _site_open(self, t: float, open_rate: float) -> float:
         """时刻 t 的站点开放率：全站强制闭站的事件（降雨、龙卷风）按预报概率换算；预报有效期外用平均开放率。"""
-        closing = [e for e in self.events if e.scope == "ALL" and e.force_close]
         if t >= self.events_until:
             return open_rate
         if self.events_mode == "truth":
-            return 0.0 if any(e.active(t) > 0.0 for e in closing) else TRUE_BACKGROUND_OPEN
+            return 0.0 if any(e.active(t) > 0.0 for e in self.closing_events) else TRUE_BACKGROUND_OPEN
         stay = 1.0
-        for e in closing:
+        for e in self.closing_events:
             stay *= 1.0 - e.active(t)
         return open_from_probability(1.0 - stay)
 
