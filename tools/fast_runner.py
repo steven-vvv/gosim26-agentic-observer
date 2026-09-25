@@ -314,37 +314,36 @@ def enable_direct_observer(local_runner) -> None:
             self.protocol_version = protocol_version
             self.policy = None
             self.agent_main = None
+            self._previous_environment = None
 
-        @contextmanager
-        def _environment(self):
-            keys = ("OBS_PARAMS", "SAC_WALLCLOCK_SECONDS", "SAC_SCENARIO")
-            previous = {key: os.environ.get(key) for key in keys}
-            try:
-                for key in keys:
-                    if key in self.env:
-                        os.environ[key] = self.env[key]
-                    else:
-                        os.environ.pop(key, None)
-                with redirect_stderr(self.stderr or sys.stderr):
-                    yield
-            finally:
-                for key, value in previous.items():
-                    if value is None:
-                        os.environ.pop(key, None)
-                    else:
-                        os.environ[key] = value
+        def _activate_environment(self):
+            if self._previous_environment is None:
+                self._previous_environment = dict(os.environ)
+                os.environ.clear()
+                os.environ.update(self.env)
+
+        def _restore_environment(self):
+            if self._previous_environment is not None:
+                os.environ.clear()
+                os.environ.update(self._previous_environment)
+                self._previous_environment = None
 
         def publish_initial(self, publication):
-            with self._environment():
-                sys.path.insert(0, str(self.agent_dir))
-                self.agent_main = importlib.import_module("main")
-                params = self.agent_main.load_params(self.agent_dir)
-                initial = dict(publication)
-                initial.pop("target_catalog", None)
-                self.policy = self.agent_main.ObserverPolicy(initial, params)
+            self._activate_environment()
+            try:
+                with redirect_stderr(self.stderr or sys.stderr):
+                    sys.path.insert(0, str(self.agent_dir))
+                    self.agent_main = importlib.import_module("main")
+                    params = self.agent_main.load_params(self.agent_dir)
+                    initial = dict(publication)
+                    initial.pop("target_catalog", None)
+                    self.policy = self.agent_main.ObserverPolicy(initial, params)
+            except Exception:
+                self._restore_environment()
+                raise
 
         def __call__(self, snapshot, deadline_monotonic):
-            with self._environment():
+            with redirect_stderr(self.stderr or sys.stderr):
                 try:
                     decision = self.policy.decide(snapshot)
                 except Exception:  # noqa: BLE001 - mirror the agent's policy-error fallback
@@ -358,7 +357,7 @@ def enable_direct_observer(local_runner) -> None:
                 return response
 
         def close(self, force=False):
-            pass
+            self._restore_environment()
 
     local_runner.LocalAgentProcess = DirectObserver
 
