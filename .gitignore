@@ -14,3 +14,7 @@ runs/eval/
 runs/perf/
 runs/prof/
 runs/zero/
+
+# 完整项目的构建产物（tools/pack_project.py 随时可以重建；带 numpy wheel 约 31 MB）
+dist/project-*/
+dist/*-project.zip
