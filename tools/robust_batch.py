@@ -38,7 +38,7 @@ def scenarios(screen: bool) -> list[Path]:
     return [ROOT / "scenarios" / name for name in names]
 
 
-def run_one(name: str, agent: Path, scenario: Path, force: bool) -> tuple[str, float, str]:
+def run_one(name: str, agent: Path, scenario: Path, force: bool, direct: bool) -> tuple[str, float, str]:
     out = OUTPUT / name / scenario.name
     report_path = out / "score_report.json"
     if report_path.exists() and not force:
@@ -48,6 +48,8 @@ def run_one(name: str, agent: Path, scenario: Path, force: bool) -> tuple[str, f
     out.mkdir(parents=True, exist_ok=True)
     command = [sys.executable, str(RUNNER), "--scenario", str(scenario), "--agent", str(agent),
                "--out", str(out), "--no-replay", "--quiet", "--python", sys.executable]
+    if direct:
+        command.append("--direct")
     started = time.monotonic()
     with (out / "runner.stdout").open("w") as stdout, (out / "runner.stderr").open("w") as stderr:
         result = subprocess.run(command, cwd=ROOT, stdout=stdout, stderr=stderr, check=False)
@@ -69,6 +71,7 @@ def main() -> None:
     parser.add_argument("--only", action="append", default=[], metavar="SCENARIO", help="run only the named scenario (repeatable)")
     parser.add_argument("--jobs", type=int, default=3)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--direct", action="store_true", help="use the local same-process observer runner")
     args = parser.parse_args()
     if not args.name.isidentifier() or args.name.startswith("."):
         parser.error("name must be a simple identifier")
@@ -97,9 +100,10 @@ def main() -> None:
         if missing:
             parser.error(f"scenario not found in selected corpus: {', '.join(sorted(missing))}")
         jobs = [scenario for scenario in jobs if scenario.name in args.only]
-    print(f"{args.name}: {len(jobs)} scenarios, {args.jobs} workers, params={params}", flush=True)
+    print(f"{args.name}: {len(jobs)} scenarios, {args.jobs} workers, direct={args.direct}, params={params}", flush=True)
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futures = [pool.submit(run_one, args.name, work_agent / "main.py", scenario, args.force) for scenario in jobs]
+        futures = [pool.submit(run_one, args.name, work_agent / "main.py", scenario, args.force, args.direct)
+                   for scenario in jobs]
         for future in as_completed(futures):
             scenario, score, elapsed = future.result()
             print(f"{scenario}: {score:.3f} ({elapsed})", flush=True)

@@ -8,6 +8,7 @@
   浮点末位可能与官方 runner 不同，需用多场景评分对照验证。没有 NumPy 时退回纯函数缓存路径。
 - 启动时校验 kit 全部源文件的 SHA-256，与编写补丁时的版本不一致就拒绝运行：kit 更新后要重新核对补丁、
   用 --verify 复核，再更新 KIT_SHA256。orjson 可用时仅加速本地 agent 协议编码。
+- --direct 是只供本地实验使用的 observer 同进程模式，省去大快照的 JSON 往返；正式协议验证仍用默认模式。
 
 补丁：
   1. geometry_sample：恒星时、太阳与月亮位置、日月角距、月亮高度只与时刻有关，按时刻缓存（原代码对每块天区重算，
@@ -25,14 +26,16 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import math
 import os
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
+from unittest.mock import patch
 
 try:
     import numpy as np  # noqa: F401 - optional vector geometry dependency
@@ -298,13 +301,66 @@ def apply_patches() -> None:
         run_challenge.json = SimpleNamespace(dumps=dumps, loads=json.loads)
 
 
+def enable_direct_observer(local_runner) -> None:
+    class DirectObserver:
+        def __init__(self, command, *, agent_dir, env, stderr, initialization_timeout_seconds=30.0,
+                     protocol_version=None):
+            if Path(command[-1]).name != "main.py" or not (agent_dir / "policy.py").is_file():
+                raise ValueError("--direct only supports the observer main.py agent")
+            if Path(command[0]).resolve() != Path(sys.executable).resolve():
+                raise ValueError("--direct requires the runner and agent to use the same Python interpreter")
+            self.agent_dir = agent_dir
+            self.env = env
+            self.stderr = stderr
+            self.protocol_version = protocol_version
+            self.policy = None
+            self.agent_main = None
+
+        @contextmanager
+        def _environment(self):
+            with patch.dict(os.environ, self.env, clear=True), redirect_stderr(self.stderr or sys.stderr):
+                yield
+
+        def publish_initial(self, publication):
+            with self._environment():
+                sys.path.insert(0, str(self.agent_dir))
+                self.agent_main = importlib.import_module("main")
+                params = self.agent_main.load_params(self.agent_dir)
+                initial = dict(publication)
+                initial.pop("target_catalog", None)
+                self.policy = self.agent_main.ObserverPolicy(initial, params)
+
+        def __call__(self, snapshot, deadline_monotonic):
+            with self._environment():
+                try:
+                    decision = self.policy.decide(snapshot)
+                except Exception:  # noqa: BLE001 - mirror the agent's policy-error fallback
+                    import traceback
+
+                    traceback.print_exc(file=sys.stderr)
+                    decision = self.agent_main.fallback(snapshot, self.policy)
+                response = self.agent_main.decision_response(snapshot["decision_sequence"], decision,
+                                                              decision.get("reports"))
+                response["protocol_version"] = self.protocol_version
+                return response
+
+        def close(self, force=False):
+            pass
+
+    local_runner.LocalAgentProcess = DirectObserver
+
+
 def main(argv=None) -> int:
     verify_kit()
     sys.path.insert(0, str(KIT))
     import local_runner  # 必须在校验之后导入
 
     apply_patches()
-    return local_runner.main(argv)
+    args = list(sys.argv[1:] if argv is None else argv)
+    if "--direct" in args:
+        args.remove("--direct")
+        enable_direct_observer(local_runner)
+    return local_runner.main(args)
 
 
 if __name__ == "__main__":
