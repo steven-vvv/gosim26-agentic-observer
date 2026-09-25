@@ -1,6 +1,10 @@
 # 巡天智能体（Agentic Observer）比赛平台页面存档
 
-这里存放 GOSIM 2026 巡天智能体黑客松[比赛平台](https://create.gosim.org/survey26/platform/)上五个说明页面的 Markdown 版本，抓取日期为 2026-09-23，对应规则版本 1.0 · 2026-09-09。中文版放在 `zh/`，英文版放在 `en/`。
+这里存放 GOSIM 2026 巡天智能体黑客松[比赛平台](https://create.gosim.org/survey26/platform/)的公开页面存档。`zh/` 和 `en/` 是 2026-09-23 的人工校对版；[snapshots/2026-09-26/](snapshots/2026-09-26/) 是 2026-09-26 使用无头 Chromium 渲染后抓取的五页中英文快照（FAQ 全部展开）。每份快照的 front matter 含原始 URL 和 UTC 抓取时间。可用 `uv run --with playwright --with markdownify python tools/snapshot_site.py --out /tmp/gosim-site` 重抓。
+
+**公开内容已明显变化**：9 月 26 日的规则和文档页只显示当前 Playground 的 CSV 提交方式，资源页只列练习场景；9 月 23 日存档里有正式赛完整项目、v2 协议和决赛场景资料。保留两版以供核对。当前页面没有说明正式赛取消，也不能据此推断先前发布的规则仍有效；正式赛准备应以主办方后续公告及届时实际页面为准。
+
+同日的天文彩蛋与远程代码入口检查见 [site-audit-2026-09-26.md](site-audit-2026-09-26.md)。
 
 | 页面 | 中文 | English | 原始地址 |
 |---|---|---|---|
