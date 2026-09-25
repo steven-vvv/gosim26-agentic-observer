@@ -47,7 +47,7 @@ DEFAULTS = {
     "plan_lambda_average": 0,       # >0：用最后这么多次迭代的平均 λ 定价
     "plan_fault_aware": False,      # 规划时把已确认 / 疑似故障分区在修复前的时段价值乘以故障乘数（46 场约 0，不用）
     "plan_allow_wait": False,       # 所有候选扣除机会价值后都为负时是否等待（决赛规模下时间稀缺，不等）
-    "plan_events": "forecast",      # 规划时计入天气事件：每周预报（46 场 +0.121%，标准误 0.048）；"truth" 读真实事件只用于本地上限试验（+0.487%）；"off" 与 obs15 逐位相同
+    "plan_events": "forecast",      # 规划时计入天气事件（"truth_weekly" 只用于诊断）：每周预报（46 场 +0.121%，标准误 0.048）；"truth" 读真实事件只用于本地上限试验（+0.487%）；"off" 与 obs15 逐位相同
     "plan_repeats": False,          # 已完成、入账分明显低于潜力的天区（故障期、寒潮期、坏天气时拍的）以复拍增益参与定价
     "plan_repeat_min_gain": 20.0,   # 最佳几何下的潜在增益至少这么多分才参与（控制规划规模）
     "plan_events_kinds": "all",     # 本地试验：规划器只看 "close"（闭站类）或 "quality"（质量类）事件
@@ -974,6 +974,11 @@ class ObserverPolicy:
             if self.p["plan_events"] == "forecast":
                 self._pending_events = (self._forecast_events(), "forecast",
                                         epoch(weekly.get("issued_at_utc") or snapshot["cursor"]["timestamp_utc"]) + 7 * 86400.0)
+            elif self.p["plan_events"] == "truth_weekly":
+                # 诊断：只给规划器当期发布本该覆盖的真实事件（发布后 7 天内、时间精确），区分预报噪声与"每周一次"的结构限制
+                issued = epoch(weekly.get("issued_at_utc") or snapshot["cursor"]["timestamp_utc"])
+                until = issued + 7 * 86400.0
+                self._pending_events = ([e for e in self._truth_events() if e.end > issued and e.start < until], "truth", until)
         self._plan(snapshot, now)
         reports = []
         if v3:

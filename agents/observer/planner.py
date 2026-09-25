@@ -198,10 +198,10 @@ class Planner:
     def _site_open(self, t: float, open_rate: float) -> float:
         """时刻 t 的站点开放率：全站强制闭站的事件（降雨、龙卷风）按预报概率换算；预报有效期外用平均开放率。"""
         closing = [e for e in self.events if e.scope == "ALL" and e.force_close]
-        if self.events_mode == "truth":
-            return 0.0 if any(e.active(t) > 0.0 for e in closing) else TRUE_BACKGROUND_OPEN
         if t >= self.events_until:
             return open_rate
+        if self.events_mode == "truth":
+            return 0.0 if any(e.active(t) > 0.0 for e in closing) else TRUE_BACKGROUND_OPEN
         stay = 1.0
         for e in closing:
             stay *= 1.0 - e.active(t)
