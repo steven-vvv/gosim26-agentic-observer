@@ -8,7 +8,7 @@
 | `data/` | 平台公开数据快照：排行榜、决赛场景公开文件、入门包原件，见 `data/README.md` |
 | `kit/` | 官方入门包解压副本（只读参考；本地评测用它的 `local_runner.py` 与评分器） |
 | `agents/observer/` | 我们的确定性策略（工作副本）：`main.py` 入口，`policy.py` 决策，`planner.py` 对偶价格规划，`geometry.py` 几何与日历，`protocol.py` 原样取自官方 kit |
-| `agents/obs*/` | 冻结的实验快照；`params.json` 只覆盖与默认值不同的参数。**当前推荐版本 `obs16`**（与工作副本相同）：obs15 加上规划器计入每周天气预报（46 场 +0.12%，见 `notes/2026-09-25-obs16.md`）；`obs15` 在 obs14 基础上只加了协议容错，决策与 obs14 逐位相同 |
+| `agents/obs*/` | 冻结的实验快照；`params.json` 只覆盖与默认值不同的参数。**当前推荐版本 `obs17`**（与工作副本相同）：obs16 加上寒潮期在线效率修正（92 场 +0.50%，见 `notes/2026-09-25-obs17.md`）；`obs16` 是 obs15 加上规划器计入每周天气预报（46 场 +0.12%，见 `notes/2026-09-25-obs16.md`）；`obs15` 在 obs14 基础上只加了协议容错，决策与 obs14 逐位相同 |
 | `dist/` | 可提交的程序包（`pack_agent.py` 生成）；推荐 `observer-obs14.zip`（含 `requirements.txt`：numpy，装不上自动退回纯 Python；正式用前先在 Playground 验证一次安装）；`observer-obs14-stdlib.zip` 是不带依赖的备用包（结果逐位相同，平台上规划慢）；`portfolio/` 是按旧赛制准备的 30 个择优提交包，新赛制下已废弃（每次评测都是新随机题，见 `runs/fable-2026-09-25-report.md`）。正式赛只收完整项目，项目打包待做 |
 | `tools/evaluate.py` | 批量评测：多个 agent × 多个场景，结果写入 `results/<agent>/<场景>.json`；默认用加速 runner + PyPy |
 | `tools/fast_runner.py` | 本地评测用的加速 runner：给官方 kit 的纯计算加缓存后调用官方 `local_runner.main()`，输出逐字节相同 |
