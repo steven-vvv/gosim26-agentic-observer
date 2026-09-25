@@ -9,9 +9,10 @@
 | `kit/` | 官方入门包解压副本（只读参考；本地评测用它的 `local_runner.py` 与评分器） |
 | `agents/observer/` | 我们的确定性策略（工作副本）：`main.py` 入口，`policy.py` 决策，`planner.py` 对偶价格规划，`geometry.py` 几何与日历，`protocol.py` 原样取自官方 kit |
 | `agents/obs*/` | 冻结的实验快照；`params.json` 只覆盖与默认值不同的参数。**当前推荐版本 `obs17`**（与工作副本相同）：obs16 加上寒潮期在线效率修正（92 场 +0.50%，见 `notes/2026-09-25-obs17.md`）；`obs16` 是 obs15 加上规划器计入每周天气预报（46 场 +0.12%，见 `notes/2026-09-25-obs16.md`）；`obs15` 在 obs14 基础上只加了协议容错，决策与 obs14 逐位相同 |
-| `dist/` | 可提交的程序包（`pack_agent.py` 生成）；推荐 `observer-obs14.zip`（含 `requirements.txt`：numpy，装不上自动退回纯 Python；正式用前先在 Playground 验证一次安装）；`observer-obs14-stdlib.zip` 是不带依赖的备用包（结果逐位相同，平台上规划慢）；`portfolio/` 是按旧赛制准备的 30 个择优提交包，新赛制下已废弃（每次评测都是新随机题，见 `runs/fable-2026-09-25-report.md`）。正式赛只收完整项目，项目打包待做 |
-| `tools/evaluate.py` | 批量评测：多个 agent × 多个场景，结果写入 `results/<agent>/<场景>.json`；默认用加速 runner + PyPy |
-| `tools/fast_runner.py` | 本地评测用的加速 runner：给官方 kit 的纯计算加缓存后调用官方 `local_runner.main()`，输出逐字节相同 |
+| `dist/` | 可提交的完整项目包 `observer-obs17-project.zip`（由 `tools/pack_project.py` 生成）；`portfolio/` 是旧赛制产物。策略变更后需重新打包 |
+| `tools/evaluate.py` | 批量评测：多个 agent × 多个场景，结果写入 `results/<agent>/<场景>.json`；默认用加速 runner + 当前 CPython |
+| `tools/fast_runner.py` | 本地评测用的加速 runner：缓存和 NumPy 批算官方 kit 的纯计算，可选 orjson 协议编码；不修改 kit |
+| `tools/robust_batch.py` | CPython 上对 23 场筛选集或 92 场全集做配对策略实验，精简保存报告 |
 | `tools/diagnose.py` | 把一次运行的观测质量损失拆成 airmass、月光、天气三部分 |
 | `tools/oracle.py` | 离线估算最优时机能挽回多少质量 |
 | `tools/plan_experiment.py` | 离线试验台：按官方几何逐次模拟决策，比较各种选择规则（决赛规模每个变体约 40 秒） |
@@ -30,7 +31,7 @@
 
 ## 版本库
 
-git，默认分支 `main`。Agent 在 `claude` 分支上工作，每完成一段就快进同步回 `main`（`git fetch . claude:main`，不切换工作区）。
+git，默认分支 `main`。当前实验在 `codex` 分支；前一轮 `claude` 分支的工作已同步到 `main`。
 本地 comp-* 场景和临时运行产物不入库（见 `.gitignore`），场景可以用下文的 `make_scenario.py` 命令按种子重新生成。
 
 ## 环境
@@ -42,8 +43,7 @@ git，默认分支 `main`。Agent 在 `claude` 分支上工作，每完成一段
 
 ```bash
 uv sync                                   # 建立 .venv
-uv python install pypy@3.11               # 本地评测用的 PyPy（约 150 MB，入口 ~/.local/bin/pypy3.11）
-uv run pytest -q                          # 单元测试
+uv run pytest -q tests                    # 单元测试
 uv run ruff check agents tools tests      # 代码检查
 ```
 
@@ -56,7 +56,7 @@ uv run python kit/make_scenario.py --out scenarios/comp-a-s103 --seed 103 --days
     --start-date 2026-10-05 --wallclock 3600 --base data/scenarios/eval-a
 
 # 评测（第一个 agent 作为对比基准；已有结果自动复用，--force 强制重跑）
-# 默认用 tools/fast_runner.py + pypy3.11；--official 改用官方 runner，--python 指定解释器
+# 默认用 tools/fast_runner.py + 当前 CPython；--official 改用官方 runner，--python 指定解释器
 uv run python tools/evaluate.py --agent base=kit/agent/minimal_agent.py --agent obs=agents/observer/main.py \
     --scenario scenarios/comp-a-s101 --scenario scenarios/comp-b-s201 --jobs 3
 
@@ -74,7 +74,6 @@ uv run python kit/local_runner.py --scenario scenarios/comp-a-s101 --agent agent
 
 ## 资源
 
-本机 4 核、15 GB 内存、无 swap。决赛规模单场评测：obs10 约 115 秒、基线约 100 秒（加速 runner + PyPy；
-官方 runner + CPython 分别约 640 / 250 秒），详见 `notes/2026-09-24-performance.md`。PyPy 下每个作业约占
-1.5 GB 内存，并行度默认 3，`--jobs 4` 也可行。每次运行的完整产物约 4 MB（开回放 HTML 时约 15 MB），
-评测脚本只保留精简结果。
+本机 4 核、15 GB 内存、无 swap。当前 obs17 在 comp-a-s101 上用加速 runner + CPython 3.14.7
+约 226 秒，详见 `notes/2026-09-26-cpython-runner.md`。并行度默认 3；批量评测只保留精简结果，
+配对实验只保留评分报告和日志。磁盘余量应定期用 `df -h` 检查。

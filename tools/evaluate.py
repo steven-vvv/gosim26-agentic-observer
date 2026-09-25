@@ -8,8 +8,7 @@
 随后删除运行目录中的大文件（workflow_result.json、score_report.json、decisions.csv），只留 agent.log。
 结果文件已存在时直接复用（--force 强制重跑），基线只需跑一次。
 
-默认用 tools/fast_runner.py（官方 runner 加纯函数缓存）+ PyPy（PATH 里的 pypy3.11）运行 runner 与 agent，
-决赛规模每场 obs10 约 115 秒（官方 runner + CPython 约 640 秒），输出与官方逐字节相同。
+默认用 tools/fast_runner.py（官方 runner 的缓存、NumPy 批算和可选 orjson 编码）+ 当前 CPython 运行 runner 与 agent。
 --official 改用官方 kit/local_runner.py；--verify 对每个作业再用官方 runner + 当前 CPython 跑一遍，
 逐字节比对 decisions.csv 与 score_report.json（kit 更新、改补丁或换解释器之后用它复核）。
 """
@@ -92,7 +91,9 @@ def run_one(agent_name: str, agent_path: Path, scenario: Path, python: str, forc
             runner: Path = FAST_RUNNER, verify: bool = False) -> dict:
     result_path = ROOT / "results" / agent_name / f"{scenario.name}.json"
     if result_path.exists() and not force and not verify:
-        return json.loads(result_path.read_text(encoding="utf-8"))
+        cached = json.loads(result_path.read_text(encoding="utf-8"))
+        if cached.get("runner") == runner.name and cached.get("python") == Path(python).name:
+            return cached
     out_dir = ROOT / "runs" / "eval" / agent_name / scenario.name
     started = time.monotonic()
     summary = launch(runner, python, agent_name, agent_path, scenario, out_dir)
@@ -151,8 +152,8 @@ def main(argv=None) -> int:
     parser.add_argument("--agent", action="append", required=True, help="NAME=PATH，第一个作为对比基准")
     parser.add_argument("--scenario", action="append", required=True, type=Path)
     parser.add_argument("--jobs", type=int, default=3, help="并行数（本机 4 核、无 swap，默认 3）")
-    parser.add_argument("--python", default=shutil.which("pypy3.11") or sys.executable,
-                        help="运行 runner 与 agent 的解释器（默认 PATH 里的 pypy3.11，没有就用当前解释器）")
+    parser.add_argument("--python", default=sys.executable,
+                        help="运行 runner 与 agent 的解释器（默认当前 CPython）")
     parser.add_argument("--official", action="store_true", help="用官方 kit/local_runner.py 而不是 tools/fast_runner.py")
     parser.add_argument("--verify", action="store_true", help="再用官方 runner + 当前 CPython 跑一遍并逐字节比对（隐含 --force）")
     parser.add_argument("--force", action="store_true", help="忽略已有结果重新运行")

@@ -9,6 +9,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "orjson>=3.12.0",
     "pytest>=9.1.1",
     "ruff>=0.16.8",
     "scipy>=1.18.1",

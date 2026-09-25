@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""本地评测用的加速 runner：给官方 kit 中与运行状态无关的纯计算加缓存，然后原样调用 kit/local_runner.py 的 main()。
+"""本地评测用的加速 runner：缓存及批算官方 kit 的纯计算，然后调用 kit/local_runner.py 的 main()。
 
-    pypy3.11 tools/fast_runner.py --scenario scenarios/comp-a-s101 --agent agents/obs10/main.py --out runs/x \
-        --no-replay --quiet --python "$(which pypy3.11)"        # 参数与 kit/local_runner.py 完全相同
+    uv run python tools/fast_runner.py --scenario scenarios/comp-a-s101 --agent agents/observer/main.py \
+        --out runs/x --no-replay --quiet                    # 参数与 kit/local_runner.py 完全相同
 
-- kit 文件一行不改，补丁只在本进程内生效。只缓存确定性纯函数的结果；每个补丁都照抄原函数，只把与天区无关、
-  与运行状态无关的中间量换成缓存值，浮点运算的内容与顺序不变，所以输出与官方 runner 逐字节相同
-  （tools/evaluate.py --verify 会拿官方 runner + CPython 的输出逐字节比对）。
+- kit 文件一行不改，补丁只在本进程内生效。NumPy 可用时对一时刻的全部天区批算几何；
+  浮点末位可能与官方 runner 不同，需用多场景评分对照验证。没有 NumPy 时退回纯函数缓存路径。
 - 启动时校验 kit 全部源文件的 SHA-256，与编写补丁时的版本不一致就拒绝运行：kit 更新后要重新核对补丁、
-  用 --verify 复核，再更新 KIT_SHA256。
+  用 --verify 复核，再更新 KIT_SHA256。orjson 可用时仅加速本地 agent 协议编码。
 
-补丁（CPython 剖析里这些约占 runner 的一半；PyPy 下 datetime 是纯 Python 实现，占比更高）：
+补丁：
   1. geometry_sample：恒星时、太阳与月亮位置、日月角距、月亮高度只与时刻有关，按时刻缓存（原代码对每块天区重算，
      还要用 dataclasses.replace 造一个“月亮天区”）。
   2. get_tile_windows：按夜缓存（当夜发布与每周发布会重复计算同一夜），每次返回各行的浅拷贝。
@@ -18,18 +17,37 @@
   4. get_effective_conditions：同一时隙内“按时间生效的事件”与时隙天气字典对所有天区相同，按时隙缓存；
      缓存键带上故障修复写入的 end_overrides，修复后自动换键。运行中 weather.events 不会被修改。
   5. format_utc：按时刻缓存（只接受带时区的时刻，结果只取决于时刻本身；无时区照旧报错、不缓存）。
-  6. decision_snapshot 每次决策都把当夜全部窗口的起止时刻 fromisoformat 解析一遍：按字符串缓存
+  6. decision_snapshot 每次决策都把当夜全部窗口的起止时刻 fromisoformat 解析一遍：按字符串缓存。
      （challenge_workflow 里 datetime 只用于这两处解析与类型注解）。
+  7. 窗口生成、决策快照的天区几何按时刻交给 NumPy 批算；窗口分组及结果结构仍由 kit 原函数生成。
+  8. agent 的大快照用 orjson 编码；协议写入、超时和读取仍用 kit 原函数。
 """
 from __future__ import annotations
 
 import hashlib
 import math
+import os
 import sys
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
+
+try:
+    import numpy as np  # noqa: F401 - optional vector geometry dependency
+except ImportError:
+    BatchGeometry = None
+else:
+    if __package__:
+        from .vector_geometry import BatchGeometry
+    else:
+        from vector_geometry import BatchGeometry
+
+try:
+    import orjson
+except ImportError:
+    orjson = None
 
 KIT = Path(__file__).resolve().parent.parent / "kit"
 KIT_SHA256 = {
@@ -70,6 +88,29 @@ def apply_patches() -> None:
 
     # 1. geometry_sample：按时刻缓存与天区无关的量 -----------------------------------------------------------
     moment_terms: dict = {}
+    active_batches: dict = {}
+
+    @contextmanager
+    def using_batches(batches):
+        previous = active_batches.copy()
+        active_batches.update(batches)
+        try:
+            yield
+        finally:
+            active_batches.clear()
+            active_batches.update(previous)
+
+    def vector_for(simulator):
+        vector = simulator.__dict__.get("_fast_vector")
+        if vector is None:
+            vector = BatchGeometry(simulator)
+            simulator.__dict__["_fast_vector"] = vector
+        return vector
+
+    def batch_at(simulator, moment):
+        vector = vector_for(simulator)
+        terms = terms_at(vector.tiles[0], moment, simulator.tile_config, simulator.calendar_config)
+        return vector, vector.at(terms)
 
     def terms_at(tile, moment, tile_config, calendar_config):
         key = (moment, id(tile_config), id(calendar_config))
@@ -91,6 +132,12 @@ def apply_patches() -> None:
         return terms
 
     def geometry_sample(tile, moment, tile_config, calendar_config):
+        batch = active_batches.get(moment)
+        if batch is not None:
+            vector, values = batch
+            index = vector.index.get(id(tile))
+            if index is not None:
+                return vector.sample(values, index)
         sidereal, moon_ra, moon_dec, lunar_scale, decay_scale = terms_at(tile, moment, tile_config, calendar_config)
         site = calendar_config["site"]
         latitude = math.radians(float(site["latitude_deg"]))
@@ -137,7 +184,16 @@ def apply_patches() -> None:
         rows = []
         for offset, night_id in enumerate(night_ids):
             if night_id not in cache:
-                cache[night_id] = original_windows(self, first_night + timedelta(days=offset), 1)
+                if BatchGeometry is None or os.environ.get("FAST_RUNNER_VECTOR") == "0":
+                    cache[night_id] = original_windows(self, first_night + timedelta(days=offset), 1)
+                else:
+                    batches = {
+                        slot.timestamp_utc + timedelta(seconds=slot.duration_seconds / 2):
+                        batch_at(self, slot.timestamp_utc + timedelta(seconds=slot.duration_seconds / 2))
+                        for slot in self.slots_by_night[night_id]
+                    }
+                    with using_batches(batches):
+                        cache[night_id] = original_windows(self, first_night + timedelta(days=offset), 1)
             rows.extend(dict(row) for row in cache[night_id])
         return rows
 
@@ -212,6 +268,34 @@ def apply_patches() -> None:
             return value
 
     cw.datetime = CachedDatetime
+
+    # 7. 决策快照：原逻辑保留，仅让其逐天区几何调用从批算结果读取 ----------------------------------------------
+    original_snapshot = cw.ChallengeWorkflow.decision_snapshot
+
+    def decision_snapshot(self, sequence):
+        if BatchGeometry is None or os.environ.get("FAST_RUNNER_VECTOR") == "0":
+            return original_snapshot(self, sequence)
+        moment = self.scorer.current_time()
+        if moment is None:
+            return original_snapshot(self, sequence)
+        with using_batches({moment: batch_at(self.scorer.geometry, moment)}):
+            return original_snapshot(self, sequence)
+
+    cw.ChallengeWorkflow.decision_snapshot = decision_snapshot
+
+    # 8. 只替换协议模块的 JSON 编码器，继续使用 kit 的非阻塞写入与超时处理 -------------------------------
+    if orjson is not None and os.environ.get("FAST_RUNNER_ORJSON") != "0":
+        import json
+        from types import SimpleNamespace
+
+        from challenge import run_challenge
+
+        def dumps(value, *args, **kwargs):
+            if not args and kwargs == {"separators": (",", ":"), "ensure_ascii": False}:
+                return orjson.dumps(value).decode("utf-8")
+            return json.dumps(value, *args, **kwargs)
+
+        run_challenge.json = SimpleNamespace(dumps=dumps, loads=json.loads)
 
 
 def main(argv=None) -> int:
