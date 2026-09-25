@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import statistics
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -33,10 +34,17 @@ def main() -> None:
         weather_file = reference / "weather.csv"
         if not weather_file.is_file():
             continue
+        site_events = []
+        with (reference / "weather_events.csv").open(newline="") as source:
+            for row in csv.DictReader(source):
+                if row["spatial_scope_type"] == "ALL":
+                    site_events.append((datetime.fromisoformat(row["actual_start_utc"].replace("Z", "+00:00")),
+                                        datetime.fromisoformat(row["actual_end_utc"].replace("Z", "+00:00"))))
         nights = defaultdict(list)
         with weather_file.open(newline="") as source:
             for row in csv.DictReader(source):
-                observable = row["is_observable"] == "true"
+                moment = datetime.fromisoformat(row["timestamp_utc"].replace("Z", "+00:00"))
+                observable = row["is_observable"] == "true" and not any(start <= moment < stop for start, stop in site_events)
                 w = (float(row["transparency"]) * float(row["sky_quality"]) / float(row["seeing_arcsec"])) if observable else None
                 nights[row["night_id"]].append(w)
         values = [w for night in nights.values() for w in night if w is not None]

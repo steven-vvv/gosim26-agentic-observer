@@ -233,6 +233,29 @@ def test_recent_weather_only_conditions_nearby_clean_slots():
     assert planner._recent_weather_factors(quantiles, now + 2 * 3600, bins) == {}
 
 
+def test_clean_weather_quantiles_skip_site_events():
+    from planner import Planner
+
+    planner = Planner(initial(), dict(DEFAULTS, plan_clean_weather_quantiles=True))
+    now = planner.nights[0][0] + planner.slot
+    base = {"cursor": {"timestamp_utc": datetime.fromtimestamp(now, timezone.utc).isoformat()},
+            "current_site_weather": {"slot_id": "s1", "is_observable": True,
+                                     "transparency": 0.9, "sky_quality": 1.0,
+                                     "seeing_arcsec": 1.0, "active_event_ids": ["EV0001"]}}
+    planner.observe_weather(base)
+    assert planner.w_samples == []
+    assert planner.open_slots == 1
+    base["current_site_weather"]["slot_id"] = "s2"
+    base["current_site_weather"]["active_event_ids"] = []
+    planner.observe_weather(base)
+    assert planner.w_samples == [0.9]
+    assert planner.last_clean_weather[1] == 0.9
+    base["current_site_weather"]["slot_id"] = "s3"
+    base["current_site_weather"]["transparency"] = 0.7
+    planner.observe_weather(base)
+    assert planner.w_samples == [0.7, 0.9]
+
+
 def test_recent_weather_keeps_night_level_signal():
     from planner import Planner
 

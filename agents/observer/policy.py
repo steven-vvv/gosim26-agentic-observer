@@ -41,6 +41,7 @@ DEFAULTS = {
     "plan_recent_weather_hours": 3.0,
     "plan_recent_weather_floor": 0.0,  # 夜级天气状态带来的同夜相关性下限；实验参数
     "plan_recent_weather_conditional": False,  # 按相关系数收窄条件天气分布；实验参数
+    "plan_clean_weather_quantiles": False,  # 只用无站点事件的天气估计长期分位数；实验参数
     "plan_trim_current_bin": False,  # 半小时重规划时，当前小时只用尚未过去的几何采样点
     "repeat_exact_coverage": False,  # 复拍仅在总分刷新纪录时结算覆盖分；基础分增量可为负
     "plan_first_iterations": 300,

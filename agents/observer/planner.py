@@ -104,17 +104,19 @@ class Planner:
                 w0 = float(weather["transparency"]) * float(weather["sky_quality"]) / float(weather["seeing_arcsec"])
             except (KeyError, TypeError, ValueError, ZeroDivisionError):
                 return
-            self.w_samples.append(w0)
+            clean = not weather.get("active_event_ids")
+            if clean or not self.p.get("plan_clean_weather_quantiles"):
+                bisect.insort(self.w_samples, w0)
             moment = _epoch((snapshot.get("cursor") or {}).get("timestamp_utc"))
             if moment is not None:
                 night = bisect.bisect_right(self.night_starts, moment) - 1
                 self.night_w.setdefault(night, []).append(w0)
-                if not weather.get("active_event_ids"):
+                if clean:
                     self.last_clean_weather = (moment, w0, night)
 
     def _weather_quantiles(self) -> list:
         """观测样本不足时混入先验；样本越多越依赖实测。"""
-        observed = sorted(self.w_samples)
+        observed = self.w_samples
         weight = min(1.0, len(observed) / 200.0)
         if not observed:
             return list(PRIOR_W0)
