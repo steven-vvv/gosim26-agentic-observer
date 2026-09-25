@@ -7,13 +7,15 @@
 | 触发方式 | 效果 | 源码 |
 | --- | --- | --- |
 | 首页背景或文字非交互区 6 秒内点击 7 次；链接、按钮及 Sky Console 不计数 | 彗星提示和全屏流星雨 | [HeroSection.vue](https://github.com/gosimfoundation/hackathon-survey26/blob/ddc0d42c/web/src/components/sections/HeroSection.vue) |
-| 点击页面底部 `900 S` | 随机显示一条 900 秒内的天文事实，9 秒后消失 | [AppFooter.vue](https://github.com/gosimfoundation/hackathon-survey26/blob/ddc0d42c/web/src/components/layout/AppFooter.vue) |
+| 点击页面底部 `900 S` | 生成一条随机的 900 秒天文事实，9 秒后消失；当前部署的 CSS 会把提示完全裁掉，见下文 | [AppFooter.vue](https://github.com/gosimfoundation/hackathon-survey26/blob/ddc0d42c/web/src/components/layout/AppFooter.vue) |
 | 打开任意不存在的站内地址，例如 `/survey26/platform/where-is-m42` | 404 页随机介绍一个梅西耶天体（M31、M42、M45、M13、M51、M104、M1、M81） | [NotFoundPage.vue](https://github.com/gosimfoundation/hackathon-survey26/blob/ddc0d42c/web/src/pages/NotFoundPage.vue) |
 | 打开开发者控制台 | ASCII 图案及旅行者 1 号飞行天数 | [eggs.ts](https://github.com/gosimfoundation/hackathon-survey26/blob/ddc0d42c/web/src/lib/eggs.ts) |
 | 查看标签页图标；满月时查看桌面宽度导航栏 | 随实时月相变化的 favicon；满月徽标（`?moon=full` 可预览） | [eggs.ts](https://github.com/gosimfoundation/hackathon-survey26/blob/ddc0d42c/web/src/lib/eggs.ts)、[AppHeader.vue](https://github.com/gosimfoundation/hackathon-survey26/blob/ddc0d42c/web/src/components/layout/AppHeader.vue) |
 | 中秋节当天及后两天进入网站 | 可关闭的中秋问候；`?egg=midautumn` 可预览 | [MidAutumnEgg.vue](https://github.com/gosimfoundation/hackathon-survey26/blob/ddc0d42c/web/src/components/layout/MidAutumnEgg.vue) |
 
 中秋问候被关闭后会在本年度记住；自动化浏览器默认看不到，除非带预览参数。彩蛋均在公开网页源码中实现，没有发现影响评分规则的隐藏触发器。
+
+`900 S` 的显示存在可复现 bug：[页脚 CSS](https://github.com/gosimfoundation/hackathon-survey26/blob/ddc0d42c/web/src/assets/styles/main.css) 将 `.cosmos-footer` 设为 `overflow: hidden`，但事实框通过 `bottom: calc(100% + 8px)` 被定位在页脚上沿之外。浏览器中点击后能读到 `.ticker-fact` 的文字，框的边界却完全位于页脚上方。临时在开发者控制台执行 `document.querySelector('.cosmos-footer').style.overflow = 'visible'`，再点击 `900 S`，提示即可见；这只改变当前浏览器页面的样式。
 
 ## 远程内容与可执行路径
 
