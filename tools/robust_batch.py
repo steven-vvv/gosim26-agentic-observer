@@ -66,6 +66,7 @@ def main() -> None:
     parser.add_argument("name", help="experiment name under /tmp/robust")
     parser.add_argument("--param", action="append", default=[], metavar="KEY=JSON_VALUE")
     parser.add_argument("--all", action="store_true", help="run all 92 scenarios instead of the 23-scenario screen")
+    parser.add_argument("--only", action="append", default=[], metavar="SCENARIO", help="run only the named scenario (repeatable)")
     parser.add_argument("--jobs", type=int, default=3)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
@@ -91,6 +92,11 @@ def main() -> None:
         shutil.copytree(AGENT, work_agent, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         (work_agent / "params.json").write_text(json.dumps(params), encoding="utf-8")
     jobs = scenarios(not args.all)
+    if args.only:
+        missing = set(args.only) - {scenario.name for scenario in jobs}
+        if missing:
+            parser.error(f"scenario not found in selected corpus: {', '.join(sorted(missing))}")
+        jobs = [scenario for scenario in jobs if scenario.name in args.only]
     print(f"{args.name}: {len(jobs)} scenarios, {args.jobs} workers, params={params}", flush=True)
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = [pool.submit(run_one, args.name, work_agent / "main.py", scenario, args.force) for scenario in jobs]
