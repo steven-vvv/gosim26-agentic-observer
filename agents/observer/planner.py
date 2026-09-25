@@ -176,13 +176,14 @@ class Planner:
             return {}
         mean = sum(quantiles) / len(quantiles)
         limit = float(self.p["plan_recent_weather_hours"]) * 3600.0
+        floor = float(self.p["plan_recent_weather_floor"])
         factors = {}
         for b in bins:
             night, start, stop, _samples = self.bins[b]
             if night != observed_night or start >= now + limit:
                 continue
             midpoint = (max(start, now) + stop) / 2.0
-            rho = 0.88 ** (max(0.0, midpoint - observed_at) / self.slot)
+            rho = floor + (1.0 - floor) * 0.88 ** (max(0.0, midpoint - observed_at) / self.slot)
             shift = rho * (observed_w - mean)
             factors[b] = self._value_factor([max(0.05, w + shift) for w in quantiles])
         return factors

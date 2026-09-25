@@ -233,6 +233,23 @@ def test_recent_weather_only_conditions_nearby_clean_slots():
     assert planner._recent_weather_factors(quantiles, now + 2 * 3600, bins) == {}
 
 
+def test_recent_weather_keeps_night_level_signal():
+    from planner import Planner
+
+    planner = Planner(initial(), dict(DEFAULTS, plan_recent_weather=True,
+                                      plan_recent_weather_floor=0.82, plan_recent_weather_hours=10.0))
+    quantiles = planner._weather_quantiles()
+    mean = sum(quantiles) / len(quantiles)
+    now = planner.nights[0][0] + planner.slot
+    planner.last_clean_weather = (now, mean * 1.2, 0)
+    bins = [b for b, (night, start, _stop, _samples) in enumerate(planner.bins)
+            if night == 0 and now + 2 * 3600 < start < now + 5 * 3600]
+    factor = planner._recent_weather_factors(quantiles, now, bins)
+    base = planner._value_factor(quantiles)
+    assert factor and all(factor[b](0.6) > base(0.6) for b in bins)
+    assert factor[bins[0]](0.6) >= factor[bins[-1]](0.6)
+
+
 def test_current_bin_price_uses_only_remaining_geometry_samples():
     from planner import Planner
 
