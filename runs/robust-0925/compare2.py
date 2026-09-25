@@ -18,6 +18,9 @@ for name, runs in ((sys.argv[1], base), (sys.argv[2], var)):
         for s in bad:
             runs.pop(s)
 common = sorted(set(base) & set(var))
+if not common:
+    print("没有已完成的共同场景")
+    raise SystemExit(0)
 groups = {"全部": common, "本地": [s for s in common if s.startswith("comp")],
           "蒙特卡洛(旧 32)": [s for s in common if s.startswith("mc") and int(s[-4:]) % 100 <= 16],
           "蒙特卡洛(新 46)": [s for s in common if s.startswith("mc") and int(s[-4:]) % 100 >= 17]}
