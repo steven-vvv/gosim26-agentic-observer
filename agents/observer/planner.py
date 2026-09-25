@@ -74,6 +74,7 @@ class Planner:
             }
         self.qmax: dict = {tid: {} for tid in self.tiles}  # tile -> {时段序号: 该时段最佳几何质量 lunar/airmass}
         self.qtime: dict = {tid: {} for tid in self.tiles}  # tile -> {时段序号: 取到最佳几何的采样时刻（时隙中点）}
+        self.qsamples: dict = {tid: {} for tid in self.tiles} if self.p.get("plan_trim_current_bin") else {}
         self.events = None          # 天气事件（events.Event）；None 时规划与不看预报时逐位相同
         self.events_mode = None     # "forecast"：每周预报；"truth"：真实事件（只用于本地上限试验）
         self.events_until = -math.inf  # 预报的有效期末（之后的时段按平均开放率）
@@ -83,6 +84,7 @@ class Planner:
         self.mu: dict = {}
         self.w_samples: list = []
         self.night_w: dict = {}  # 夜序号 -> 该夜实测的 W0（天气持续性用）
+        self.last_clean_weather: tuple[float, float, int] | None = None
         self.open_slots = 0
         self.seen_slots: set = set()
         self.plans = 0
@@ -105,7 +107,10 @@ class Planner:
             self.w_samples.append(w0)
             moment = _epoch((snapshot.get("cursor") or {}).get("timestamp_utc"))
             if moment is not None:
-                self.night_w.setdefault(bisect.bisect_right(self.night_starts, moment) - 1, []).append(w0)
+                night = bisect.bisect_right(self.night_starts, moment) - 1
+                self.night_w.setdefault(night, []).append(w0)
+                if not weather.get("active_event_ids"):
+                    self.last_clean_weather = (moment, w0, night)
 
     def _weather_quantiles(self) -> list:
         """观测样本不足时混入先验；样本越多越依赖实测。"""
@@ -162,6 +167,26 @@ class Planner:
             factors[n] = self._value_factor([w * scale for w in quantiles])
         return factors
 
+    def _recent_weather_factors(self, quantiles: list, now: float, bins: list[int]) -> dict:
+        """Condition the next few hours on the latest clean slot's weather."""
+        if self.last_clean_weather is None:
+            return {}
+        observed_at, observed_w, observed_night = self.last_clean_weather
+        if not 0 <= now - observed_at <= 3600.0:
+            return {}
+        mean = sum(quantiles) / len(quantiles)
+        limit = float(self.p["plan_recent_weather_hours"]) * 3600.0
+        factors = {}
+        for b in bins:
+            night, start, stop, _samples = self.bins[b]
+            if night != observed_night or start >= now + limit:
+                continue
+            midpoint = (max(start, now) + stop) / 2.0
+            rho = 0.88 ** (max(0.0, midpoint - observed_at) / self.slot)
+            shift = rho * (observed_w - mean)
+            factors[b] = self._value_factor([max(0.05, w + shift) for w in quantiles])
+        return factors
+
     # ------------------------------------------------------------------ 几何预计算
 
     def _compute_night(self, night: int) -> None:
@@ -188,6 +213,16 @@ class Planner:
                     if q > cell.get(b, 0.0):
                         cell[b] = q
                         self.qtime[tid][b] = sample
+                    if self.qsamples:
+                        self.qsamples[tid].setdefault(b, []).append((sample, q))
+
+    def _remaining_bin_quality(self, tid: str, b: int, now: float) -> tuple[float, float | None]:
+        if not self.qsamples:
+            return self.qmax[tid][b], None
+        available = ((sample, q) for sample, q in self.qsamples[tid].get(b, ())
+                     if sample + self.slot / 2.0 > now)
+        sample, q = max(available, key=lambda entry: entry[1], default=(None, 0.0))
+        return q, sample
 
     # ------------------------------------------------------------------ 天气事件
 
@@ -207,15 +242,15 @@ class Planner:
             stay *= 1.0 - e.active(t)
         return open_from_probability(1.0 - stay)
 
-    def _event_effects(self, tid: str, b: int) -> list:
-        key = (tid, b)
+    def _event_effects(self, tid: str, b: int, sample_time: float | None = None) -> list:
+        key = (tid, b, sample_time)
         if key not in self._effects:
             if b not in self._bin_events:
                 _n, start, stop, _samples = self.bins[b]
                 self._bin_events[b] = [e for e in self.events if not (e.scope == "ALL" and e.force_close)
                                        and e.reach()[0] < stop and e.reach()[1] > start]
             effects = []
-            t = self.qtime[tid].get(b)
+            t = sample_time if sample_time is not None else self.qtime[tid].get(b)
             if t is not None:
                 tile = self.tiles[tid]
                 for e in self._bin_events[b]:
@@ -249,6 +284,7 @@ class Planner:
         quantiles = self._weather_quantiles()
         factor = self._value_factor(quantiles)
         night_factor = self._persistence_factors(quantiles, current, horizon) if self.p.get("plan_persistence") else {}
+        recent_factor = self._recent_weather_factors(quantiles, now, bins) if self.p.get("plan_recent_weather") else {}
         efficiency = float(self.p["mean_jitter"])
         index = {b: k for k, b in enumerate(bins)}
         scale, shift = {}, {}
@@ -304,13 +340,18 @@ class Planner:
                 k = index.get(b)
                 if k is None:
                     continue
-                gf = factor if not night_factor else night_factor.get(self.bins[b][0], factor)
+                sample_time = None
+                if b == first_bin and self.qsamples:
+                    q, sample_time = self._remaining_bin_quality(tid, b, now)
+                    if q <= 0.0:
+                        continue
+                gf = recent_factor.get(b) or night_factor.get(self.bins[b][0], factor)
                 g = gf(q)
                 value = tile["value"] * fault[0] if fault is not None and self.bins[b][1] < fault[1] else tile["value"]
                 rate = bin_open[k]
                 if prior is not None:
                     quality, reach = 1.0, 1.0
-                    for p, closes, mq, me in (self._event_effects(tid, b) if self.events is not None else ()):
+                    for p, closes, mq, me in (self._event_effects(tid, b, sample_time) if self.events is not None else ()):
                         if closes:
                             reach *= 1.0 - p
                         elif g > 0.0:
@@ -321,7 +362,7 @@ class Planner:
                 else:
                     # 天气事件：质量类（云、烟霾、寒潮）按概率混合 m_e·m_q·g(m_q·q)/g(q)，只作用于科学分；方向闭站（火箭）作用于整个时段价值
                     quality, reach = 1.0, 1.0
-                    for p, closes, mq, me in self._event_effects(tid, b):
+                    for p, closes, mq, me in self._event_effects(tid, b, sample_time):
                         if closes:
                             reach *= 1.0 - p
                         elif g > 0.0:

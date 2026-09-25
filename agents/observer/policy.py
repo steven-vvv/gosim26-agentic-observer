@@ -37,6 +37,10 @@ DEFAULTS = {
     "plan_horizon_nights": 14,
     "plan_persistence": False,      # 规划时按天气持续性调整各夜的天气分布（夜级 AR(1)）；离线 +0.19%，真实系统 −0.23%，不用
     "persistence_phi": 0.82,        # 公开的决赛天气配置里的 night_correlation
+    "plan_recent_weather": False,  # 同夜短时规划按最新未受事件影响的天气观测修正未来价值
+    "plan_recent_weather_hours": 3.0,
+    "plan_trim_current_bin": False,  # 半小时重规划时，当前小时只用尚未过去的几何采样点
+    "repeat_exact_coverage": False,  # 复拍仅在总分刷新纪录时结算覆盖分；基础分增量可为负
     "plan_first_iterations": 300,
     "plan_iterations": 150,
     "plan_min_altitude": 30.0,
@@ -786,6 +790,15 @@ class ObserverPolicy:
                     deadline = latest if deadline is None else min(deadline, latest)
         return deadline, protected
 
+    def _repeat_gain(self, tile: str, realized: float, base: float, evenness: float) -> tuple[float, float]:
+        banked = self.banked.get(tile, realized)
+        if not self.p["repeat_exact_coverage"]:
+            return max(0.0, realized - banked), self.coverage_weight * max(
+                0.0, base - self.banked_base.get(tile, base)) * evenness
+        if realized <= banked:
+            return 0.0, 0.0
+        return realized - banked, self.coverage_weight * (base - self.banked_base.get(tile, base)) * evenness
+
     def _choose(self, snapshot: dict, now: float, v3: bool, deadline=None, protected=frozenset()):
         counts = self.counts
         n = len(counts)
@@ -815,8 +828,7 @@ class ObserverPolicy:
             base = float(c["tile_science_value"]) * quality * self.p["mean_jitter"] * multiplier * self.cold_factor
             realized = base * (1.0 + self.bonus[band])
             if done:
-                science = max(0.0, realized - self.banked.get(tile, realized))
-                coverage = weight * max(0.0, base - self.banked_base.get(tile, base)) * evenness
+                science, coverage = self._repeat_gain(tile, realized, base, evenness)
                 terminal = 0.0
             else:
                 science = realized
@@ -934,8 +946,7 @@ class ObserverPolicy:
         base = value * sum(f * q for f, q in segments)
         tile = str(c["tile_id"])
         if done:
-            science = max(0.0, realized - self.banked.get(tile, realized))
-            coverage = self.coverage_weight * max(0.0, base - self.banked_base.get(tile, base)) * evenness
+            science, coverage = self._repeat_gain(tile, realized, base, evenness)
         else:
             science = realized
             coverage = 0.0

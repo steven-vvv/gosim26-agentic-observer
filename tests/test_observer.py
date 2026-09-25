@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -204,6 +205,55 @@ def test_persistence_scales_future_nights_toward_the_mean():
     assert factors[0](0.6) > factors[1](0.6) > factors[2](0.6) > base(0.6)
     planner.night_w[0] = [mean]
     assert planner._persistence_factors(quantiles, 0, 3)[2](0.6) == pytest.approx(base(0.6))
+
+
+def test_recent_weather_only_conditions_nearby_clean_slots():
+    from planner import Planner
+
+    planner = Planner(initial(), dict(DEFAULTS, plan_recent_weather=True))
+    quantiles = planner._weather_quantiles()
+    now = planner.nights[0][0] + planner.slot
+    mean = sum(quantiles) / len(quantiles)
+    base = planner._value_factor(quantiles)
+    snapshot = {"cursor": {"timestamp_utc": datetime.fromtimestamp(now, timezone.utc).isoformat()},
+                "current_site_weather": {"slot_id": "s1", "is_observable": True,
+                                         "transparency": mean * 1.2, "sky_quality": 1.0,
+                                         "seeing_arcsec": 1.0, "active_event_ids": []}}
+    planner.observe_weather(snapshot)
+    bins = [b for b, (night, start, _stop, _samples) in enumerate(planner.bins)
+            if night == 0 and now - 3600 < start < now + 3 * 3600]
+    factors = planner._recent_weather_factors(quantiles, now, bins)
+    assert factors and factors[bins[0]](0.6) > base(0.6)
+    assert factors[bins[0]](0.6) > factors[bins[-1]](0.6)
+    snapshot["current_site_weather"]["slot_id"] = "s2"
+    snapshot["current_site_weather"]["active_event_ids"] = ["EV0001"]
+    snapshot["current_site_weather"]["transparency"] = mean * 0.5
+    planner.observe_weather(snapshot)
+    assert planner.last_clean_weather[1] == pytest.approx(mean * 1.2)
+    assert planner._recent_weather_factors(quantiles, now + 2 * 3600, bins) == {}
+
+
+def test_current_bin_price_uses_only_remaining_geometry_samples():
+    from planner import Planner
+
+    planner = Planner(initial(), dict(DEFAULTS, plan_trim_current_bin=True))
+    tid = "T00001"
+    start = planner.bins[0][1]
+    planner.qsamples[tid][0] = [(start + 450.0, 0.9), (start + 1350.0, 0.8),
+                                (start + 2250.0, 0.7), (start + 3150.0, 0.6)]
+    assert planner._remaining_bin_quality(tid, 0, start + 1800.0) == (0.7, start + 2250.0)
+    assert planner._remaining_bin_quality(tid, 0, start + 3600.0) == (0.0, None)
+
+
+def test_repeat_coverage_requires_higher_combined_score():
+    policy = ObserverPolicy(initial(), dict(DEFAULTS, repeat_exact_coverage=True))
+    policy.banked["T00001"] = 120.0
+    policy.banked_base["T00001"] = 100.0
+    policy.coverage_weight = 0.35
+    assert policy._repeat_gain("T00001", 119.0, 110.0, 0.8) == (0.0, 0.0)
+    science, coverage = policy._repeat_gain("T00001", 121.0, 98.0, 0.8)
+    assert science == 1.0
+    assert coverage == pytest.approx(-0.56)
 
 
 def test_closure_risk_discounts_boundary_crossing():
