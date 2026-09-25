@@ -35,7 +35,6 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
-from unittest.mock import patch
 
 try:
     import numpy as np  # noqa: F401 - optional vector geometry dependency
@@ -318,8 +317,22 @@ def enable_direct_observer(local_runner) -> None:
 
         @contextmanager
         def _environment(self):
-            with patch.dict(os.environ, self.env, clear=True), redirect_stderr(self.stderr or sys.stderr):
-                yield
+            keys = ("OBS_PARAMS", "SAC_WALLCLOCK_SECONDS", "SAC_SCENARIO")
+            previous = {key: os.environ.get(key) for key in keys}
+            try:
+                for key in keys:
+                    if key in self.env:
+                        os.environ[key] = self.env[key]
+                    else:
+                        os.environ.pop(key, None)
+                with redirect_stderr(self.stderr or sys.stderr):
+                    yield
+            finally:
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
 
         def publish_initial(self, publication):
             with self._environment():
