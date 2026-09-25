@@ -28,6 +28,11 @@
 | `runs/` | 临时运行产物（评测脚本会自动删除大文件，可随时清空） |
 | `notes/` | 实验记录 |
 
+## 版本库
+
+git，默认分支 `main`。Agent 在 `claude` 分支上工作，每完成一段就快进同步回 `main`（`git fetch . claude:main`，不切换工作区）。
+本地 comp-* 场景和临时运行产物不入库（见 `.gitignore`），场景可以用下文的 `make_scenario.py` 命令按种子重新生成。
+
 ## 环境
 
 用 uv 管理，开发用 Python 3.14（`.python-version`），分析依赖见 `pyproject.toml`。agent 保持 Python 3.9 语法兼容
