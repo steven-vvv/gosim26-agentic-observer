@@ -11,6 +11,12 @@ def load(name):
     return out
 
 base, var = load(sys.argv[1]), load(sys.argv[2])
+for name, runs in ((sys.argv[1], base), (sys.argv[2], var)):
+    bad = sorted(s for s, r in runs.items() if r.get("termination_reason") != "survey_complete")
+    if bad:
+        print(f"警告：{name} 有 {len(bad)} 场没有正常结束，已排除：{bad[:6]}")
+        for s in bad:
+            runs.pop(s)
 common = sorted(set(base) & set(var))
 groups = {"全部": common, "本地": [s for s in common if s.startswith("comp")],
           "蒙特卡洛(旧 32)": [s for s in common if s.startswith("mc") and int(s[-4:]) % 100 <= 16],

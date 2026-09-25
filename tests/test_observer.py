@@ -386,3 +386,17 @@ def test_forecast_closure_risk_only_when_rain_starts_at_the_boundary():
     assert risks is not None and risks[0] > 0.3
     policy.planner.set_events([], "forecast", start + 7 * 86400.0)
     assert policy._forecast_risks(start, [450.0, 450.0]) is None
+
+
+def test_planner_prices_repeats_only_for_underbanked_tiles():
+    """复拍定价：入账分远低于潜力的已完成天区得到正的机会价值；入账分已经很高的不参与；不给 repeats 时已完成天区不定价。"""
+    from planner import Planner
+    params = dict(DEFAULTS, plan_repeats=True)
+    now = epoch("2026-10-06T02:00:00Z")
+    planner = Planner(initial(), params)
+    planner.replan(now, {"T00001"}, set(), repeats={"T00001": (1.0, 1.0)})
+    assert planner.mu.get("T00001", 0.0) > 0.0
+    planner.replan(now, {"T00001"}, set(), repeats={"T00001": (1e6, 1.0)})
+    assert "T00001" not in planner.mu
+    planner.replan(now, {"T00001"}, set())
+    assert "T00001" not in planner.mu

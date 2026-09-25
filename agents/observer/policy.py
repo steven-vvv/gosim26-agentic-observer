@@ -48,6 +48,8 @@ DEFAULTS = {
     "plan_fault_aware": False,      # 规划时把已确认 / 疑似故障分区在修复前的时段价值乘以故障乘数（46 场约 0，不用）
     "plan_allow_wait": False,       # 所有候选扣除机会价值后都为负时是否等待（决赛规模下时间稀缺，不等）
     "plan_events": "forecast",      # 规划时计入天气事件：每周预报（46 场 +0.121%，标准误 0.048）；"truth" 读真实事件只用于本地上限试验（+0.487%）；"off" 与 obs15 逐位相同
+    "plan_repeats": False,          # 已完成、入账分明显低于潜力的天区（故障期、寒潮期、坏天气时拍的）以复拍增益参与定价
+    "plan_repeat_min_gain": 20.0,   # 最佳几何下的潜在增益至少这么多分才参与（控制规划规模）
     "plan_events_kinds": "all",     # 本地试验：规划器只看 "close"（闭站类）或 "quality"（质量类）事件
     "plan_events_truth_root": "",   # truth 模式：场景根目录，事件文件为 <根目录>/<SAC_SCENARIO>/outputs/reference/weather_events.csv
     "segment_expectation": True,    # 异常比值的分母按分段中点几何计算
@@ -601,11 +603,19 @@ class ObserverPolicy:
         counts = dict(zip(self.regions, self.counts))
         coverage = (self.coverage_weight, self.base_total, counts) if self.p["plan_coverage"] else None
         faults = self._fault_map(now) if self.p["plan_fault_aware"] else None
+        repeats = self._repeat_candidates() if self.p["plan_repeats"] and self.mechanics else None
         if self.p["plan_required"]:
             self.planner.replan(now, self.completed, exclude, coverage, required=self.required,
-                                terminal=self.required_miss, faults=faults)
+                                terminal=self.required_miss, faults=faults, repeats=repeats)
         else:
-            self.planner.replan(now, self.completed, exclude, coverage, faults=faults)
+            self.planner.replan(now, self.completed, exclude, coverage, faults=faults, repeats=repeats)
+
+    def _repeat_candidates(self) -> dict:
+        """复拍候选：{天区: (已入账的实现分, 标签乘数)}。已上报的标签按其乘数调整潜力（红化 0.8、新星 1.5）。"""
+        tags = {}
+        for tile, kind in self.reported_tags:
+            tags[tile] = 0.8 if kind == "Reddening" else 1.5
+        return {tile: (score, tags.get(tile, 1.0)) for tile, score in self.banked.items() if tile in self.completed}
 
     def _truth_events(self) -> list:
         """本地上限试验：在场景根目录里按 scenario_id（即 SAC_SCENARIO）找到本场景，读真实事件。找不到就不用事件。"""

@@ -228,7 +228,7 @@ class Planner:
     # ------------------------------------------------------------------ 规划
 
     def replan(self, now: float, completed: set, exclude: set, coverage=None, required=None, terminal: float = 0.0,
-               faults=None) -> None:
+               faults=None, repeats=None) -> None:
         """每夜开始时调用：重算未完成天区的 μ（排除的天区 μ 记为 0）。
 
         coverage = (权重 w, 已入账基础分 B, {分区: 完成数})。给出时，每个时段的价值按与在线决策相同的精确边际计算：
@@ -252,12 +252,14 @@ class Planner:
         efficiency = float(self.p["mean_jitter"])
         index = {b: k for k, b in enumerate(bins)}
         scale, shift = {}, {}
+        repeat_scale = 1.0  # 复拍的科学分增量对覆盖奖励的放大：1 + w·E_now（完成数不变，均匀度不变）
         if coverage is not None and coverage[0] > 0:
             weight, base_total, counts = coverage
             n = len(counts)
             total = sum(counts.values())
             sum_sq = sum(c * c for c in counts.values())
             evenness = total * total / (n * sum_sq) if sum_sq else 0.0
+            repeat_scale = 1.0 + weight * evenness
             for region, x in counts.items():
                 after = (total + 1) ** 2 / (n * (sum_sq + 2 * x + 1))
                 scale[region] = 1.0 + weight * after
@@ -278,11 +280,21 @@ class Planner:
         v_max = 0.0
         min_bins = int(self.p["required_min_bins"])
         min_left = float(self.p["required_min_nights"]) * 86400.0
+        repeat_min = float(self.p.get("plan_repeat_min_gain", 20.0))
         for tid, tile in self.tiles.items():
-            if tid in completed or tid in exclude:
+            if tid in exclude:
                 continue
+            prior = None
+            if tid in completed:
+                # 复拍（repeats）：已完成、入账分明显低于满效率潜力的天区按"期望实现分 − 已入账"参与定价，先用最佳几何粗筛
+                prior = repeats.get(tid) if repeats else None
+                if prior is None:
+                    continue
+                qbest = max(self.qmax[tid].values(), default=0.0)
+                if tile["value"] * prior[1] * qbest * factor(qbest) * efficiency - prior[0] < repeat_min:
+                    continue
             # 机会充裕的 REQUIRED 天区参与定价：时段价值加上（按开放率折算的）终局奖励，现在拍与将来拍只比时机
-            bonus = terminal if required and tid in required else 0.0
+            bonus = terminal if required and tid in required and prior is None else 0.0
             if bonus and tile["until"] - now < min_left:
                 continue
             fault = faults.get(tile["region"]) if faults else None
@@ -296,7 +308,15 @@ class Planner:
                 g = gf(q)
                 value = tile["value"] * fault[0] if fault is not None and self.bins[b][1] < fault[1] else tile["value"]
                 rate = bin_open[k]
-                if self.events is None:
+                if prior is not None:
+                    quality, reach = 1.0, 1.0
+                    for p, closes, mq, me in (self._event_effects(tid, b) if self.events is not None else ()):
+                        if closes:
+                            reach *= 1.0 - p
+                        elif g > 0.0:
+                            quality *= 1.0 - p + p * me * mq * gf(mq * q) / g
+                    v = (value * prior[1] * q * g * efficiency * quality - prior[0]) * repeat_scale * rate * reach
+                elif self.events is None:
                     v = (value * q * g * efficiency * a + c) * rate
                 else:
                     # 天气事件：质量类（云、烟霾、寒潮）按概率混合 m_e·m_q·g(m_q·q)/g(q)，只作用于科学分；方向闭站（火箭）作用于整个时段价值
