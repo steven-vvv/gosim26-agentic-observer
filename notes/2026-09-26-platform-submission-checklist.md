@@ -23,11 +23,12 @@
 
 - [x] 默认遥测打包源固定为当前工作副本 `agents/observer`；冻结的 `agents/obs17` 没有客户端，误用时打包器会失败，只有显式 `--no-telemetry` 才允许打历史快照。
 - [x] 后续完整项目打包默认生成不含密钥的 `telemetry.config.json`，默认指向 Worker 的 OpenAI-compatible `/v1` 地址，逐步追踪开关为真。
-- [x] 平台注入 `OPENAI_API_KEY` 后才启动后台遥测线程；`OPENAI_BASE_URL`（若有）覆盖包内地址。没有密钥时完全离线，显式 `--no-telemetry` 可关闭。
+- [x] 平台或直连环境注入 `OPENAI_API_KEY` 后才启动后台遥测线程；直连时 `OPENAI_BASE_URL` 覆盖包内地址，比赛平台的这两个变量指向平台代理，需通过保存的团队模型转发到 Worker。没有密钥时完全离线，显式 `--no-telemetry` 可关闭。
 - [x] 显式 `TELEMETRY_URL`/`TELEMETRY_TOKEN` 仍可走 `/v1/telemetry`；显式事件端点默认使用 events 传输。
 - [x] 每次决策在 stderr 和有界遥测队列记录输入等待、策略耗时、响应编码、stdout 刷新、请求/响应大小、候选数、规划计数、CPU 与墙钟；不记录 tile 内容、快照、prompt 或密钥。
 - [x] 启动和结束记录遥测配置状态、队列深度及 `queued/sent/failed/dropped`，状态会剥离 token、查询串和用户信息。
-- [ ] 下一次远端运行必须确认 `telemetry_config` 是 `enabled=true` 还是 `configured=false`，再用 D1/Worker 日志判断 DNS、连接超时、HTTP 拒绝或成功；不能从空结果直接断言 workers.dev 被阻断。
+- [ ] 下一次远端运行必须确认 `telemetry_config` 是 `enabled=true` 还是 `configured=false`，并确认平台保存的团队模型已指向 Worker，再用 D1/Worker 日志判断 DNS、连接超时、HTTP 拒绝或成功；不能从空结果直接断言 workers.dev 被阻断。
+- [x] OpenAI 传输只发送平台代理允许的标准字段，事件放在 JSON user message；不再发送会被 `observer-model` 拒绝的 `metadata`/`telemetry` 顶层扩展字段。
 - [x] Worker 的持久 invocation logs 已在 `telemetry-worker/wrangler.jsonc` 开启，作为 D1 结构化事件的第二信号源。
 
 ## 评测、超时与归档

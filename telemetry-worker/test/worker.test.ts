@@ -146,7 +146,7 @@ describe("telemetry worker", () => {
       body: JSON.stringify({
         model: "telemetry-ack",
         messages: [{ role: "user", content: JSON.stringify({ schema: "gosim26.telemetry.v1", event }) }],
-        telemetry: { schema: "gosim26.telemetry.v1", event },
+        stream: false,
       }),
     });
     expect(response.status).toBe(200);

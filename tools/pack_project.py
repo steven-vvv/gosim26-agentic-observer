@@ -9,7 +9,8 @@
 - 代码：源目录里的 *.py 与 params.json（若有），原样复制；
 - numpy：给了 --wheels 时把其中的 *.whl 放进 wheels/，构建阶段安装到可写的 .deps/；装不上再尝试联网安装，仍失败也不中止，
   agent 自动退回纯 Python 规划器（两条路径逐位相同，只是更慢）；
-- telemetry.config.json：默认写入不含密钥的遥测配置；平台注入 OPENAI_API_KEY 后自动把事件发送到 Worker。
+- telemetry.config.json：默认写入不含密钥的遥测配置；直连时由 OPENAI_* 变量启用 Worker 遥测，比赛平台的
+  OPENAI_* 变量则指向平台代理，需在平台保存的团队模型中把上游配置为 Worker。
 - ZIP 内文件按名字排序、时间戳固定，同样的输入得到同样的 sha256。
 
 输出 dist/project-<版本>/ 与 dist/observer-<版本>-project.zip，并打印 sha256。这两样都不入库（见 .gitignore），随时可以重建。
@@ -43,10 +44,11 @@ GOSIM 2026 巡天智能体参赛项目。确定性策略，不调用模型；模
 - `geometry.py`：与官方公式一致的几何与日历。
 
 构建：离线安装 `wheels/` 里的 numpy 到可写的 `.deps/`；失败时退回纯 Python，结果不变，只是更慢。
-遥测默认开启：包内只有 Worker 地址、传输方式和逐步追踪开关等非机密配置；平台注入
-`OPENAI_API_KEY` 后，客户端把它作为遥测写入鉴权密钥，事件异步发送到
-`/v1/chat/completions`，失败会丢弃且不影响决策。`OPENAI_BASE_URL`（若注入）会覆盖包内地址。
-`OPENAI_API_KEY` 不会作为上游模型密钥使用或写入日志；没有密钥时客户端保持离线。
+遥测默认开启：包内只有 Worker 地址、传输方式和逐步追踪开关等非机密配置。直接运行时，
+`OPENAI_BASE_URL` 与 `OPENAI_API_KEY` 可以分别指向 Worker 和其写入密钥；比赛平台会把这两个变量改为平台代理
+地址与单次运行凭据，此时应在平台保存的团队模型中把上游地址、模型和密钥配置为 Worker。客户端只发送标准
+Chat Completions 字段，事件放在 JSON user message 中，失败会丢弃且不影响决策。密钥不会写入日志；没有可用
+密钥时客户端保持离线。
 需要完全关闭时，用打包器的 `--no-telemetry`。
 复现：同一场景、同一种子下运行确定性；与本地官方 runner 的比对方法见仓库 `notes/`。
 """

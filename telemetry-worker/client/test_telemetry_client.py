@@ -105,7 +105,10 @@ class TelemetryClientTests(unittest.TestCase):
         self.assertEqual(request.full_url, "https://example.test/v1/chat/completions")
         self.assertEqual(body["model"], "telemetry-ack")
         self.assertEqual(body["messages"][0]["role"], "user")
-        self.assertEqual(body["telemetry"]["event"]["event_type"], "runtime")
+        self.assertEqual(set(body), {"model", "messages", "stream"})
+        envelope = json.loads(body["messages"][0]["content"])
+        self.assertEqual(envelope["schema"], "gosim26.telemetry.v1")
+        self.assertEqual(envelope["event"]["event_type"], "runtime")
         self.assertNotIn("secret", request.data.decode())
 
     def test_queue_overflow_is_dropped_without_blocking(self):

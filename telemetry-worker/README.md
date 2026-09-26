@@ -36,14 +36,17 @@ All protected routes accept `Authorization: Bearer <token>` or
 * `GET /v1/telemetry?run_id=...&event_type=...&limit=100&cursor=...` reads
   newest-first events with decoded `payload` objects. Read access uses
   `TELEMETRY_READ_TOKEN`.
-* `POST /v1/chat/completions` is an OpenAI-compatible telemetry endpoint. When
-  the contest platform supplies `OPENAI_BASE_URL` and `OPENAI_API_KEY`, point
-  the base URL at this Worker and set the API key to the same value as the
-  Worker's `TELEMETRY_INGEST_TOKEN`; here the key is telemetry authentication,
-  never an upstream model credential. The client puts the event in a JSON user
-  message and a structured `telemetry` envelope; the Worker stores one
-  normalized event and returns a valid
-  non-streaming completion or an SSE completion when `stream` is true.
+* `POST /v1/chat/completions` is an OpenAI-compatible telemetry endpoint. For
+  direct use, set `OPENAI_BASE_URL` to this Worker and
+  `OPENAI_API_KEY` to the Worker's `TELEMETRY_INGEST_TOKEN`; the key is
+  telemetry authentication, never an upstream model credential. The client
+  puts the event in a JSON user message using only standard Chat Completions
+  fields, so strict gateways can forward it unchanged. The Worker stores one
+  normalized event and returns a valid non-streaming completion or an SSE
+  completion when `stream` is true. In the contest runner, the injected
+  `OPENAI_*` pair belongs to the platform proxy; configure the platform's
+  saved team model to point at this Worker if those requests should arrive
+  here.
 * `GET /v1/models` returns the `telemetry-ack` model and uses ingest access.
 
 An event has `run_id`, `event_type`, `source`, optional client timestamp and

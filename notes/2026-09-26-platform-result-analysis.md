@@ -154,6 +154,29 @@ score total                 5178.334816
 `numpy:null`。这是旧打包路径的问题，会使规划器退回纯 Python，但不是这次 7200 秒超时的
 主因；当前分支的 `.deps` 安装和每决策 trace 正是针对这两个问题的修正。
 
+## 第二版公开测试与遥测路由（`result_temp/3/init`）
+
+第二版公开测试确实执行了参赛进程：归档包含 `decisions.csv`、完整的
+`workflow_result.json` 和 137 个已提交动作，终止原因为默认公开测试的
+`global_wallclock_expired`（300 秒）。可见日志中有连续的 `[numpy]` 规划记录，说明本次 `.deps`
+构建和向量化规划器已生效；日志文件恰好为 32767 bytes，开头被平台截断，因此不能从归档中看到
+启动时的 `telemetry_config` 或最终发送统计。
+
+公开测试不是静态结果页：平台会启动项目执行作业，再启动引擎回放。因此只要运行时有可用的
+遥测配置，agent 会创建后台线程并尝试发送事件。不过当前平台的实际链路需要区分：执行器把
+`OPENAI_BASE_URL`/`OPENAI_API_KEY` 注入为平台自己的 `observer-model` 代理地址和单次运行凭据，
+而不是包内 Worker 地址和 Worker 写入密钥。代理的 Chat Completions 校验只允许标准字段，旧客户端
+同时发送的 `metadata` 与 `telemetry` 扩展字段会在代理处以 `unsupported_chat_option` 被拒绝，
+请求不会到达 Worker。这解释了“公开测试有 agent 日志但 Worker 没有进站”的组合现象，不能归因于
+workers.dev 被阻断。
+
+当前分支已将 OpenAI 传输改为只发送 `model`、`messages`、`stream` 三个标准字段，事件完整放在
+JSON user message 中；Worker 可从该信封恢复事件。直连 Worker 仍可使用
+`OPENAI_BASE_URL`/`OPENAI_API_KEY`，而比赛平台若要把事件转发到 Worker，必须在平台保存的团队模型
+中把上游 base URL、模型 `telemetry-ack` 和 Worker 写入密钥配置好。仅依赖平台运行时注入的两个
+变量不会绕过平台代理。下一次提交需重建 ZIP 后再以 D1/Workers invocation logs 验证；这次归档本身
+只能证明本地 trace 运行，不能证明远程发送成功。
+
 ## 后续动作
 
 1. 保留这次结果作为公开通道基线，不能把 `7131.371807` 当作隐藏正式赛的期望分数。

@@ -132,9 +132,10 @@ payload、环境变量值、临时凭证或上游模型 key，避免结果体积
 
 当前策略仍然是确定性的，不需要模型来作决定；完整项目包默认带上非机密遥测配置，但只有
 平台注入鉴权密钥时才启动发送线程。平台若注入 `OPENAI_BASE_URL`/`OPENAI_API_KEY`，这两个变量
-也支持作为遥测传输配置：API key
-被解释为遥测写入鉴权密钥，base URL 被规范化到 `/v1/chat/completions`，每个事件同时放入
-标准 JSON user message 和受限的 `telemetry` 结构化字段，模型名默认为 `telemetry-ack`。
+也支持作为遥测传输配置：直连 Worker 时 API key 是遥测写入鉴权密钥，base URL 被规范化到
+`/v1/chat/completions`；比赛平台注入的这两个变量则属于平台代理，真正的 Worker 凭据由平台保存的团队模型
+提供。每个事件放入标准 JSON user message，模型名默认为 `telemetry-ack`，不再依赖会被严格代理拒绝的
+顶层扩展字段。
 显式 `TELEMETRY_URL`/`TELEMETRY_TOKEN` 仍优先走批量事件接口，可用于不经过 OpenAI 兼容层的
 独立端点。两种传输都使用有界队列、短超时、有限重试和失败丢弃，不改变决策。
 

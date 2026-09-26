@@ -306,9 +306,10 @@ class TelemetryReporter:
     @classmethod
     def from_env(cls, defaults_path: str | os.PathLike[str] | None = None) -> TelemetryReporter:
         # The explicit event endpoint is preferred.  The OpenAI-compatible
-        # variables are also a supported telemetry transport: on platforms
-        # that only inject OPENAI_BASE_URL/OPENAI_API_KEY, the API key is the
-        # telemetry ingest credential and no model call is required.
+        # variables are also a supported telemetry transport.  A direct
+        # deployment can use them for the Worker; a contest runner may set
+        # them to its own proxy, in which case the saved upstream model is
+        # responsible for forwarding the request to the Worker.
         defaults: dict[str, Any] = {}
         if defaults_path:
             try:
@@ -467,9 +468,13 @@ class TelemetryReporter:
 
     def _send(self, event: dict[str, Any]) -> None:
         if self.transport == "openai":
-            # Keep the event in a standard user message for generic
-            # OpenAI-compatible transports, while the structured envelope
-            # lets our Worker avoid having to infer fields from prose.
+            # Keep the event in a standard user message.  Some OpenAI
+            # compatible gateways validate the request against the official
+            # chat schema and reject extension fields such as ``metadata`` or
+            # ``telemetry`` before forwarding the request.  Our Worker can
+            # recover the structured event from this JSON envelope, so the
+            # standard-only body works both through that gateway and when
+            # connecting to the Worker directly.
             envelope = {"schema": "gosim26.telemetry.v1", "event": event}
             body_object = {
                 "model": self.model,
@@ -478,12 +483,6 @@ class TelemetryReporter:
                     "content": json.dumps(envelope, separators=(",", ":")),
                 }],
                 "stream": False,
-                "metadata": {
-                    "run_id": event.get("run_id"),
-                    "event_type": event.get("event_type"),
-                    "telemetry": True,
-                },
-                "telemetry": envelope,
             }
         else:
             body_object = {"events": [event]}
