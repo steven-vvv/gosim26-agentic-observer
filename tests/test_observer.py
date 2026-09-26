@@ -127,6 +127,27 @@ def test_geometry_matches_official_simulator():
         assert lunar == pytest.approx(expected["lunar_quality_factor"], abs=1e-9)
 
 
+def test_planner_numpy_geometry_matches_scalar():
+    from planner import Planner, np
+
+    if np is None:
+        pytest.skip("numpy not installed")
+    publication = initial()
+    publication["tile_catalog"]["tiles"][0]["available_from_utc"] = "2026-10-06T07:00:00Z"
+    publication["tile_catalog"]["tiles"][1]["available_until_utc"] = "2026-10-07T07:00:00Z"
+    vectorized = Planner(publication, dict(DEFAULTS, plan_numpy_geometry=True, plan_trim_current_bin=True))
+    scalar = Planner(publication, dict(DEFAULTS, plan_numpy_geometry=False, plan_trim_current_bin=True))
+    for night in range(3):
+        vectorized._compute_night(night)
+        scalar._compute_night(night)
+    for tid in scalar.tiles:
+        assert vectorized.qmax[tid] == pytest.approx(scalar.qmax[tid], rel=1e-12)
+        assert vectorized.qtime[tid] == scalar.qtime[tid]
+        assert vectorized.qsamples[tid].keys() == scalar.qsamples[tid].keys()
+        for b, samples in scalar.qsamples[tid].items():
+            assert vectorized.qsamples[tid][b] == pytest.approx(samples, rel=1e-12)
+
+
 def test_night_bounds_match_official_calendar():
     """重建的每夜观测时段与场景的官方 night_calendar.csv 完全一致。"""
     import csv as _csv

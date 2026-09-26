@@ -72,6 +72,21 @@ class Planner:
                 "from": _epoch(tile.get("available_from_utc")) or -math.inf,
                 "until": _epoch(tile.get("available_until_utc")) or math.inf,
             }
+        self._tile_ids = list(self.tiles)
+        if np is not None and self.p.get("plan_numpy_geometry", True):
+            geometries = [tile["geo"] for tile in self.tiles.values()]
+            self._geometry_arrays = (
+                np.array([geo.ra for geo in geometries]),
+                np.array([geo.cos_ra for geo in geometries]),
+                np.array([geo.sin_ra for geo in geometries]),
+                np.array([geo.sin_dec for geo in geometries]),
+                np.array([geo.cos_dec for geo in geometries]),
+                np.array([tile["from"] for tile in self.tiles.values()]),
+                np.array([tile["until"] for tile in self.tiles.values()]),
+                np.array([tile["exposure"] for tile in self.tiles.values()]),
+            )
+        else:
+            self._geometry_arrays = None
         self.qmax: dict = {tid: {} for tid in self.tiles}  # tile -> {时段序号: 该时段最佳几何质量 lunar/airmass}
         self.qtime: dict = {tid: {} for tid in self.tiles}  # tile -> {时段序号: 取到最佳几何的采样时刻（时隙中点）}
         self.qsamples: dict = {tid: {} for tid in self.tiles} if self.p.get("plan_trim_current_bin") else {}
@@ -203,6 +218,27 @@ class Planner:
 
     # ------------------------------------------------------------------ 几何预计算
 
+    def _night_sample_numpy(self, moment, slot_start: float, night_end: float, min_alt: float):
+        ra, cos_ra, sin_ra, sin_dec, cos_dec, available_from, available_until, exposure = self._geometry_arrays
+        site = self.site
+        sin_alt = (site.sin_lat * sin_dec + site.cos_lat * cos_dec
+                   * (moment.cos_lst * cos_ra + moment.sin_lst * sin_ra))
+        altitude = np.degrees(np.arcsin(np.clip(sin_alt, -1.0, 1.0)))
+        eligible = ((slot_start >= available_from) & (slot_start + exposure <= available_until)
+                    & (slot_start + exposure <= night_end) & (altitude >= min_alt))
+        indices = np.flatnonzero(eligible)
+        if not len(indices):
+            return ()
+        alt = altitude[indices]
+        zenith = 90.0 - alt
+        am = 1.0 / (np.cos(np.radians(zenith)) + 0.50572 * (96.07995 - zenith) ** -1.6364)
+        am /= 1.0 / (1.0 + 0.50572 * 96.07995 ** -1.6364)
+        cos_sep = (sin_dec[indices] * moment.moon_sin_dec + cos_dec[indices] * moment.moon_cos_dec
+                   * np.cos(ra[indices] - moment.moon_ra))
+        separation = np.degrees(np.arccos(np.clip(cos_sep, -1.0, 1.0)))
+        lunar = np.clip(1.0 - moment.moon_weight * np.exp(-separation / site.decay), 0.0, 1.0)
+        return zip(indices, lunar / am)
+
     def _compute_night(self, night: int) -> None:
         if night in self.computed_nights or night >= len(self.nights):
             return
@@ -215,6 +251,16 @@ class Planner:
             for sample in samples:
                 slot_start = sample - self.slot / 2.0
                 moment = self.site.moment(sample)
+                if self._geometry_arrays is not None:
+                    for index, q in self._night_sample_numpy(moment, slot_start, night_end, min_alt):
+                        tid = self._tile_ids[index]
+                        cell = self.qmax[tid]
+                        if q > cell.get(b, 0.0):
+                            cell[b] = float(q)
+                            self.qtime[tid][b] = sample
+                        if self.qsamples:
+                            self.qsamples[tid].setdefault(b, []).append((sample, float(q)))
+                    continue
                 for tid, tile in self.tiles.items():
                     end = slot_start + tile["exposure"]
                     if slot_start < tile["from"] or end > tile["until"] or end > night_end:

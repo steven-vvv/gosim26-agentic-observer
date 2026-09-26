@@ -48,6 +48,7 @@ DEFAULTS = {
     "plan_iterations": 150,
     "plan_min_altitude": 30.0,
     "numpy_planner": True,          # numpy 可用时规划器走向量化路径（与纯 Python 逐位相同）
+    "plan_numpy_geometry": True,   # numpy 批算规划几何；缺少 numpy 时使用标量路径
     "plan_required": True,          # 机会充裕的 REQUIRED 天区参与定价（其余一有窗口就拍；46 场 +0.195%，零缺失）
     "required_min_bins": 40,        # 视野内可行时段至少这么多个
     "required_min_nights": 5.0,     # 且离可用期结束至少这么多夜
