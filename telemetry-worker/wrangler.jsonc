@@ -4,11 +4,12 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-26",
   "workers_dev": true,
+  "preview_urls": false,
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "gosim26-telemetry",
-      "database_id": "00000000-0000-0000-0000-000000000001",
+      "database_id": "319bb5f6-f3b1-45ea-845e-3b368f2c99d6",
       "migrations_dir": "migrations"
     }
   ],
