@@ -19,6 +19,7 @@
 | `tools/upper_bound.py` | 完美信息上界（拉格朗日对偶）与全知可行排程 |
 | `tools/mc_scenarios.py`、`tools/mc_report.py` | 蒙特卡洛：真实决赛天区目录 + 自己的天气种子，汇总得分分布 |
 | `tools/pyspy_summary.py` | 汇总 py-spy 原始采样（按进程列出自身 / 累计耗时） |
+| `tools/trace_summary.py` | 从平台或本地 `agent.log` 汇总输入等待、策略耗时、响应耗时和动作比例（容忍日志截断） |
 | `tools/zero_score.py` | 构造总分约为 0 的结果文件（Playground 上榜用） |
 | `tools/read_analysis.py` | 异常读数分析：给 `log_reads` 日志里的每次读数标注真值类别，离线评估标签与故障的上报规则 |
 | `tools/build_portfolio.py` | 线上比赛择优提交用的一组程序包（基础版本 + 温和的参数扰动），附 sha256 清单 |
