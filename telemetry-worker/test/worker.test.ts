@@ -166,4 +166,27 @@ describe("telemetry worker", () => {
     expect(network.cf_ray).toBe("test-ray");
     expect(network.country).toBe("CN");
   });
+
+  it("accepts the unversioned chat path used by upstream model relays", async () => {
+    const runId = `relay-${crypto.randomUUID()}`;
+    const event = { id: `${runId}-runtime`, run_id: runId, event_type: "runtime", payload: { python: "3.12" } };
+    const response = await call("/chat/completions", {
+      method: "POST",
+      headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "telemetry-ack",
+        messages: [{ role: "user", content: JSON.stringify({ schema: "gosim26.telemetry.v1", event }) }],
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-telemetry-accepted")).toBe("true");
+
+    const page = await call(`/v1/telemetry?run_id=${encodeURIComponent(runId)}`, {
+      headers: bearer("read-test-token"),
+    });
+    const result = await page.json() as { events: Array<{ event_type: string; payload: Record<string, unknown> }> };
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].event_type).toBe("runtime");
+    expect(result.events[0].payload.python).toBe("3.12");
+  });
 });

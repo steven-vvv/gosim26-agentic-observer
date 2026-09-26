@@ -5,7 +5,7 @@ import { requestNetworkMetadata } from "./network";
 import { parseEvents, RequestError } from "./validation";
 import type { Env, QueryEvents } from "./types";
 
-const VERSION = "2026-09-26.telemetry-v1";
+const VERSION = "2026-09-27.telemetry-v2";
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -96,7 +96,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (request.method === "GET") return readEvents(request, env);
     return json({ error: "method_not_allowed" }, 405);
   }
-  if (url.pathname === "/v1/chat/completions") return handleChatCompletions(request, env);
+  if (url.pathname === "/v1/chat/completions" || url.pathname === "/chat/completions") {
+    return handleChatCompletions(request, env);
+  }
   if (url.pathname === "/v1/models" && request.method === "GET") {
     if (!(await requireIngestAuth(request, env))) return json({ error: "unauthorized" }, 401);
     return modelList();
