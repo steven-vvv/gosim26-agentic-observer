@@ -61,6 +61,14 @@ size   32,027,425 bytes (约 30.5 MiB)
 
 ZIP 和展开目录在 `.gitignore` 中，提交时只记录指纹和来源提交，不把生成物塞进 Git。
 
+当前打包器还会写入 `telemetry.config.json`：其中只有默认 Worker 地址、OpenAI-compatible
+传输方式、模型名和队列/追踪设置，不含 token。完整项目不携带 `.venv`、`.env` 或用户目录；
+后续 NumPy build 会把 wheel 安装到可写的 `.deps/`，入口在导入策略模块前加载该目录。
+
+本轮 `codex` 修改后的本地重建包（含双架构 NumPy wheel）为 32,035,254 bytes，SHA-256
+`c3de5e5add58b88426ca507b30e92d5e39a0a7c1a5cb9eac9196ddd8e134e591`。该包已在本地检查
+manifest、配置文件和协议冒烟，但尚未替代上面的线上历史结果；提交前仍需在页面确认精确版本。
+
 首次完整项目平台评测已完成，原始下载归档与分析见
 [`notes/2026-09-26-platform-result-analysis.md`](2026-09-26-platform-result-analysis.md)。
 完整运行得分为 `7131.371807`，终止原因为 `survey_complete`；另一份 300 秒运行因
@@ -88,10 +96,11 @@ ZIP 和展开目录在 `.gitignore` 中，提交时只记录指纹和来源提�
 
 当前 agent 已把参数摘要、规划次数/耗时和总计写到 stderr；这些会进入 `agent.log`。本版还
 在启动时记录脱敏的 Python/实现版本、系统/架构、CPU 数、NumPy/orjson 版本、GIL/JIT 状态
-和峰值 RSS，在每 100 次决策记录墙钟、CPU、RSS、规划次数/耗时，在正常 EOF 记录最终计数。
-这些记录只写 stderr，不改变 JSONL 输出，也不增加外部网络请求。不记录逐快照、候选列表、
-未来天气、模型 prompt、完整 action payload、环境变量值、临时凭证或上游模型 key，避免结果
-体积和隐私风险。
+和峰值 RSS，在每次决策记录输入等待、策略计算、响应编码、stdout 刷新、请求/响应大小、
+候选数、CPU、墙钟和规划累计时间，在每 100 次决策保留聚合 checkpoint，在正常 EOF 记录
+最终计数及遥测队列统计。这些记录只写 stderr；远程事件进入有界异步队列，不改变 JSONL
+输出，也不让网络请求阻塞决策。不记录逐快照、候选内容、未来天气、模型 prompt、完整 action
+payload、环境变量值、临时凭证或上游模型 key，避免结果体积和隐私风险。
 
 ### 跨 batch 派生指标
 
@@ -121,8 +130,9 @@ ZIP 和展开目录在 `.gitignore` 中，提交时只记录指纹和来源提�
 
 ## 模型接口与遥测服务器决策
 
-当前策略仍然是确定性的，不需要模型来作决定；但平台只保证注入
-`OPENAI_BASE_URL`/`OPENAI_API_KEY`，因此这两个变量现在也支持作为遥测传输配置：API key
+当前策略仍然是确定性的，不需要模型来作决定；完整项目包默认带上非机密遥测配置，但只有
+平台注入鉴权密钥时才启动发送线程。平台若注入 `OPENAI_BASE_URL`/`OPENAI_API_KEY`，这两个变量
+也支持作为遥测传输配置：API key
 被解释为遥测写入鉴权密钥，base URL 被规范化到 `/v1/chat/completions`，每个事件同时放入
 标准 JSON user message 和受限的 `telemetry` 结构化字段，模型名默认为 `telemetry-ack`。
 显式 `TELEMETRY_URL`/`TELEMETRY_TOKEN` 仍优先走批量事件接口，可用于不经过 OpenAI 兼容层的
@@ -134,9 +144,10 @@ D1，并返回合规的非流式或 SSE 响应，便于平台把它当作 OpenAI
 TLS 字段）；密钥、提示词和消息正文不会落库。D1 默认保留 30 天。
 
 遥测只用于补充平台原生日志和评分结果，仍需遵守比赛允许出站请求的前提；Workers.dev 在
-部分网络环境中不可达时，客户端会快速失败并丢弃，不影响评分进程。首次结果包没有 `.env`，
-manifest 的 `environment` 为空，且客户端没有记录 enabled/stats，因此目前更可能是遥测未
-启动，尚不能据此判断 workers.dev 被阻断；详见平台实测记录。
+部分网络环境中不可达时，客户端会快速失败并丢弃，不影响评分进程。首次结果包没有遥测配置
+和 `.env`，manifest 的 `environment` 为空，且旧客户端没有记录 enabled/stats，因此目前更
+可能是遥测未启动，尚不能据此判断 workers.dev 被阻断；详见平台实测记录。新包会记录脱敏
+配置状态和逐步 trace，下一次运行再判断实际网络路径。
 
 ## 决策门
 

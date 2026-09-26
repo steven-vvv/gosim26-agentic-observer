@@ -8,7 +8,7 @@
 | `data/` | 平台公开数据快照：排行榜、决赛场景公开文件、入门包原件，见 `data/README.md` |
 | `kit/` | 官方入门包解压副本（只读参考；本地评测用它的 `local_runner.py` 与评分器） |
 | `agents/observer/` | 我们的确定性策略（工作副本）：`main.py` 入口，`policy.py` 决策，`planner.py` 对偶价格规划，`geometry.py` 几何与日历，`protocol.py` 原样取自官方 kit |
-| `agents/obs*/` | 冻结的实验快照；`params.json` 只覆盖与默认值不同的参数。**当前推荐版本 `obs17`**（与工作副本相同）：obs16 加上寒潮期在线效率修正（92 场 +0.50%，见 `notes/2026-09-25-obs17.md`）；`obs16` 是 obs15 加上规划器计入每周天气预报（46 场 +0.12%，见 `notes/2026-09-25-obs16.md`）；`obs15` 在 obs14 基础上只加了协议容错，决策与 obs14 逐位相同 |
+| `agents/obs*/` | 冻结的实验快照；`params.json` 只覆盖与默认值不同的参数。`obs17` 是最近一次已冻结的策略快照（寒潮期在线效率修正，见 `notes/2026-09-25-obs17.md`）；`obs16` 是 obs15 加上规划器计入每周天气预报（见 `notes/2026-09-25-obs16.md`）。它们不含当前的遥测与逐步追踪代码 |
 | `dist/` | 本地生成的提交包、择优组合和 Playground CSV；均不进入版本库，可分别用 `tools/pack_project.py`、`tools/build_portfolio.py`、`tools/zero_score.py` 重建 |
 | `tools/evaluate.py` | 批量评测：多个 agent × 多个场景，结果写入 `results/<agent>/<场景>.json`；默认用加速 runner + 当前 CPython |
 | `tools/fast_runner.py` | 本地评测用的加速 runner：缓存和 NumPy 批算官方 kit 的纯计算，可选 orjson 协议编码；不修改 kit |
@@ -38,9 +38,10 @@ git，默认分支 `main`。当前实验在 `codex` 分支；前一轮 `claude` 
 ## 环境
 
 用 uv 管理，开发用 Python 3.14（`.python-version`），分析依赖见 `pyproject.toml`。agent 保持 Python 3.9 语法兼容
-（平台用 Python 3.12 运行，`ruff` 按 `target-version = "py39"` 检查）。规划器可选 numpy（程序包里的 `requirements.txt`，
-平台在时钟开始前安装）：装得上就走向量化路径，平台 CPython 上规划快 13 倍；装不上（或本地 PyPy）就用纯 Python，
-两条路径的结果逐位相同（`tests/test_observer.py` 与整场 decisions.csv 比对）。
+（平台用 Python 3.12 运行，`ruff` 按 `target-version = "py39"` 检查）。规划器可选 numpy：完整项目包把 wheel 安装到
+可写的 `.deps/` 后走向量化路径，安装失败（或本地 PyPy）就用纯 Python；两条路径的结果逐位相同
+（`tests/test_observer.py` 与整场 decisions.csv 比对）。完整项目打包默认附带不含密钥的遥测配置和逐步性能追踪；只有
+平台注入 `OPENAI_API_KEY` 时才联网，网络失败不会阻塞决策。
 
 ```bash
 uv sync                                   # 建立 .venv
@@ -75,6 +76,7 @@ uv run python kit/local_runner.py --scenario scenarios/comp-a-s101 --agent agent
 
 ## 资源
 
-本机 4 核、15 GB 内存、无 swap。当前 obs17 在 comp-a-s101 上用加速 runner + CPython 3.14.7
-约 226 秒，详见 `notes/2026-09-26-cpython-runner.md`。并行度默认 3；批量评测只保留精简结果，
+本机 4 核、15 GB 内存、无 swap。obs17 快照在 comp-a-s101 上用加速 runner + CPython 3.14.7
+约 226 秒，详见 `notes/2026-09-26-cpython-runner.md`；完整项目打包使用带遥测追踪的
+`agents/observer` 工作副本。并行度默认 3；批量评测只保留精简结果，
 配对实验只保留评分报告和日志。磁盘余量应定期用 `df -h` 检查。

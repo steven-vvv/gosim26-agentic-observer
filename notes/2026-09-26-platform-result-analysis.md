@@ -54,11 +54,36 @@ cpu_count=2, numpy=null, orjson=null, gil_disabled=null, jit_enabled=null
 同样在写入 `/.local` 时失败。两条错误均是 `Errno 30 Read-only file system`。因此这次运行
 走的是纯 Python 规划器，不能用它证明提交包里的 NumPy wheel 无效，也不能把分数变化归因于
 NumPy。纯 Python 路径仍在约 1235 秒内完成，日志中的规划累计约 0.9 秒，当前瓶颈更像是
-平台决策节奏而不是规划计算。
+平台决策节奏而不是规划计算。两个结果的平均记账墙钟约为 2.03 秒/动作（300 秒 ÷ 148）
+和 2.09 秒/动作（1235.33 秒 ÷ 591）；agent 自身 CPU 在前 500 次决策只有约 3.5 秒，
+不能解释这段长尾。
+
+## 超时假设与本次修正
+
+公开 runner 的全局墙钟包含请求序列化、进程等待、agent 处理和响应解析；公开资料没有
+单次决策独立的超时。旧包只在每 100 次决策打印一次统计，无法知道约两秒是在读取下一条
+请求、策略计算、stdout 刷新还是平台调度中消耗的。因此当前最高概率顺序是：评测服务的
+逐轮往返/调度开销，其次是平台管道或日志等待，最后才是规划器本身。
+
+`codex` 分支已作以下针对性修正，先收集证据再改变策略：
+
+1. `main.py` 每次决策记录 `input_wait_ms`、`policy_ms`、`response_ms`、`stdout_ms`、
+   请求/响应字节数、候选数、规划计数、CPU 与墙钟；重放也有独立 trace。stdout 仍只含协议
+   响应，遥测入队始终非阻塞。
+2. 启动记录脱敏的 `telemetry_config`，结束记录 `queued/sent/failed/dropped` 和队列状态，
+   下一次可以把“未注入变量”和“网络失败”分开。
+3. 完整项目的 NumPy build 步骤改为 `python3 -m pip install --target .deps`，入口优先加载
+   `.deps`，避免再写只读的 `/.local`；失败仍回退纯 Python。
+4. 完整项目打包默认生成非机密遥测配置。只有平台注入 `OPENAI_API_KEY` 时才启动后台线程，
+   `OPENAI_BASE_URL` 可覆盖默认 Worker，`--no-telemetry` 可显式关闭；所有请求仍有界超时、
+   有限重试和丢弃策略。
+
+逐步 trace 也会增加 stderr 行数，因此下一次运行应同时观察 `stdout_ms` 与 `input_wait_ms`，
+确认诊断输出没有成为新的阻塞源；不要仅凭总墙钟判断 NumPy 或策略改动有效。
 
 ## 遥测结论
 
-提交包内的 `observer.project.json` 的 `environment` 是空对象，包内也没有 `.env`。客户端
+提交包内的 `observer.project.json` 的 `environment` 是空对象，包内也没有 `.env`。旧版客户端
 `TelemetryReporter.from_env()` 只有在以下任一条件满足时才会创建发送线程：
 
 1. `TELEMETRY_URL` 与 `TELEMETRY_TOKEN` 同时存在；或
@@ -69,9 +94,9 @@ NumPy。纯 Python 路径仍在约 1235 秒内完成，日志中的规划累计�
 远程发送无关。代码当时没有把 `enabled`、`queued/sent/failed/dropped` 写入日志，所以日志
 中缺少“未配置”和“网络失败”的区分。
 
-因此当前最高置信度判断是：**这次遥测大概率没有启动，优先原因是变量或 `.env` 未进入运行进程，
-不是已经确认的 workers.dev 网络阻断。** 在没有一次明确注入变量的运行前，不能从空的 D1
-结果反推出 Cloudflare 出口不可达。
+因此当前最高置信度判断是：**这次旧版遥测大概率没有启动，优先原因是变量或 `.env` 未进入运行进程，
+不是已经确认的 workers.dev 网络阻断。** 新包会把配置状态写入日志，但仍需要一次明确注入
+变量的运行，才能从 `configured/enabled` 和发送统计判断 Cloudflare 出口是否可达。
 
 平台公开说明的可靠配置路径是随项目上传 `.env`，并只把其中的键注入进程；任何 token 都不
 应写入 Git。下一次诊断可使用等价于下面的未跟踪配置（token 用 Worker 的写入密钥）：
@@ -90,10 +115,9 @@ TELEMETRY_TOKEN=<TELEMETRY_INGEST_TOKEN>
 TELEMETRY_TRANSPORT=events
 ```
 
-两种配置都只授予遥测写入权限，不是模型上游密钥。下一版应在 stderr 记录只含布尔值的配置
-状态和最终发送计数，并让最终有界 flush 时间足以完成一次短请求；绝不记录 URL 中的凭证、
-token 或请求正文。这样下一次结果可以明确归类为“未配置 / HTTP 拒绝 / DNS 或连接超时 /
-成功”。
+两种配置都只授予遥测写入权限，不是模型上游密钥。新版本只记录脱敏配置状态和最终发送计数，
+并让最终有界 flush 时间足以完成一次短请求；绝不记录 URL 中的凭证、token 或请求正文。这样
+下一次结果可以明确归类为“未配置 / HTTP 拒绝 / DNS 或连接超时 / 成功”。
 
 ## 后续动作
 
@@ -102,5 +126,5 @@ token 或请求正文。这样下一次结果可以明确归类为“未配置 /
    `TELEMETRY_RUN_ID` 便于 D1 查询；不要把密钥加入仓库或 ZIP 审计材料。
 3. 先跑一次最小遥测验证，再做策略变体；若仍无事件，收集脱敏状态日志后再判断
    workers.dev 阻断，并考虑备用域名或端点。
-4. 单独记录 NumPy 安装失败；在平台允许的情况下改用可写目标目录或不带 wheel 的对照，
-   但不要把这次失败误判为评分器或策略错误。
+4. 单独记录 NumPy 安装失败；先验证 `.deps` 是否出现并比较 `runtime.numpy`，再做带/不带
+   wheel 的对照，测量纯 Python 路径的时间代价，不要把这次失败误判为评分器或策略错误。
