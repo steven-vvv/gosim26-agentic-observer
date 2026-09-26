@@ -9,7 +9,7 @@
 | `kit/` | 官方入门包解压副本（只读参考；本地评测用它的 `local_runner.py` 与评分器） |
 | `agents/observer/` | 我们的确定性策略（工作副本）：`main.py` 入口，`policy.py` 决策，`planner.py` 对偶价格规划，`geometry.py` 几何与日历，`protocol.py` 原样取自官方 kit |
 | `agents/obs*/` | 冻结的实验快照；`params.json` 只覆盖与默认值不同的参数。**当前推荐版本 `obs17`**（与工作副本相同）：obs16 加上寒潮期在线效率修正（92 场 +0.50%，见 `notes/2026-09-25-obs17.md`）；`obs16` 是 obs15 加上规划器计入每周天气预报（46 场 +0.12%，见 `notes/2026-09-25-obs16.md`）；`obs15` 在 obs14 基础上只加了协议容错，决策与 obs14 逐位相同 |
-| `dist/` | 可提交的完整项目包 `observer-obs17-project.zip`（由 `tools/pack_project.py` 生成）；`portfolio/` 是旧赛制产物。策略变更后需重新打包 |
+| `dist/` | 本地生成的提交包、择优组合和 Playground CSV；均不进入版本库，可分别用 `tools/pack_project.py`、`tools/build_portfolio.py`、`tools/zero_score.py` 重建 |
 | `tools/evaluate.py` | 批量评测：多个 agent × 多个场景，结果写入 `results/<agent>/<场景>.json`；默认用加速 runner + 当前 CPython |
 | `tools/fast_runner.py` | 本地评测用的加速 runner：缓存和 NumPy 批算官方 kit 的纯计算，可选 orjson 协议编码；不修改 kit |
 | `tools/robust_batch.py` | CPython 上对 23 场筛选集或 92 场全集做配对策略实验，精简保存报告 |
@@ -32,7 +32,7 @@
 ## 版本库
 
 git，默认分支 `main`。当前实验在 `codex` 分支；前一轮 `claude` 分支的工作已同步到 `main`。
-本地 comp-* 场景和临时运行产物不入库（见 `.gitignore`），场景可以用下文的 `make_scenario.py` 命令按种子重新生成。
+本地 comp-* 场景、`dist/` 构建导出和临时运行产物不入库（见 `.gitignore`），都可以用对应工具重新生成。
 
 ## 环境
 

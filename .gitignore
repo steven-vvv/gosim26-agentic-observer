@@ -15,9 +15,9 @@ runs/perf/
 runs/prof/
 runs/zero/
 
-# 完整项目的构建产物（tools/pack_project.py 随时可以重建；带 numpy wheel 约 31 MB）
-dist/project-*/
-dist/*-project.zip
+# 构建与评测导出（可由 tools/pack_project.py、build_portfolio.py、zero_score.py 重建）
+# 包括完整项目包、历史 agent 包、择优组合和 Playground CSV，不进入版本库。
+dist/
 
 # Cloudflare telemetry worker local state and credentials
 telemetry-worker/node_modules/
