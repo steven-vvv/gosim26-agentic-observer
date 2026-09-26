@@ -81,6 +81,7 @@ class Planner:
         self.events_until = -math.inf  # 预报的有效期末（之后的时段按平均开放率）
         self._bin_events: dict = {}  # 时段序号 -> 可能起作用的事件（全站闭站的除外）
         self._effects: dict = {}     # (天区, 时段) -> [(概率, 是否闭站, 质量乘数, 效率乘数)]
+        self._site_open_cache: dict = {}
         self.computed_nights: set = set()
         self.mu: dict = {}
         self.w_samples: list = []
@@ -243,17 +244,24 @@ class Planner:
         self.events, self.events_mode, self.events_until = list(events), mode, until
         self.closing_events = [e for e in self.events if e.scope == "ALL" and e.force_close]
         self._bin_events, self._effects = {}, {}
+        self._site_open_cache = {}
 
     def _site_open(self, t: float, open_rate: float) -> float:
         """时刻 t 的站点开放率：全站强制闭站的事件（降雨、龙卷风）按预报概率换算；预报有效期外用平均开放率。"""
         if t >= self.events_until:
             return open_rate
+        cached = self._site_open_cache.get(t)
+        if cached is not None:
+            return cached
         if self.events_mode == "truth":
-            return 0.0 if any(e.active(t) > 0.0 for e in self.closing_events) else TRUE_BACKGROUND_OPEN
-        stay = 1.0
-        for e in self.closing_events:
-            stay *= 1.0 - e.active(t)
-        return open_from_probability(1.0 - stay)
+            value = 0.0 if any(e.active(t) > 0.0 for e in self.closing_events) else TRUE_BACKGROUND_OPEN
+        else:
+            stay = 1.0
+            for e in self.closing_events:
+                stay *= 1.0 - e.active(t)
+            value = open_from_probability(1.0 - stay)
+        self._site_open_cache[t] = value
+        return value
 
     def _event_effects(self, tid: str, b: int, sample_time: float | None = None) -> list:
         key = (tid, b, sample_time)
