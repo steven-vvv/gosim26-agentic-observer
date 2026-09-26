@@ -157,12 +157,17 @@ class TelemetryReporter:
         *,
         run_id: str | None = None,
         source: str = "observer",
+        transport: str = "events",
+        model: str = "telemetry-ack",
         queue_size: int = 256,
         timeout: float = 0.8,
         retries: int = 2,
         backoff: float = 0.1,
     ) -> None:
-        self.url = self._normalize_url(url) if url and token else None
+        normalized_transport = str(transport or "events").strip().lower()
+        self.transport = normalized_transport if normalized_transport in {"events", "openai"} else "events"
+        self.model = str(model or "telemetry-ack").strip()[:128] or "telemetry-ack"
+        self.url = self._normalize_url(url, self.transport) if url and token else None
         self.token = token if self.url else None
         self.run_id = run_id or str(uuid.uuid4())
         self.source = source[:48] or "observer"
@@ -180,19 +185,46 @@ class TelemetryReporter:
 
     @classmethod
     def from_env(cls) -> "TelemetryReporter":
+        # The explicit event endpoint is preferred.  The OpenAI-compatible
+        # variables are also a supported telemetry transport: on platforms
+        # that only inject OPENAI_BASE_URL/OPENAI_API_KEY, the API key is the
+        # telemetry ingest credential and no model call is required.
+        url = os.environ.get("TELEMETRY_URL")
+        token = os.environ.get("TELEMETRY_TOKEN")
+        transport = os.environ.get("TELEMETRY_TRANSPORT", "events").strip().lower()
+        if not (url and token) and os.environ.get("TELEMETRY_DISABLE_OPENAI", "").lower() not in {"1", "true", "yes", "on"}:
+            openai_url = os.environ.get("OPENAI_BASE_URL")
+            openai_key = os.environ.get("OPENAI_API_KEY")
+            if openai_url and openai_key:
+                url, token, transport = openai_url, openai_key, "openai"
+        model = (
+            os.environ.get("TELEMETRY_MODEL")
+            or os.environ.get("OPENAI_MODEL")
+            or os.environ.get("MODEL_NAME")
+            or os.environ.get("MODEL")
+            or "telemetry-ack"
+        )
         return cls(
-            os.environ.get("TELEMETRY_URL"),
-            os.environ.get("TELEMETRY_TOKEN"),
+            url,
+            token,
             run_id=os.environ.get("TELEMETRY_RUN_ID"),
             source=os.environ.get("TELEMETRY_SOURCE", "observer"),
+            transport=transport,
+            model=model,
             queue_size=_safe_int(os.environ.get("TELEMETRY_QUEUE_SIZE"), 256, 1, 4096),
             timeout=_safe_float(os.environ.get("TELEMETRY_TIMEOUT_SECONDS"), 0.8, 0.1, 3.0),
             retries=_safe_int(os.environ.get("TELEMETRY_RETRIES"), 2, 0, 3),
         )
 
     @staticmethod
-    def _normalize_url(value: str) -> str:
+    def _normalize_url(value: str, transport: str = "events") -> str:
         url = value.strip().rstrip("/")
+        if transport == "openai":
+            if url.endswith("/v1/chat/completions"):
+                return url
+            if url.endswith("/v1"):
+                return f"{url}/chat/completions"
+            return f"{url}/v1/chat/completions"
         if url.endswith("/v1/telemetry"):
             return url
         if url.endswith("/v1"):
@@ -252,7 +284,28 @@ class TelemetryReporter:
                 self._inc("dropped")
 
     def _send(self, event: dict[str, Any]) -> None:
-        body = json.dumps({"events": [event]}, separators=(",", ":")).encode("utf-8")
+        if self.transport == "openai":
+            # Keep the event in a standard user message for generic
+            # OpenAI-compatible transports, while the structured envelope
+            # lets our Worker avoid having to infer fields from prose.
+            envelope = {"schema": "gosim26.telemetry.v1", "event": event}
+            body_object = {
+                "model": self.model,
+                "messages": [{
+                    "role": "user",
+                    "content": json.dumps(envelope, separators=(",", ":")),
+                }],
+                "stream": False,
+                "metadata": {
+                    "run_id": event.get("run_id"),
+                    "event_type": event.get("event_type"),
+                    "telemetry": True,
+                },
+                "telemetry": envelope,
+            }
+        else:
+            body_object = {"events": [event]}
+        body = json.dumps(body_object, separators=(",", ":")).encode("utf-8")
         request = urllib.request.Request(
             self.url or "",
             data=body,

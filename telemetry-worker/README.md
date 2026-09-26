@@ -3,16 +3,19 @@
 This is a small Cloudflare Worker for optional observer telemetry. It stores
 bounded, sanitized event records in D1 and exposes a read API for later
 analysis. The observer never depends on the service for a decision: without
-both `TELEMETRY_URL` and `TELEMETRY_TOKEN` it does not start a network thread,
-and when enabled it uses a bounded queue, short timeouts, bounded retries and
-event drops.
+an explicit telemetry pair or an OpenAI-compatible `OPENAI_BASE_URL` plus
+`OPENAI_API_KEY` it does not start a network thread. When enabled it uses a
+bounded queue, short timeouts, bounded retries and event drops.
 
 The service intentionally records measurements rather than analysis inputs.
 The packaged client lives in `../agents/observer/telemetry.py`; it sends
 interpreter and host metrics, initialization sizes, decision counts, planner
-timing, process RSS and disk usage. Payload sanitization drops
-common secret fields and message/prompt content on both sides. Do not put raw
-credentials or prompts into telemetry fields.
+timing, process RSS and disk usage. Payload sanitization drops common secret
+fields and message/prompt content on both sides. The Worker adds a
+`server_network` object containing selected edge metadata (including the
+source IP when Cloudflare supplies it, forwarding metadata, country/colo,
+protocol and TLS fields). Do not put raw credentials or prompts into telemetry
+fields.
 
 ## API
 
@@ -25,9 +28,14 @@ All protected routes accept `Authorization: Bearer <token>` or
 * `GET /v1/telemetry?run_id=...&event_type=...&limit=100&cursor=...` reads
   newest-first events with decoded `payload` objects. Read access uses
   `TELEMETRY_READ_TOKEN`.
-* `POST /v1/chat/completions` is a minimal OpenAI-compatible acknowledgement
-  endpoint. It records request metadata and returns a valid non-streaming
-  completion or an SSE completion when `stream` is true.
+* `POST /v1/chat/completions` is an OpenAI-compatible telemetry endpoint. When
+  the contest platform supplies `OPENAI_BASE_URL` and `OPENAI_API_KEY`, point
+  the base URL at this Worker and set the API key to the same value as the
+  Worker's `TELEMETRY_INGEST_TOKEN`; here the key is telemetry authentication,
+  never an upstream model credential. The client puts the event in a JSON user
+  message and a structured `telemetry` envelope; the Worker stores one
+  normalized event and returns a valid
+  non-streaming completion or an SSE completion when `stream` is true.
 * `GET /v1/models` returns the `telemetry-ack` model and uses ingest access.
 
 An event has `run_id`, `event_type`, `source`, optional client timestamp and
@@ -62,10 +70,14 @@ curl -s 'http://127.0.0.1:8790/v1/telemetry?run_id=local' \
   -H 'authorization: Bearer local-read-token'
 ```
 
-For an offline client check, omit `TELEMETRY_URL`; `TelemetryReporter` then
-performs no network or disk I/O. To exercise the client against local Wrangler,
-set `TELEMETRY_URL=http://127.0.0.1:8790` and
-`TELEMETRY_TOKEN=local-ingest-token` when launching the observer.
+For an offline client check, omit all telemetry variables; `TelemetryReporter`
+then performs no network or disk I/O. The explicit event transport uses
+`TELEMETRY_URL` and `TELEMETRY_TOKEN`. To use the OpenAI-compatible transport,
+set `OPENAI_BASE_URL=http://127.0.0.1:8790`,
+`OPENAI_API_KEY=local-ingest-token`, and optionally
+`TELEMETRY_MODEL=telemetry-ack` (the default). The client normalizes the base
+URL to `/v1/chat/completions`. `TELEMETRY_URL`/`TELEMETRY_TOKEN` take priority;
+set `TELEMETRY_DISABLE_OPENAI=1` to prevent the OpenAI fallback.
 
 ## First real deployment
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 import time
@@ -36,6 +37,51 @@ class TelemetryClientTests(unittest.TestCase):
         self.assertEqual(reporter.url, "https://example.test/v1/telemetry")
         self.assertEqual(reporter.stats()["sent"], 1)
         request = urlopen.call_args.args[0]
+        self.assertNotIn("secret", request.data.decode())
+
+    def test_openai_environment_is_a_telemetry_transport(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "OPENAI_BASE_URL": "https://telemetry.example/v1",
+                "OPENAI_API_KEY": "ingest-token",
+                "MODEL_NAME": "telemetry-ack",
+            },
+            clear=True,
+        ):
+            reporter = TelemetryReporter.from_env()
+        self.assertTrue(reporter.enabled)
+        self.assertEqual(reporter.transport, "openai")
+        self.assertEqual(reporter.url, "https://telemetry.example/v1/chat/completions")
+        self.assertEqual(reporter.model, "telemetry-ack")
+        reporter.close()
+
+    def test_openai_transport_wraps_event_in_messages(self):
+        reporter = TelemetryReporter(
+            "https://example.test/v1",
+            "token",
+            transport="openai",
+            model="telemetry-ack",
+            retries=0,
+        )
+        with patch("telemetry.urllib.request.urlopen") as urlopen:
+            class Response:
+                status = 200
+                def __enter__(self): return self
+                def __exit__(self, *_): return False
+                def read(self, _=-1): return b'{}'
+            urlopen.return_value = Response()
+            self.assertTrue(reporter.emit("runtime", {"api_key": "secret", "ok": 1}))
+            deadline = time.time() + 1.0
+            while reporter.stats()["sent"] < 1 and time.time() < deadline:
+                time.sleep(0.01)
+        reporter.close()
+        request = urlopen.call_args.args[0]
+        body = json.loads(request.data.decode())
+        self.assertEqual(request.full_url, "https://example.test/v1/chat/completions")
+        self.assertEqual(body["model"], "telemetry-ack")
+        self.assertEqual(body["messages"][0]["role"], "user")
+        self.assertEqual(body["telemetry"]["event"]["event_type"], "runtime")
         self.assertNotIn("secret", request.data.decode())
 
     def test_queue_overflow_is_dropped_without_blocking(self):

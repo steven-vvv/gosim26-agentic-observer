@@ -1,4 +1,5 @@
-import { sanitize, jsonBytes } from "./sanitize";
+import { jsonBytes } from "./sanitize";
+import { withServerNetwork } from "./network";
 import type { Env, JsonValue, NormalizedEvent } from "./types";
 
 export interface Rejection {
@@ -60,18 +61,18 @@ function optionalInteger(value: unknown, name: string): number | null {
   return value;
 }
 
-function eventPayload(item: Record<string, unknown>): { payload: JsonValue; json: string; bytes: number } {
+function eventPayload(item: Record<string, unknown>, serverNetwork: JsonValue): { payload: JsonValue; json: string; bytes: number } {
   const source = item.payload ?? item.data ?? {};
-  const payload = sanitize(source);
+  const payload = withServerNetwork(source, serverNetwork);
   const { json, bytes } = jsonBytes(payload);
   if (bytes > 64_000) throw new Error("payload exceeds 64 KiB");
   return { payload, json, bytes };
 }
 
-function normalize(item: unknown, receivedAt: number): NormalizedEvent {
+function normalize(item: unknown, receivedAt: number, serverNetwork: JsonValue): NormalizedEvent {
   if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("event must be an object");
   const value = item as Record<string, unknown>;
-  const { json, bytes } = eventPayload(value);
+  const { json, bytes } = eventPayload(value, serverNetwork);
   const id = value.id === undefined ? crypto.randomUUID() : stringField(value.id, "id", 160);
   return {
     id,
@@ -86,7 +87,7 @@ function normalize(item: unknown, receivedAt: number): NormalizedEvent {
   };
 }
 
-export async function parseEvents(request: Request, env: Env): Promise<{ events: NormalizedEvent[]; rejected: Rejection[] }> {
+export async function parseEvents(request: Request, env: Env, serverNetwork: JsonValue): Promise<{ events: NormalizedEvent[]; rejected: Rejection[] }> {
   const body = await readJson(request, env);
   const items = Array.isArray(body) ? body : (body && typeof body === "object" && Array.isArray((body as { events?: unknown }).events)
     ? (body as { events: unknown[] }).events
@@ -99,7 +100,7 @@ export async function parseEvents(request: Request, env: Env): Promise<{ events:
   const rejected: Rejection[] = [];
   for (const [index, item] of items.entries()) {
     try {
-      events.push(normalize(item, receivedAt));
+      events.push(normalize(item, receivedAt, serverNetwork));
     } catch (error) {
       rejected.push({ index, reason: error instanceof Error ? error.message : "invalid event" });
     }

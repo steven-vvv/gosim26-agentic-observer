@@ -1,6 +1,7 @@
 import { requireIngestAuth, requireReadAuth } from "./auth";
 import { handleChatCompletions, modelList } from "./openai";
 import { deleteExpired, insertEvents, queryEvents } from "./storage";
+import { requestNetworkMetadata } from "./network";
 import { parseEvents, RequestError } from "./validation";
 import type { Env, QueryEvents } from "./types";
 
@@ -51,7 +52,7 @@ function queryLimit(url: URL): number {
 
 async function ingest(request: Request, env: Env): Promise<Response> {
   if (!(await requireIngestAuth(request, env))) return json({ error: "unauthorized" }, 401);
-  const { events, rejected } = await parseEvents(request, env);
+  const { events, rejected } = await parseEvents(request, env, requestNetworkMetadata(request));
   const accepted = await insertEvents(env.DB, events);
   return json({ accepted, received: events.length, rejected, server_time_ms: Date.now() }, 202);
 }

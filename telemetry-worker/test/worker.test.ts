@@ -120,4 +120,50 @@ describe("telemetry worker", () => {
     expect(body).toContain("data: [DONE]");
     expect(body).not.toContain("\n\n data:");
   });
+
+  it("accepts structured OpenAI telemetry and records edge network metadata", async () => {
+    const runId = `openai-${crypto.randomUUID()}`;
+    const event = {
+      id: `${runId}-runtime`,
+      run_id: runId,
+      event_type: "runtime",
+      source: "observer",
+      client_time_ms: 123,
+      sequence: 0,
+      payload: { python: "3.14", api_key: "must-not-persist" },
+    };
+    const response = await call("/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        ...bearer("ingest-test-token"),
+        "content-type": "application/json",
+        "cf-connecting-ip": "203.0.113.9",
+        "x-forwarded-for": "203.0.113.9, 198.51.100.4",
+        "cf-ray": "test-ray",
+        "cf-ipcountry": "CN",
+        "user-agent": "telemetry-client-test",
+      },
+      body: JSON.stringify({
+        model: "telemetry-ack",
+        messages: [{ role: "user", content: JSON.stringify({ schema: "gosim26.telemetry.v1", event }) }],
+        telemetry: { schema: "gosim26.telemetry.v1", event },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-telemetry-accepted")).toBe("true");
+
+    const page = await call(`/v1/telemetry?run_id=${encodeURIComponent(runId)}`, {
+      headers: bearer("read-test-token"),
+    });
+    const result = await page.json() as { events: Array<{ event_type: string; payload: Record<string, unknown> }> };
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].event_type).toBe("runtime");
+    expect(result.events[0].payload.python).toBe("3.14");
+    expect(result.events[0].payload.api_key).toBeUndefined();
+    const network = result.events[0].payload.server_network as Record<string, unknown>;
+    expect(network.source_ip).toBe("203.0.113.9");
+    expect(network.forwarded_for).toContain("198.51.100.4");
+    expect(network.cf_ray).toBe("test-ray");
+    expect(network.country).toBe("CN");
+  });
 });
