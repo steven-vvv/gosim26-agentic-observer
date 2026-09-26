@@ -17,6 +17,13 @@ source IP when Cloudflare supplies it, forwarding metadata, country/colo,
 protocol and TLS fields). Do not put raw credentials or prompts into telemetry
 fields.
 
+The Wrangler configuration also enables Cloudflare Workers Observability Logs
+with persisted invocation logs and 100% head sampling. This is a second,
+independent signal path for Worker requests, `console` output, errors and
+runtime metadata; D1 remains the source of truth for structured telemetry.
+Tracing is intentionally left disabled until there is a measured need for
+span-level dependency timing.
+
 ## API
 
 All protected routes accept `Authorization: Bearer <token>` or
