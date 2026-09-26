@@ -9,13 +9,9 @@
 from __future__ import annotations
 
 import atexit
-import importlib.metadata
 import json
-import os
-import platform
 import re
 import sys
-import sysconfig
 import time
 import traceback
 from pathlib import Path
@@ -42,31 +38,11 @@ if str(AGENT_DIR) not in sys.path:
 
 from policy import ObserverPolicy, epoch, load_params
 from protocol import ACCEPTED_PROTOCOL_VERSIONS, ACCEPTED_SNAPSHOT_VERSIONS, INITIAL_PUBLICATION_VERSION, decision_response
-from telemetry import TelemetryReporter
-from telemetry import runtime_payload as remote_runtime_payload
+from telemetry import TelemetryReporter, runtime_payload
 
 WAIT = {"action": "wait", "tile_id": "", "program": "", "request_id": "", "decision_source": "deterministic"}
 SEQUENCE = re.compile(r'"decision_sequence"\s*:\s*(\d+)')
 _warned: set = set()
-
-
-def _package_version(name: str) -> str | None:
-    """Return an installed distribution version without importing the package."""
-    try:
-        return importlib.metadata.version(name)
-    except importlib.metadata.PackageNotFoundError:
-        return None
-    except Exception:  # noqa: BLE001  # pragma: no cover - broken metadata should not stop the agent
-        return "unknown"
-
-
-def _flag(value):
-    """Normalize build flags while preserving an unavailable value as null."""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value.lower() not in {"", "0", "false", "no", "off"}
-    return bool(value)
 
 
 def _rss_kib() -> int | None:
@@ -93,33 +69,8 @@ def _cpu_seconds() -> float | None:
 
 
 def _runtime_fields() -> dict:
-    """Small, non-secret environment snapshot suitable for the platform agent.log."""
-    jit = getattr(sys, "_jit", None)
-    jit_enabled = None
-    if jit is not None and hasattr(jit, "is_enabled"):
-        try:
-            jit_enabled = bool(jit.is_enabled())
-        except Exception:  # noqa: BLE001  # pragma: no cover - interpreter-specific API
-            jit_enabled = None
-    gil_flag = sysconfig.get_config_var("Py_GIL_DISABLED")
-    if gil_flag is None:
-        gil_flag = getattr(sys.flags, "gil", None)
-    build, build_date = platform.python_build()
-    return {
-        "python": platform.python_version(),
-        "implementation": platform.python_implementation(),
-        "python_build": build,
-        "python_build_date": build_date,
-        "system": platform.system(),
-        "release": platform.release(),
-        "machine": platform.machine(),
-        "cpu_count": os.cpu_count(),
-        "numpy": _package_version("numpy"),
-        "orjson": _package_version("orjson"),
-        "gil_disabled": _flag(gil_flag),
-        "jit_enabled": jit_enabled,
-        "rss_kib": _rss_kib(),
-    }
+    """Use one runtime snapshot for local and remote telemetry."""
+    return runtime_payload()
 
 
 def telemetry(event: str, **fields) -> None:
@@ -177,7 +128,7 @@ def main() -> None:
     telemetry("telemetry_config", **reporter.status())
     if reporter.enabled:
         reporter.emit("telemetry_config", reporter.status())
-        reporter.emit("runtime", remote_runtime_payload())
+        reporter.emit("runtime", runtime_payload())
     for line in sys.stdin:
         if not line.strip():
             continue

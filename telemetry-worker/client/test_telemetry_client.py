@@ -141,6 +141,10 @@ class TelemetryClientTests(unittest.TestCase):
         payload = runtime_payload()
         self.assertIn("python", payload)
         self.assertIn("machine", payload)
+        self.assertIn("architecture", payload)
+        self.assertIn("pointer_bits", payload)
+        self.assertIn("cpu_affinity_count", payload)
+        self.assertIn("resource_limits", payload)
         self.assertNotIn("TELEMETRY_TOKEN", str(payload))
 
 

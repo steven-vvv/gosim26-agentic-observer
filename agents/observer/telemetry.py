@@ -13,6 +13,7 @@ import os
 import platform
 import queue
 import shutil
+import struct
 import sys
 import sysconfig
 import threading
@@ -109,8 +110,99 @@ def _disk_snapshot(path: str = "/") -> dict[str, int] | None:
         return None
 
 
+def _cpu_snapshot() -> dict[str, Any]:
+    """Read a bounded CPU model/feature snapshot when procfs is available."""
+    model: str | None = None
+    flags: list[str] = []
+    try:
+        with open("/proc/cpuinfo", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                key, separator, value = line.partition(":")
+                if not separator:
+                    continue
+                normalized = key.strip().lower()
+                value = value.strip()
+                if normalized in {"model name", "hardware", "cpu model"} and value and model is None:
+                    model = value[:256]
+                elif normalized in {"flags", "features"} and value and not flags:
+                    flags = list(dict.fromkeys(value.split()))[:256]
+    except (OSError, UnicodeError):
+        pass
+    if model is None:
+        model = platform.processor() or None
+    return {"model": model, "flags": flags or None}
+
+
+def _memory_snapshot() -> dict[str, int] | None:
+    """Return host memory counters when Linux exposes procfs."""
+    wanted = {"MemTotal", "MemAvailable", "SwapTotal", "SwapFree"}
+    values: dict[str, int] = {}
+    try:
+        with open("/proc/meminfo", encoding="ascii", errors="replace") as handle:
+            for line in handle:
+                key, separator, rest = line.partition(":")
+                if not separator or key not in wanted:
+                    continue
+                parts = rest.strip().split()
+                if not parts:
+                    continue
+                try:
+                    value = int(parts[0])
+                except ValueError:
+                    continue
+                # /proc/meminfo reports these counters in KiB.  Normalize to
+                # bytes so all memory fields share one unambiguous unit.
+                values[f"{key.lower()}_bytes"] = value * (1024 if len(parts) > 1 and parts[1].lower() == "kb" else 1)
+    except (OSError, UnicodeError):
+        return None
+    return values or None
+
+
+def _resource_limits() -> dict[str, dict[str, int | None]] | None:
+    """Capture limits that can explain a slow or truncated evaluation."""
+    if resource is None:
+        return None
+    names = {
+        "cpu_seconds": getattr(resource, "RLIMIT_CPU", None),
+        "address_space_bytes": getattr(resource, "RLIMIT_AS", None),
+        "open_files": getattr(resource, "RLIMIT_NOFILE", None),
+    }
+    limits: dict[str, dict[str, int | None]] = {}
+    infinity = getattr(resource, "RLIM_INFINITY", -1)
+    for label, kind in names.items():
+        if kind is None:
+            continue
+        try:
+            soft, hard = resource.getrlimit(kind)
+        except (OSError, ValueError):
+            continue
+        limits[label] = {
+            "soft": None if soft in {infinity, -1} else int(soft),
+            "hard": None if hard in {infinity, -1} else int(hard),
+        }
+    return limits or None
+
+
+def _cpu_affinity_count() -> int | None:
+    """Report the CPUs available to the process, including container limits."""
+    getter = getattr(os, "sched_getaffinity", None)
+    if getter is None:
+        return None
+    try:
+        return len(getter(0))
+    except (OSError, TypeError):
+        return None
+
+
+def _load_average() -> list[float] | None:
+    try:
+        return list(os.getloadavg())
+    except (AttributeError, OSError):
+        return None
+
+
 def runtime_payload() -> dict[str, Any]:
-    """Collect non-secret interpreter, host and process metrics."""
+    """Collect bounded, non-secret interpreter, ABI, host and process metrics."""
     gil_flag = sysconfig.get_config_var("Py_GIL_DISABLED")
     if gil_flag is None:
         gil_flag = getattr(sys.flags, "gil", None)
@@ -126,25 +218,45 @@ def runtime_payload() -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         jit_enabled = None
     build, build_date = platform.python_build()
+    cpu = _cpu_snapshot()
+    libc_name, libc_version = platform.libc_ver()
+    try:
+        pointer_bits = struct.calcsize("P") * 8
+    except (struct.error, TypeError):
+        pointer_bits = None
     payload: dict[str, Any] = {
         "python": platform.python_version(),
         "implementation": platform.python_implementation(),
         "python_build": build,
         "python_build_date": build_date,
+        "python_compiler": platform.python_compiler(),
         "system": platform.system(),
         "release": platform.release(),
         "version": platform.version(),
+        "architecture": platform.machine() or None,
         "machine": platform.machine(),
         "processor": platform.processor(),
+        "cpu_model": cpu["model"],
+        "cpu_flags": cpu["flags"],
         "cpu_count": os.cpu_count(),
-        "load_average": list(os.getloadavg()) if hasattr(os, "getloadavg") else None,
+        "cpu_affinity_count": _cpu_affinity_count(),
+        "load_average": _load_average(),
+        "pointer_bits": pointer_bits,
+        "byteorder": sys.byteorder,
+        "libc": {"name": libc_name or None, "version": libc_version or None},
         "numpy": _package_version("numpy"),
         "orjson": _package_version("orjson"),
         "gil_disabled": gil_disabled,
         "jit_enabled": jit_enabled,
         "rss_kib": _rss_kib(),
+        "memory": _memory_snapshot(),
+        "resource_limits": _resource_limits(),
         "disk_root": _disk_snapshot(),
     }
+    try:
+        payload["disk_cwd"] = _disk_snapshot(os.getcwd())
+    except OSError:
+        payload["disk_cwd"] = None
     return _sanitize(payload)
 
 
