@@ -1,6 +1,6 @@
 ---
 source: https://create.gosim.org/survey26/platform/rules?lang=en
-fetched_utc: 2026-09-25T16:22:29+00:00
+fetched_utc: 2026-09-26T03:46:59+00:00
 method: rendered main; all FAQ entries expanded
 ---
 
@@ -15,6 +15,7 @@ Rules version 1.0 · 2026-09-09
 | Phase | Status | UTC | Submissions | submissions/day | board |
 | --- | --- | --- | --- | --- | --- |
 | Playground | open | — → — | decisions.csv | 50 | live |
+| Playground · complete projects | open | 2026-09-25 15:17 → — | Complete project | 5 | live |
 
 ## 1. Playground
 
@@ -31,6 +32,7 @@ The current competition is Playground. Register, form a team, submit and view sc
 2. Required columns: `decision_id, slot_id, action, tile_id, program, request_id, reason`. Maximum file size: 20 MB.
 3. Each team may submit up to 50 times per day, subject to the displayed quota. Select the same scenario used locally; no competition-stage selection is needed.
 4. The starter kit includes public scenarios, example strategies, the runner, scorer and replay tools. Never include model credentials in a submitted file.
+5. You can also submit a complete project (GitHub repository or ZIP) on Participate. The platform runs it round by round in the cloud (same evaluation flow as the competition) on scenarios generated from Playground data. Each team gets 5 evaluations per day, uses its own model key only, and is ranked on a separate complete-project board that does not decide awards. During the October 1–4 training, use it to go through the flow once.
 
 ## 3. Scores and standings
 

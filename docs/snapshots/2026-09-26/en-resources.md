@@ -1,6 +1,6 @@
 ---
 source: https://create.gosim.org/survey26/platform/resources?lang=en
-fetched_utc: 2026-09-25T16:22:29+00:00
+fetched_utc: 2026-09-26T03:46:59+00:00
 method: rendered main; all FAQ entries expanded
 ---
 
@@ -71,6 +71,122 @@ Public scenario files are listed below.
 ## Scenarios
 
 Download the public configuration and data files for the current competition below.
+
+### dev-fortnight
+
+Development fortnight (14 nights, seed 2026)
+
+A short public scenario for quick iteration: 14 nights from 2026-10-05, all files public.
+
+weather public
+
+Time budget
+:   30 min
+
+nights
+:   14
+
+slots
+:   590
+
+tiles
+:   64
+
+targets
+:   16012
+
+requests
+:   1
+
+Configuration
+
+Seven JSON files: scenario, calendar, tile, weather, request, workflow and score configuration. Published in full in the initialize message as well.
+
+scenario\_config.json ↓calendar\_config.json ↓tile\_config.json ↓weather\_config.json ↓request\_config.json ↓workflow\_config.json ↓score\_config.json ↓
+
+Calendar · catalogue · requests
+
+night\_calendar.csv and slots.csv (time axis), tiles.csv and targets.csv (catalogue and science weights), tile\_windows.csv (sample windows), observation\_requests.csv and observation\_request\_tiles.csv, manifest and metadata.
+
+night\_calendar.csv ↓slots.csv ↓tiles.csv ↓targets.csv ↓tile\_windows.csv ↓observation\_requests.csv ↓observation\_request\_tiles.csv ↓scenario\_manifest.json ↓calendar\_metadata.json ↓catalog\_metadata.json ↓observation\_request\_metadata.json ↓
+
+Weather truth
+
+weather.csv: site baseline per slot. Public on practice scenarios so a local score\_decisions.py run reproduces the platform report.
+
+weather.csv ↓weather\_metadata.json ↓
+
+Forecasts
+
+weather\_forecasts.csv: uncertain, daily-revised forecasts. The platform only shows revisions issued at or before the current cursor.
+
+weather\_forecasts.csv ↓
+
+Directional events
+
+weather\_events.csv: the directional disruption truth behind active\_event\_ids. Hidden on competition scenarios.
+
+weather\_events.csv ↓
+
+contract: challenge-score-v3
+
+### dev-reference
+
+Development reference (180 nights, seed 20260909)
+
+The published example3 reference scenario. Everything public, including weather events, so local scoring reproduces the platform.
+
+weather public
+
+Time budget
+:   2 h
+
+nights
+:   180
+
+slots
+:   7928
+
+tiles
+:   64
+
+targets
+:   15833
+
+requests
+:   18
+
+Configuration
+
+Seven JSON files: scenario, calendar, tile, weather, request, workflow and score configuration. Published in full in the initialize message as well.
+
+scenario\_config.json ↓calendar\_config.json ↓tile\_config.json ↓weather\_config.json ↓request\_config.json ↓workflow\_config.json ↓score\_config.json ↓
+
+Calendar · catalogue · requests
+
+night\_calendar.csv and slots.csv (time axis), tiles.csv and targets.csv (catalogue and science weights), tile\_windows.csv (sample windows), observation\_requests.csv and observation\_request\_tiles.csv, manifest and metadata.
+
+night\_calendar.csv ↓slots.csv ↓tiles.csv ↓targets.csv ↓tile\_windows.csv ↓observation\_requests.csv ↓observation\_request\_tiles.csv ↓scenario\_manifest.json ↓calendar\_metadata.json ↓catalog\_metadata.json ↓observation\_request\_metadata.json ↓
+
+Weather truth
+
+weather.csv: site baseline per slot. Public on practice scenarios so a local score\_decisions.py run reproduces the platform report.
+
+weather.csv ↓weather\_metadata.json ↓
+
+Forecasts
+
+weather\_forecasts.csv: uncertain, daily-revised forecasts. The platform only shows revisions issued at or before the current cursor.
+
+weather\_forecasts.csv ↓
+
+Directional events
+
+weather\_events.csv: the directional disruption truth behind active\_event\_ids. Hidden on competition scenarios.
+
+weather\_events.csv ↓
+
+contract: challenge-score-v3
 
 ### dev-fortnight
 

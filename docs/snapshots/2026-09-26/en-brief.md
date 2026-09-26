@@ -1,6 +1,6 @@
 ---
 source: https://create.gosim.org/survey26/platform/brief?lang=en
-fetched_utc: 2026-09-25T16:22:29+00:00
+fetched_utc: 2026-09-26T03:46:59+00:00
 method: rendered main; all FAQ entries expanded
 ---
 
@@ -223,7 +223,7 @@ Timeline
 
 The Playground is available online. Registration, teams, submissions and scores are managed on this website.
 
-The platform selects the current competition for you. Use Submit whenever you are ready.
+The platform selects the current competition for you. Use Participate whenever you are ready. Before October 5–7 (Beijing time), you can submit a complete project to rehearse with the same evaluation flow.
 
 Next: build your observer.
 

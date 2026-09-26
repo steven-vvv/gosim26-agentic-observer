@@ -1,6 +1,6 @@
 ---
 source: https://create.gosim.org/survey26/platform/faq?lang=zh
-fetched_utc: 2026-09-25T16:22:29+00:00
+fetched_utc: 2026-09-26T03:46:59+00:00
 method: rendered main; all FAQ entries expanded
 ---
 
@@ -22,7 +22,7 @@ method: rendered main; all FAQ entries expanded
 
 可以用什么语言？
 
-实现语言不限，在本地运行后提交 decisions.csv。
+实现语言不限，在本地运行后提交 decisions.csv，或提交完整项目。
 
 可以使用大模型或商业 API 吗？
 
@@ -38,7 +38,7 @@ method: rendered main; all FAQ entries expanded
 
 可以提交多少次？
 
-每队每天可以提交 50 次，每个场景分别取该队最高分排名。
+每队每天可以提交 50 次 CSV，每个场景分别取该队最高分排名；完整项目每天 5 次，单独排名。
 
 排行榜分数就是最终成绩吗？
 

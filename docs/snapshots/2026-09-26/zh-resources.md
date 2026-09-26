@@ -1,6 +1,6 @@
 ---
 source: https://create.gosim.org/survey26/platform/resources?lang=zh
-fetched_utc: 2026-09-25T16:22:29+00:00
+fetched_utc: 2026-09-26T03:46:59+00:00
 method: rendered main; all FAQ entries expanded
 ---
 
@@ -71,6 +71,122 @@ AI 编程助手可直接照做的单文件说明：构建、测试、提交。
 ## 场景
 
 在下方下载当前比赛的公开配置与数据文件。
+
+### dev-fortnight
+
+Development fortnight (14 nights, seed 2026)
+
+A short public scenario for quick iteration: 14 nights from 2026-10-05, all files public.
+
+天气公开
+
+总时长
+:   30 min
+
+夜
+:   14
+
+时隙
+:   590
+
+天区
+:   64
+
+目标
+:   16012
+
+请求
+:   1
+
+配置
+
+七个 JSON 文件：场景、日历、天区、天气、请求、workflow 与评分配置。initialize 消息中也会完整发布。
+
+scenario\_config.json ↓calendar\_config.json ↓tile\_config.json ↓weather\_config.json ↓request\_config.json ↓workflow\_config.json ↓score\_config.json ↓
+
+日历 · 目录 · 请求
+
+night\_calendar.csv 与 slots.csv（时间轴）、tiles.csv 与 targets.csv（目录与科学权重）、tile\_windows.csv（窗口示例）、observation\_requests.csv 与 observation\_request\_tiles.csv、manifest 与 metadata。
+
+night\_calendar.csv ↓slots.csv ↓tiles.csv ↓targets.csv ↓tile\_windows.csv ↓observation\_requests.csv ↓observation\_request\_tiles.csv ↓scenario\_manifest.json ↓calendar\_metadata.json ↓catalog\_metadata.json ↓observation\_request\_metadata.json ↓
+
+天气真值
+
+weather.csv：每个时隙一行的台址基线天气。练习场景公开，本地运行 score\_decisions.py 可复现平台报告。
+
+weather.csv ↓weather\_metadata.json ↓
+
+预报
+
+weather\_forecasts.csv：不确定、每日修订的预报。平台只显示当前游标之前发布的修订。
+
+weather\_forecasts.csv ↓
+
+方向性事件
+
+weather\_events.csv：active\_event\_ids 背后的方向性干扰真值。比赛场景隐藏。
+
+weather\_events.csv ↓
+
+合约: challenge-score-v3
+
+### dev-reference
+
+Development reference (180 nights, seed 20260909)
+
+The published example3 reference scenario. Everything public, including weather events, so local scoring reproduces the platform.
+
+天气公开
+
+总时长
+:   2 h
+
+夜
+:   180
+
+时隙
+:   7928
+
+天区
+:   64
+
+目标
+:   15833
+
+请求
+:   18
+
+配置
+
+七个 JSON 文件：场景、日历、天区、天气、请求、workflow 与评分配置。initialize 消息中也会完整发布。
+
+scenario\_config.json ↓calendar\_config.json ↓tile\_config.json ↓weather\_config.json ↓request\_config.json ↓workflow\_config.json ↓score\_config.json ↓
+
+日历 · 目录 · 请求
+
+night\_calendar.csv 与 slots.csv（时间轴）、tiles.csv 与 targets.csv（目录与科学权重）、tile\_windows.csv（窗口示例）、observation\_requests.csv 与 observation\_request\_tiles.csv、manifest 与 metadata。
+
+night\_calendar.csv ↓slots.csv ↓tiles.csv ↓targets.csv ↓tile\_windows.csv ↓observation\_requests.csv ↓observation\_request\_tiles.csv ↓scenario\_manifest.json ↓calendar\_metadata.json ↓catalog\_metadata.json ↓observation\_request\_metadata.json ↓
+
+天气真值
+
+weather.csv：每个时隙一行的台址基线天气。练习场景公开，本地运行 score\_decisions.py 可复现平台报告。
+
+weather.csv ↓weather\_metadata.json ↓
+
+预报
+
+weather\_forecasts.csv：不确定、每日修订的预报。平台只显示当前游标之前发布的修订。
+
+weather\_forecasts.csv ↓
+
+方向性事件
+
+weather\_events.csv：active\_event\_ids 背后的方向性干扰真值。比赛场景隐藏。
+
+weather\_events.csv ↓
+
+合约: challenge-score-v3
 
 ### dev-fortnight
 

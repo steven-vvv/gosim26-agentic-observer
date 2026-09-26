@@ -1,6 +1,6 @@
 ---
 source: https://create.gosim.org/survey26/platform/rules?lang=zh
-fetched_utc: 2026-09-25T16:22:29+00:00
+fetched_utc: 2026-09-26T03:46:59+00:00
 method: rendered main; all FAQ entries expanded
 ---
 
@@ -15,6 +15,7 @@ method: rendered main; all FAQ entries expanded
 | 阶段 | 状态 | UTC | 提交方式 | 次/天 | 榜单 |
 | --- | --- | --- | --- | --- | --- |
 | Playground | 进行中 | — → — | decisions.csv | 50 | live |
+| 练习赛 · 完整项目 | 进行中 | 2026-09-25 15:17 → — | 完整项目 | 5 | live |
 
 ## 1. 练习赛 / Playground
 
@@ -31,6 +32,7 @@ method: rendered main; all FAQ entries expanded
 2. CSV 列为 `decision_id, slot_id, action, tile_id, program, request_id, reason`，最大 20 MB。
 3. 每队每天最多提交 50 次，以页面显示的实际额度为准。选择与本地运行相同的场景；平台自动选择当前比赛。
 4. 入门包包含公开场景、示例策略、运行器、评分器和回放工具。模型密钥只用于自己授权的调用，不得写入提交文件。
+5. 也可以在「参赛」页提交完整项目（GitHub 仓库或 ZIP）。平台在云端逐轮运行你的程序（和比赛相同的评测流程），题目由练习赛数据生成。每队每天 5 次，只能使用本队自己的模型密钥，成绩进单独的完整项目榜，不决定奖项。10 月 1–4 日培训期间建议用它把流程走一遍。
 
 ## 3. 评分与排名
 

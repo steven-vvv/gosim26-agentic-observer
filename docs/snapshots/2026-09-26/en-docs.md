@@ -1,6 +1,6 @@
 ---
 source: https://create.gosim.org/survey26/platform/docs?lang=en
-fetched_utc: 2026-09-25T16:22:29+00:00
+fetched_utc: 2026-09-26T03:46:59+00:00
 method: rendered main; all FAQ entries expanded
 ---
 
@@ -22,7 +22,7 @@ Register, then create a team in Find teammates or click a team to request member
 
 ## 3. Run the starter kit
 
-Download and extract the kit from [Resources](/resources). Double-click `run_baseline`, or run:
+Download and extract the kit from [Resources](/survey26/platform/resources). Double-click `run_baseline`, or run:
 
 ```
 python3 local_runner.py --scenario scenarios/dev-reference --agent agent/minimal_agent.py --wallclock 600 --out run_output
@@ -35,15 +35,17 @@ Model calls are optional. The deterministic baseline needs no key. Never put mod
 
 ## 4. Submit and inspect results
 
-Open [Submit](/compete), choose the scenario you used locally and upload `run_output/decisions.csv`. Maximum file size is 20 MB. Each team can submit up to 50 times per day, subject to the displayed quota.
+Open [Submit](/survey26/platform/compete), choose the scenario you used locally and upload `run_output/decisions.csv`. Maximum file size is 20 MB. Each team can submit up to 50 times per day, subject to the displayed quota.
 
 The columns are `decision_id, slot_id, action, tile_id, program, request_id, reason`. After submission, inspect evaluation status, score components, completion and replay. Each scenario has separate standings using the team's best score.
+
+To try the evaluation flow early, choose Submit a complete project on Participate and submit a GitHub repository or ZIP. The platform runs your program round by round in the cloud (same evaluation flow as the competition) on scenarios generated from Playground data. Each team gets 5 evaluations per day, uses its own model key only, and is ranked on a separate complete-project board. During the October 1–4 training, use this track to go through the flow once.
 
 ## 5. Data and scoring
 
 `config/` contains rules. `outputs/reference/` contains tiles, targets, calendar, slots, weather, forecasts, events and requests. Public files are downloadable from Resources. Current practice scenarios retain the original `participant-agent-protocol-v1` contract; existing scores and replays are preserved.
 
-Snapshots expose available candidates, weather and progress. `observe` exposes a tile; `wait` advances time. The platform and kit use the same scorer. See [Rules](/rules) for science points, program bonuses, request rewards and penalties; the published scorer and scenario configuration define the exact formulas and constants.
+Snapshots expose available candidates, weather and progress. `observe` exposes a tile; `wait` advances time. The platform and kit use the same scorer. See [Rules](/survey26/platform/rules) for science points, program bonuses, request rewards and penalties; the published scorer and scenario configuration define the exact formulas and constants.
 
 ## 6. Troubleshooting
 

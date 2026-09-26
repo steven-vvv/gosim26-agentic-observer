@@ -1,6 +1,6 @@
 ---
 source: https://create.gosim.org/survey26/platform/faq?lang=en
-fetched_utc: 2026-09-25T16:22:29+00:00
+fetched_utc: 2026-09-26T03:46:59+00:00
 method: rendered main; all FAQ entries expanded
 ---
 
@@ -22,7 +22,7 @@ Yes. Create a team with a size of 1. Teams may have up to 3 members.
 
 Which languages can I use?
 
-Any implementation language is allowed. Use the starter kit locally and submit decisions.csv.
+Any implementation language is allowed. Use the starter kit locally and submit decisions.csv, or submit a complete project.
 
 Can I use an LLM or a commercial API?
 
@@ -38,7 +38,7 @@ Current scenario weather, forecasts and events are public. Use score\_decisions.
 
 How many submissions can I make?
 
-Each team can submit 50 times a day. Each scenario ranks the team’s best score independently.
+Each team can submit 50 CSVs a day; each scenario ranks the team’s best score independently. Complete projects: 5 evaluations a day, on a separate board.
 
 Is the leaderboard score the final result?
 

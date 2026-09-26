@@ -1,6 +1,6 @@
 ---
 source: https://create.gosim.org/survey26/platform/brief?lang=zh
-fetched_utc: 2026-09-25T16:22:29+00:00
+fetched_utc: 2026-09-26T03:46:59+00:00
 method: rendered main; all FAQ entries expanded
 ---
 
@@ -223,7 +223,7 @@ return {
 
 练习赛在线进行，报名、组队、提交与查分都在本站完成。
 
-平台会自动选择当前比赛，准备好后直接进入「提交」。
+平台会自动选择当前比赛，准备好后直接进入「参赛」。10 月 5–7 日（北京时间）之前，可以提交完整项目，按和比赛相同的评测流程演练。
 
 下一步：构建你的观测员。
 
