@@ -135,7 +135,12 @@ def _cpu_snapshot() -> dict[str, Any]:
 
 def _memory_snapshot() -> dict[str, int] | None:
     """Return host memory counters when Linux exposes procfs."""
-    wanted = {"MemTotal", "MemAvailable", "SwapTotal", "SwapFree"}
+    wanted = {
+        "MemTotal": "mem_total_bytes",
+        "MemAvailable": "mem_available_bytes",
+        "SwapTotal": "swap_total_bytes",
+        "SwapFree": "swap_free_bytes",
+    }
     values: dict[str, int] = {}
     try:
         with open("/proc/meminfo", encoding="ascii", errors="replace") as handle:
@@ -152,7 +157,7 @@ def _memory_snapshot() -> dict[str, int] | None:
                     continue
                 # /proc/meminfo reports these counters in KiB.  Normalize to
                 # bytes so all memory fields share one unambiguous unit.
-                values[f"{key.lower()}_bytes"] = value * (1024 if len(parts) > 1 and parts[1].lower() == "kb" else 1)
+                values[wanted[key]] = value * (1024 if len(parts) > 1 and parts[1].lower() == "kb" else 1)
     except (OSError, UnicodeError):
         return None
     return values or None
@@ -230,6 +235,8 @@ def runtime_payload() -> dict[str, Any]:
         "python_build": build,
         "python_build_date": build_date,
         "python_compiler": platform.python_compiler(),
+        "python_soabi": sysconfig.get_config_var("SOABI"),
+        "python_multiarch": sysconfig.get_config_var("MULTIARCH"),
         "system": platform.system(),
         "release": platform.release(),
         "version": platform.version(),
