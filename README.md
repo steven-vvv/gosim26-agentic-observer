@@ -27,6 +27,7 @@
 | `scenarios/` | 本地生成的决赛同规模场景（可重新生成，每个约 20 MB） |
 | `results/` | 评测结果（精简 JSON） |
 | `runs/` | 临时运行产物（评测脚本会自动删除大文件，可随时清空） |
+| `result_temp/` | 平台下载的完整项目结果、`agent.log` 与 workflow 归档；本地忽略，见 `notes/2026-09-26-platform-result-analysis.md` |
 | `notes/` | 实验记录 |
 
 ## 版本库

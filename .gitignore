@@ -19,6 +19,9 @@ runs/zero/
 # 包括完整项目包、历史 agent 包、择优组合和 Playground CSV，不进入版本库。
 dist/
 
+# 平台下载的评测结果、agent.log 与 workflow 归档，不作为版本输入。
+result_temp/
+
 # Cloudflare telemetry worker local state and credentials
 telemetry-worker/node_modules/
 telemetry-worker/.wrangler/
