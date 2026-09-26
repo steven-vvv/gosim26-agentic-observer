@@ -1,4 +1,4 @@
-"""确定性观测策略：按“真实边际收益 / 曝光秒数”排序，只用标准库。
+"""确定性观测策略：按“真实边际收益 / 曝光秒数”排序，规划器可选 NumPy。
 
 相对官方基线（kit/agent/scoring_preview.py 的当前收益贪心）的改动：
 
@@ -37,9 +37,9 @@ DEFAULTS = {
     "plan_horizon_nights": 14,
     "plan_persistence": False,      # 规划时按天气持续性调整各夜的天气分布（夜级 AR(1)）；离线 +0.19%，真实系统 −0.23%，不用
     "persistence_phi": 0.82,        # 公开的决赛天气配置里的 night_correlation
-    "plan_recent_weather": False,  # 同夜短时规划按最新未受事件影响的天气观测修正未来价值
-    "plan_recent_weather_hours": 3.0,
-    "plan_recent_weather_floor": 0.0,  # 夜级天气状态带来的同夜相关性下限；实验参数
+    "plan_recent_weather": True,   # 同夜规划按最新未受事件影响的天气观测修正未来价值；92 场 +0.053%
+    "plan_recent_weather_hours": 10.0,
+    "plan_recent_weather_floor": 0.82,  # 夜级天气状态带来的同夜相关性下限
     "plan_recent_weather_conditional": False,  # 按相关系数收窄条件天气分布；实验参数
     "plan_clean_weather_quantiles": False,  # 只用无站点事件的天气估计长期分位数；实验参数
     "plan_trim_current_bin": False,  # 半小时重规划时，当前小时只用尚未过去的几何采样点
