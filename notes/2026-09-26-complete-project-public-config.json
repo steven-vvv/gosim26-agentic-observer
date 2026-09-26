@@ -1,0 +1,40 @@
+{
+  "observed_at": "2026-09-26T15:44:33+08:00",
+  "source_commit": "60d6ca2f52ef3a14e9de31b9a0a48517d5410373",
+  "current_competition": {
+    "mode": "practice",
+    "phase_id": "88908c68-ebb1-4475-b793-a437c857c932",
+    "project_phase_id": "249c223b-2ec8-4f0a-924e-7af3c4e3eb44"
+  },
+  "project_phase": {
+    "id": "249c223b-2ec8-4f0a-924e-7af3c4e3eb44",
+    "slug": "practice-projects",
+    "name_en": "Playground · complete projects",
+    "name_zh": "练习赛 · 完整项目",
+    "starts_at": "2026-09-25T15:17:29.196961+00:00",
+    "ends_at": null,
+    "is_active": true,
+    "projects_enabled": true,
+    "local_sessions_enabled": false,
+    "daily_batches": 5,
+    "model_call_limit": 100000,
+    "model_token_limit": 1000000000,
+    "model_concurrency": 4,
+    "scenarios": [
+      {
+        "slug": "dev-fortnight",
+        "n_nights": 14,
+        "weather_public": true,
+        "events_public": true,
+        "forecasts_public": true
+      },
+      {
+        "slug": "dev-reference",
+        "n_nights": 180,
+        "weather_public": true,
+        "events_public": true,
+        "forecasts_public": true
+      }
+    ]
+  }
+}
