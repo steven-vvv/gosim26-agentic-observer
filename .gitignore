@@ -14,6 +14,7 @@ runs/eval/
 runs/perf/
 runs/prof/
 runs/zero/
+runs/public_once/
 
 # 构建与评测导出（可由 tools/pack_project.py、build_portfolio.py、zero_score.py 重建）
 # 包括完整项目包、历史 agent 包、择优组合和 Playground CSV，不进入版本库。

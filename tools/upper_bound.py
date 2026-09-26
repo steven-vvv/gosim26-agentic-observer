@@ -187,7 +187,7 @@ def effective_weather(sc: dict, slot_mid_alt, slot_mid_az):
     return eff, is_open
 
 
-def value_table(sc: dict):
+def value_table(sc: dict, return_programs: bool = False):
     """w_base[i, k]、w_bonus[i, k]：天区 i 从第 k 个 150 秒格开始曝光的基础分与最优项目加成；不可行为 -inf。"""
     tiles, slots = sc["tiles"], sc["slots"]
     site = sc["calendar"]["site"]
@@ -215,6 +215,7 @@ def value_table(sc: dict):
     n_ticks = n_s * per
     w_base = np.full((n_t, n_ticks), -np.inf, dtype=np.float32)
     w_bonus = np.zeros((n_t, n_ticks), dtype=np.float32)
+    best_program = np.zeros((n_t, n_ticks), dtype=np.uint8) if return_programs else None
     for e in np.unique(exposure):
         rows = np.nonzero(exposure == e)[0]
         for offset in range(per):
@@ -238,13 +239,16 @@ def value_table(sc: dict):
                 seg_mid = seg_start + length / 2.0
                 alt_start, _ = alt_az(seg_start, ra[rows], dec[rows], site["latitude_deg"], site["longitude_deg"])
                 alt_mid, _ = alt_az(seg_mid, ra[rows], dec[rows], site["latitude_deg"], site["longitude_deg"])
-                legal = (alt_start >= min_alt) & (seg_start[None, :] >= a_from[rows, None]) & (seg_start[None, :] < a_until[rows, None])
+                legal = ((alt_start >= min_alt) & (alt_mid >= min_alt)
+                         & (seg_start[None, :] >= a_from[rows, None]) & (seg_start[None, :] < a_until[rows, None])
+                         & (seg_mid[None, :] >= a_from[rows, None]) & (seg_mid[None, :] < a_until[rows, None]))
                 open_ = is_open[rows][:, idx]
                 feasible &= legal & open_ & valid[None, :]
                 am = airmass(alt_mid)
                 lq = lunar_factor(seg_mid, ra[rows], dec[rows], site, lunar)
                 combined = np.minimum(q_eff[rows][:, idx] / am, 3.0) * lq
-                band_q = np.minimum(q_free[rows][:, idx] / am, 3.0) * lq
+                band_source = q_free if any(key in score for key in ("repeat_observation", "reporting", "anomaly_tags", "fault_response")) else q_eff
+                band_q = np.minimum(band_source[rows][:, idx] / am, 3.0) * lq
                 base = sc["value"][rows, None] * (length / e) * combined * sc["anomaly"][rows, None]
                 base_total += base
                 band = np.where(band_q >= dark, 0, np.where(band_q >= bright, 1, 2))
@@ -254,7 +258,11 @@ def value_table(sc: dict):
             cols = np.arange(n_s) * per + offset
             w_base[np.ix_(rows, cols)] = np.where(feasible, base_total, -np.inf).astype(np.float32)
             w_bonus[np.ix_(rows, cols)] = np.where(feasible, best_bonus, 0.0).astype(np.float32)
-    return w_base, w_bonus, exposure // TICK, per
+            if best_program is not None:
+                best_program[np.ix_(rows, cols)] = np.argmax(
+                    np.stack([bonus_p[p] for p in PROGRAMS]), axis=0).astype(np.uint8)
+    result = (w_base, w_bonus, exposure // TICK, per)
+    return (*result, best_program) if return_programs else result
 
 
 # ---------------------------------------------------------------- 上界与可行排程

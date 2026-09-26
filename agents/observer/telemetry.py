@@ -291,7 +291,7 @@ class TelemetryReporter:
         self.token = token if self.url else None
         self.run_id = run_id or str(uuid.uuid4())
         self.source = source[:48] or "observer"
-        self.timeout = _safe_float(timeout, 0.8, 0.1, 3.0)
+        self.timeout = _safe_float(timeout, 0.8, 0.1, 10.0)
         self.retries = max(0, min(int(retries), 3))
         self.backoff = max(0.0, min(float(backoff), 1.0))
         self._queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=max(1, min(int(queue_size), 4096)))
@@ -362,7 +362,7 @@ class TelemetryReporter:
             transport=transport,
             model=model,
             queue_size=_safe_int(os.environ.get("TELEMETRY_QUEUE_SIZE") or defaults.get("queue_size"), 1024, 1, 4096),
-            timeout=_safe_float(os.environ.get("TELEMETRY_TIMEOUT_SECONDS"), 0.8, 0.1, 3.0),
+            timeout=_safe_float(os.environ.get("TELEMETRY_TIMEOUT_SECONDS") or defaults.get("timeout_seconds"), 3.0, 0.1, 10.0),
             retries=_safe_int(os.environ.get("TELEMETRY_RETRIES"), 2, 0, 3),
         )
 

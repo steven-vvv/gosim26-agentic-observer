@@ -53,6 +53,19 @@ Chat Completions 字段，事件放在 JSON user message 中，失败会丢弃�
 复现：同一场景、同一种子下运行确定性；与本地官方 runner 的比对方法见仓库 `notes/`。
 """
 
+PUBLIC_README = """# Public practice telemetry run
+
+One-off participant package for the published dev-reference and dev-fortnight scenes.
+The local schedule is used only when the complete public tile catalog fingerprint matches;
+other scenes use a simple online fallback. No runtime NumPy dependency or model call is needed.
+
+At initialization, the same startup event is written to agent.log and sent to the configured
+OpenAI-compatible telemetry endpoint. It includes the public scene identity and non-secret
+Python, CPU, memory, disk and process metadata. No per-decision or completion
+telemetry is collected. The scorer's decisions.csv records every action.
+The telemetry key comes only from environment variables and is never packaged.
+"""
+
 
 def build(
     agent: Path,
@@ -62,8 +75,12 @@ def build(
     image: str,
     telemetry_enabled: bool = True,
     telemetry_url: str = DEFAULT_TELEMETRY_URL,
+    public_schedules: Path | None = None,
+    telemetry_source: Path | None = None,
 ) -> str:
     sources = sorted(p for p in agent.glob("*.py")) + ([agent / "params.json"] if (agent / "params.json").exists() else [])
+    if telemetry_source is not None and not any(p.name == "telemetry.py" for p in sources):
+        sources.append(telemetry_source)
     if not any(p.name == "main.py" for p in sources):
         raise SystemExit(f"{agent} 里没有 main.py")
     if telemetry_enabled and not any(p.name == "telemetry.py" for p in sources):
@@ -79,6 +96,8 @@ def build(
         if path.suffix == ".py":
             py_compile.compile(str(out_dir / path.name), doraise=True, cfile=str(out_dir / "__pycache__" / "check.pyc"))
     shutil.rmtree(out_dir / "__pycache__", ignore_errors=True)
+    if public_schedules is not None:
+        shutil.copy2(public_schedules, out_dir / "public_schedules.json")
     build_steps = []
     if wheels is not None:
         found = sorted(wheels.glob("numpy-*.whl"))
@@ -97,13 +116,15 @@ def build(
         "transport": "openai",
         "url": telemetry_url,
         "model": "telemetry-ack",
-        "trace": True,
+        "trace": agent.name != "public_once",
+        "timeout_seconds": 5.0 if agent.name == "public_once" else 3.0,
         "queue_size": 1024,
     }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     manifest = {"schema_version": "observer-project-v1", "protocol": "jsonl-v2", "image": image,
                 "working_directory": ".", "build": build_steps, "run": ["python3", "-u", "main.py"]}
     (out_dir / "observer.project.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    (out_dir / "README.md").write_text(README.format(name=agent.name), encoding="utf-8")
+    (out_dir / "README.md").write_text(PUBLIC_README if agent.name == "public_once" else README.format(name=agent.name),
+                                       encoding="utf-8")
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(p for p in out_dir.rglob("*") if p.is_file()):
@@ -127,11 +148,16 @@ def main(argv=None) -> int:
     parser.add_argument("--telemetry-url", default=DEFAULT_TELEMETRY_URL,
                         help="遥测 Worker 的非机密默认地址（环境变量 OPENAI_BASE_URL 可覆盖）")
     parser.add_argument("--no-telemetry", action="store_true", help="在生成的完整项目中关闭默认遥测")
+    parser.add_argument("--public-schedules", type=Path, default=None,
+                        help="仅在公开场景目录指纹匹配时使用的预排动作 JSON")
+    parser.add_argument("--telemetry-source", type=Path, default=None,
+                        help="从另一目录复制共用的 telemetry.py（供独立入口使用）")
     args = parser.parse_args(argv)
     agent = args.agent.resolve()
     name = agent.name
     build(agent, ROOT / "dist" / f"project-{name}", ROOT / "dist" / f"observer-{name}-project.zip", args.wheels, args.image,
-          telemetry_enabled=not args.no_telemetry, telemetry_url=args.telemetry_url)
+          telemetry_enabled=not args.no_telemetry, telemetry_url=args.telemetry_url,
+          public_schedules=args.public_schedules, telemetry_source=args.telemetry_source)
     return 0
 
 
