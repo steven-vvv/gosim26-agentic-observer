@@ -30,6 +30,8 @@ class PublicSchedule:
         self.scenario = str(match.get("scenario", "unknown"))
         self.actions = match["actions"]
         self.index = 0
+        # 新版排程（complete=true）已显式列出全部重访与注定中断观测，回放时不再临时插入重访
+        self.complete = bool(match.get("complete"))
 
     def _filler(self, snapshot: dict, next_time: str | None) -> dict | None:
         cursor = snapshot.get("cursor") or {}
@@ -68,14 +70,14 @@ class PublicSchedule:
         while self.index < len(self.actions) and self.actions[self.index]["timestamp_utc"] < now:
             self.index += 1
         if self.index >= len(self.actions):
-            filler = self._filler(snapshot, None)
+            filler = None if self.complete else self._filler(snapshot, None)
             if filler:
                 return filler
             return {"action": "wait", "tile_id": "", "program": "", "request_id": "",
                     "reason": "public schedule complete"}
         action = self.actions[self.index]
         if now < action["timestamp_utc"]:
-            filler = self._filler(snapshot, action["timestamp_utc"])
+            filler = None if self.complete else self._filler(snapshot, action["timestamp_utc"])
             if filler:
                 return filler
             return {"action": "wait", "tile_id": "", "program": "", "request_id": "",

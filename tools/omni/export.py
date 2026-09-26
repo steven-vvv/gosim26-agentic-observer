@@ -4,7 +4,8 @@
         --fortnight runs/omni/dev-fortnight/flow_sci.npy --out agents/public_once/public_schedules.json
 
 回放 agent（agents/public_once/schedule.py）在计划时刻之前等待，到点执行计划动作。
-计划里包括科学观测、请求重访与注定中断（全部动作都显式列出），所以回放不再需要 _filler 猜测。
+计划显式列出科学观测、请求重访与注定中断观测（排程带 complete=true），回放时不再用 _filler 临时插入重访。
+罚分相同时 DP 选决策更少的路径：平台按墙钟截断，reference 需要约 8300 次决策。
 """
 from __future__ import annotations
 
@@ -35,7 +36,7 @@ def entry(scenario: Path, sci_path: Path):
     exact = sc.evaluate(sc.decisions_from_plan(plan))
     print(f"{scenario.name}: DP {total:.6f}，精确评分 {exact['total']:.6f}，动作 {len(plan)}", flush=True)
     publication = ChallengeWorkflow(root=scenario).initial_publication()
-    return fingerprint(publication), {"scenario": scenario.name, "actions": sc.schedule_actions(plan)}, exact
+    return fingerprint(publication), {"scenario": scenario.name, "complete": True, "actions": sc.schedule_actions(plan)}, exact
 
 
 def main() -> None:

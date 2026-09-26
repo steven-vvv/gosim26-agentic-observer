@@ -90,8 +90,13 @@ class Scenario:
                 return True
         return False
 
-    def evaluate(self, decisions, detail: bool = False) -> dict:
-        """decisions: [("wait",) | ("observe", tile, program, request_id)]，逐条按官方规则计分；游标到survey末尾后多余的决策忽略。"""
+    def evaluate(self, decisions, detail: bool = False, stop: bool = False) -> dict:
+        """decisions: [("wait",) | ("observe", tile, program, request_id)]，逐条按官方规则计分。
+
+        stop=False（默认）：决策用完后按等待走到调查末尾，相当于协议路径把调查跑完。
+        stop=True：与官方 score_files 相同，决策用完即结算，剩余时间不计罚，截止时刻在游标之后的请求不罚、
+        发布时刻在游标之后的请求不计。游标到调查末尾后多出的决策，官方每条罚 100（wait 不罚）。
+        """
         per = self.per
         k = 0
         completed = np.zeros(self.n_tiles, dtype=bool)
@@ -122,7 +127,9 @@ class Scenario:
 
         for decision in decisions:
             if k >= self.n_ticks:
-                break
+                if decision[0] != "wait":
+                    penalties["invalid_action"] += rate_invalid
+                continue
             if decision[0] == "wait":
                 if log is not None:
                     log.append((k, "wait"))
@@ -166,8 +173,9 @@ class Scenario:
                     visits[(request_id, self.tile_ids[tile])] += 1
             if log is not None:
                 log.append((start, ("", "", "completed", "weather_interrupted", "geometry_interrupted")[result], tile))
-        while k < self.n_ticks:
+        while not stop and k < self.n_ticks:
             consume_wait(per - k % per, "explicit")
+        final_time = float(self.tick_time[k]) if k < self.n_ticks else float(self.slot_start[-1] + per * TICK)
         required_missing = [self.tile_ids[i] for i in range(self.n_tiles) if self.required[i] and not completed[i]]
         penalties["required_miss"] = len(required_missing) * float(self.score_config["penalties"]["required_miss"])
         flexible = Counter(self.region[i] for i in range(self.n_tiles) if completed[i] and not self.required[i])
@@ -179,12 +187,17 @@ class Scenario:
         statuses = {}
         for row in self.requests:
             request_id = row["request_id"]
+            if parse_utc(row["issued_at_utc"]) > final_time:
+                continue
             needed = self.request_tiles[request_id]
             satisfied = sum(visits[(request_id, tile_id)] >= count for tile_id, count in needed.items())
             done = satisfied >= int(row["required_tile_count"])
             if done:
                 request_reward += float(row["completion_reward"])
                 statuses[request_id] = "completed"
+                continue
+            if parse_utc(row["deadline_utc"]) > final_time:
+                statuses[request_id] = "active_incomplete"
                 continue
             feasible = sum(self.request_opportunity(self.index[tile_id], request_id) for tile_id in needed)
             if feasible < int(row["required_tile_count"]):

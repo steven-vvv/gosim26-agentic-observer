@@ -13,6 +13,15 @@ reference 的分项与榜首也完全相同：基础 15469.606253、加成 3853.
 `kit/score_decisions.py` 复核，分数一致。回放包用的排程已写进 `agents/public_once/public_schedules.json`，
 其中科学观测的开始格另存在 `agents/public_once/omni/*.npy`。
 
+提交方式：
+- **decisions.csv**：Playground 的 `practice` 阶段收结果文件，由 `dist/omni/<场景>-decisions.csv` 重建
+  （`tools/omni/export.py` 导出排程后，用官方 runner 回放生成）。
+- **完整项目**：打包命令同 `notes/2026-09-27-public-once.md`，用 Python 3.12 回放，decisions.csv 与上面逐字节相同。
+  平台逐轮评测按墙钟截断。reference 预算 7200 秒，要 8510 次决策，平台实测约 1.6–2.1 秒一次，**来不及跑完**；
+  按 2.08 秒一次算，大约停在第 3460 次，分数为负。fortnight 只要 595 次，来得及。
+- 排程 JSON 带 `complete=true`：回放时不再用 `_filler` 临时插入重访（全部重访都已在计划里）。
+  罚分相同时，DP 优先选决策更少的路径，reference 由此从 9146 次减到 8510 次。
+
 ## 最优性
 
 - **fortnight：已证明全局最优。** `tools/omni/flow.py` 是逐格精确的时间轴流模型 MILP，包含全部候选。
@@ -20,6 +29,12 @@ reference 的分项与榜首也完全相同：基础 15469.606253、加成 3853.
 - **reference：在 Δ=60 邻域内证明最优。** 每块天区的候选限定为价值不低于当前值减 60 的开始格
   （6.9 万个候选），全程模型零 gap。Δ=30 的结果相同。更大邻域（Δ=120）另有记录。
 - 两个互相独立的榜首队伍交出完全相同的 reference 分数，也说明这很可能就是全局最优。
+- Fable 5.1 审计（`notes/2026-09-27-omni-audit.md`，脚本在 `tools/omni/audit/`）：
+  - 没有找到能超过 21119.494551 的合法手段；
+  - 不依赖 Δ 的严格上界是 22340.01，由拉格朗日松弛得到，偏松；
+  - 不限 Δ 的实测都没有改进：60 个 6 夜窗口的全候选精确 MILP、第 171 夜跨夜成对交换约 20 万次评估；
+  - 模型唯一漏掉的官方允许行为是“中途停止”（决策用完即结算，剩余时间不罚）。对全部前缀实测后，
+    最优仍是跑完全程，`model.py` 已补上 `stop=True` 语义。
 
 模型只保留三类有利动作，其余动作都严格劣于 wait：
 - 无标签的重复观测会被判 `duplicate_tile`，罚 100 并空耗到时隙末；

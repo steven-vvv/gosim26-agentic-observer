@@ -16,10 +16,10 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cdp import CDP  # noqa: E402
-from gmlns import solve  # noqa: E402
-from lns import window_milp  # noqa: E402
-from model import Scenario  # noqa: E402
+from cdp import CDP
+from gmlns import solve
+from lns import window_milp
+from model import Scenario
 
 ROOT = Path(__file__).resolve().parents[2]
 

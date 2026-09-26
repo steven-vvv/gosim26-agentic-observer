@@ -31,6 +31,7 @@ typedef struct {
 
 typedef struct {
     double *B, *F;
+    int32_t *D;  // 与 B 对应的剩余决策数（罚分相同时取决策更少的路径，平台墙钟有限）
     int32_t *choice_kind, *choice_a, *choice_b, *choice_end;
     int32_t *fixed_kind, *fixed_tile, *fixed_req;  // 每格的固定动作：0 无，1 科学，2 强制重访
     int32_t *next_fixed;
@@ -46,6 +47,7 @@ static Work *work_new(const Problem *P) {
     int n = P->n_ticks + 1;
     W->B = (double *)malloc(sizeof(double) * n);
     W->F = (double *)malloc(sizeof(double) * n);
+    W->D = (int32_t *)malloc(sizeof(int32_t) * n);
     W->choice_kind = (int32_t *)malloc(sizeof(int32_t) * n);
     W->choice_a = (int32_t *)malloc(sizeof(int32_t) * n);
     W->choice_b = (int32_t *)malloc(sizeof(int32_t) * n);
@@ -67,7 +69,7 @@ void *dp_work_new(const Problem *P) { return work_new(P); }
 
 void dp_work_free(void *ptr) {
     Work *W = (Work *)ptr;
-    free(W->B); free(W->F); free(W->choice_kind); free(W->choice_a); free(W->choice_b); free(W->choice_end);
+    free(W->B); free(W->F); free(W->D); free(W->choice_kind); free(W->choice_a); free(W->choice_b); free(W->choice_end);
     free(W->fixed_kind); free(W->fixed_tile); free(W->fixed_req); free(W->next_fixed); free(W->blocked); free(W->inc);
     free(W->end_of); free(W->forced_tick); free(W->forced_tile); free(W->forced_req); free(W);
 }
@@ -143,16 +145,26 @@ static int setup(const Problem *P, Work *W, const int32_t *sci) {
     return 1;
 }
 
+#define TIE 1e-9
+
+// 字典序比较：罚分更小，或罚分相同（差 < TIE）且决策更少
+static int better(double c, int d, double best, int best_d) {
+    return c < best - TIE || (c <= best + TIE && d < best_d);
+}
+
 static void backward(const Problem *P, Work *W) {
     int n = P->n_ticks, per = P->per;
     double *B = W->B;
+    int32_t *D = W->D;
     B[n] = 0.0;
+    D[n] = 0;
     for (int k = n - 1; k >= 0; k--) {
-        if (W->blocked[k]) { B[k] = INF; continue; }
+        if (W->blocked[k]) { B[k] = INF; D[k] = 0; continue; }
         if (W->fixed_kind[k]) {
             int j = W->fixed_tile[k];
             int e = P->endt[(size_t)j * n + k];
             B[k] = B[e];
+            D[k] = D[e] + 1;
             W->choice_kind[k] = W->fixed_kind[k];
             W->choice_a[k] = j;
             W->choice_b[k] = W->fixed_req[k];
@@ -161,28 +173,30 @@ static void backward(const Problem *P, Work *W) {
         }
         int limit = W->next_fixed[k];
         double best = INF;
+        int best_d = 1 << 30;
         int kind = -1, a = -1, b = -1, en = -1;
         int bnd = (k / per + 1) * per;
         uint64_t inc = W->inc[k];
-        if (bnd <= limit) {
+        if (bnd <= limit && B[bnd] < INF) {
             double c = B[bnd] + ((P->act[k] & inc) ? P->rate * (bnd - k) : 0.0);
-            if (c < best) { best = c; kind = 0; en = bnd; }
+            if (better(c, D[bnd] + 1, best, best_d)) { best = c; best_d = D[bnd] + 1; kind = 0; en = bnd; }
         }
         for (int q = P->rv_ptr[k]; q < P->rv_ptr[k + 1]; q++) {
             int j = P->rv_tile[q];
             if ((inc >> j) & 1ULL) continue;
             int e = P->endt[(size_t)j * n + k];
-            if (e > limit) continue;
-            if (B[e] < best) { best = B[e]; kind = 3; a = j; b = P->rv_req[q]; en = e; }
+            if (e > limit || B[e] >= INF) continue;
+            if (better(B[e], D[e] + 1, best, best_d)) { best = B[e]; best_d = D[e] + 1; kind = 3; a = j; b = P->rv_req[q]; en = e; }
         }
         for (int q = P->dm_ptr[k]; q < P->dm_ptr[k + 1]; q++) {
             int i = P->dm_tile[q];
             if (!((inc >> i) & 1ULL)) continue;
             int e = P->endt[(size_t)i * n + k];
-            if (e > limit) continue;
-            if (B[e] < best) { best = B[e]; kind = 4; a = i; en = e; }
+            if (e > limit || B[e] >= INF) continue;
+            if (better(B[e], D[e] + 1, best, best_d)) { best = B[e]; best_d = D[e] + 1; kind = 4; a = i; en = e; }
         }
         B[k] = best;
+        D[k] = best < INF ? best_d : 0;
         W->choice_kind[k] = kind;
         W->choice_a[k] = a;
         W->choice_b[k] = b;
@@ -339,6 +353,7 @@ double dp_evaluate(const Problem *P, void *ptr, const int32_t *sci, int max_fix,
     double total = science + rreward - rpen - penalty - P->required_pen * req_missing - P->flex_pen * shortfall;
     if (info) {
         info[0] = penalty; info[1] = science; info[2] = rreward; info[3] = rpen; info[4] = W->n_forced; info[5] = miss;
+        info[6] = W->D[0];
     }
     return total;
 }
