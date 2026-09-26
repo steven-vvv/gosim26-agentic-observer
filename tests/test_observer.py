@@ -100,6 +100,8 @@ def test_agent_process_round_trip():
     assert response["decision_sequence"] == 1
     assert response["action"] == "observe" and response["tile_id"] == "T00001"
     assert "Traceback" not in proc.stderr
+    assert 'observer: telemetry ' in proc.stderr and '"event":"runtime"' in proc.stderr
+    assert '"event":"final"' in proc.stderr
 
 
 def test_geometry_matches_official_simulator():

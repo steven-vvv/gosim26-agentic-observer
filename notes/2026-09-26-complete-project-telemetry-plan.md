@@ -43,7 +43,7 @@ JSONL 进程：stdin/stdout 传协议，诊断写 stderr；模型调用可选，
 
 ```text
 dist/observer-observer-project.zip
-sha256 1ca0f36b0cfa95b803010539db60d9d91e7b5bea9d2221247c82f4b1e8e25d6e
+sha256 0310b399d976cec71981292b0361d5c1eed73f0daff8ae0d8bedd9bc0bb33410
 size   32,027,425 bytes (约 30.5 MiB)
 ```
 
@@ -81,9 +81,12 @@ ZIP 和展开目录在 `.gitignore` 中，提交时只记录指纹和来源提�
 - `decisions.csv`、`score_report.json`、`workflow_result.json`、`agent.log` 和回放 HTML；
 - 诊断面板中的 build/program 输出，以及公开测试的结果包。
 
-当前 agent 已把参数摘要、规划次数/耗时和总计写到 stderr；这些会进入 `agent.log`。不再
-增加逐快照、候选列表、未来天气、模型 prompt 或完整 action payload 日志，避免结果体积和
-隐私风险。任何日志都不得包含临时凭证、上游模型 key 或环境变量值。
+当前 agent 已把参数摘要、规划次数/耗时和总计写到 stderr；这些会进入 `agent.log`。本版还
+在启动时记录脱敏的 Python/实现版本、系统/架构、CPU 数、NumPy/orjson 版本、GIL/JIT 状态
+和峰值 RSS，在每 100 次决策记录墙钟、CPU、RSS、规划次数/耗时，在正常 EOF 记录最终计数。
+这些记录只写 stderr，不改变 JSONL 输出，也不增加外部网络请求。不记录逐快照、候选列表、
+未来天气、模型 prompt、完整 action payload、环境变量值、临时凭证或上游模型 key，避免结果
+体积和隐私风险。
 
 ### 跨 batch 派生指标
 

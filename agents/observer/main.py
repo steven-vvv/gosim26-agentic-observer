@@ -9,10 +9,20 @@
 from __future__ import annotations
 
 import json
+import importlib.metadata
+import os
+import platform
 import re
 import sys
+import sysconfig
+import time
 import traceback
 from pathlib import Path
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - resource is Unix-only
+    resource = None
 
 try:  # Local CPython evaluations may provide orjson; the submitted agent also works without it.
     import orjson as fast_json
@@ -29,6 +39,85 @@ from protocol import ACCEPTED_PROTOCOL_VERSIONS, ACCEPTED_SNAPSHOT_VERSIONS, INI
 WAIT = {"action": "wait", "tile_id": "", "program": "", "request_id": "", "decision_source": "deterministic"}
 SEQUENCE = re.compile(r'"decision_sequence"\s*:\s*(\d+)')
 _warned: set = set()
+
+
+def _package_version(name: str) -> str | None:
+    """Return an installed distribution version without importing the package."""
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    except Exception:  # pragma: no cover - broken metadata should not stop the agent
+        return "unknown"
+
+
+def _flag(value):
+    """Normalize build flags while preserving an unavailable value as null."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
+
+
+def _rss_kib() -> int | None:
+    """Return the process peak resident set size in KiB when the platform exposes it."""
+    if resource is None:
+        return None
+    try:
+        value = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        if sys.platform == "darwin":  # macOS reports bytes; Linux reports KiB.
+            value /= 1024.0
+        return round(value)
+    except (OSError, ValueError):
+        return None
+
+
+def _cpu_seconds() -> float | None:
+    if resource is None:
+        return None
+    try:
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        return round(float(usage.ru_utime + usage.ru_stime), 3)
+    except (OSError, ValueError):
+        return None
+
+
+def _runtime_fields() -> dict:
+    """Small, non-secret environment snapshot suitable for the platform agent.log."""
+    jit = getattr(sys, "_jit", None)
+    jit_enabled = None
+    if jit is not None and hasattr(jit, "is_enabled"):
+        try:
+            jit_enabled = bool(jit.is_enabled())
+        except Exception:  # pragma: no cover - interpreter-specific API
+            jit_enabled = None
+    gil_flag = sysconfig.get_config_var("Py_GIL_DISABLED")
+    if gil_flag is None:
+        gil_flag = getattr(sys.flags, "gil", None)
+    build, build_date = platform.python_build()
+    return {
+        "python": platform.python_version(),
+        "implementation": platform.python_implementation(),
+        "python_build": build,
+        "python_build_date": build_date,
+        "system": platform.system(),
+        "release": platform.release(),
+        "machine": platform.machine(),
+        "cpu_count": os.cpu_count(),
+        "numpy": _package_version("numpy"),
+        "orjson": _package_version("orjson"),
+        "gil_disabled": _flag(gil_flag),
+        "jit_enabled": jit_enabled,
+        "rss_kib": _rss_kib(),
+    }
+
+
+def telemetry(event: str, **fields) -> None:
+    """Emit one compact, machine-readable diagnostic line to stderr only."""
+    payload = {"event": event, **fields}
+    print(f"observer: telemetry {json.dumps(payload, sort_keys=True, separators=(',', ':'))}",
+          file=sys.stderr, flush=True)
 
 
 def warn(key: str, text: str) -> None:
@@ -68,14 +157,20 @@ def main() -> None:
     params = load_params(AGENT_DIR)
     policy = None
     sent: dict = {}  # decision_sequence -> 已发出的响应行；一场约 1,500 条，全部保留
+    started = time.monotonic()
+    counters = {"messages": 0, "decisions": 0, "responses": 0, "replays": 0,
+                "parse_errors": 0, "unknown_messages": 0}
+    telemetry("runtime", **_runtime_fields())
     for line in sys.stdin:
         if not line.strip():
             continue
+        counters["messages"] += 1
         try:
             message = fast_json.loads(line)
             if not isinstance(message, dict):
                 raise TypeError("message is not a JSON object")
         except Exception as exc:  # noqa: BLE001
+            counters["parse_errors"] += 1
             # 坏掉的请求也要回：否则平台一直等到时钟耗尽。能从原文认出序号就回等待
             match = SEQUENCE.search(line) if '"decision_request"' in line else None
             print(f"observer: warning: unreadable message ({exc}); "
@@ -85,6 +180,7 @@ def main() -> None:
                 sent[sequence] = respond(sequence, {**WAIT, "reason": "unreadable request"}, None)
                 if not emit(sent[sequence]):
                     return
+                counters["responses"] += 1
             continue
         kind, version, payload = message.get("message_type"), message.get("protocol_version"), message.get("payload")
         if version not in ACCEPTED_PROTOCOL_VERSIONS:
@@ -93,6 +189,11 @@ def main() -> None:
             if not isinstance(payload, dict):
                 warn("init-payload", "initialize without an object payload; ignored")
                 continue
+            catalog = payload.get("tile_catalog") or {}
+            telemetry("initialize", protocol=version, schema=payload.get("schema_version"),
+                      tiles=len(catalog.get("tiles") or []), regions=len(catalog.get("region_ids") or []),
+                      required=len(catalog.get("required_tile_ids") or []),
+                      calendar_nights=(payload.get("calendar") or {}).get("night_count"))
             if payload.get("schema_version") != INITIAL_PUBLICATION_VERSION:
                 warn(f"init:{payload.get('schema_version')}", f"unknown initialize schema {payload.get('schema_version')!r}")
             payload.pop("target_catalog", None)  # 约 40 万行、占内存约 250 MB，策略用不到
@@ -105,6 +206,7 @@ def main() -> None:
             print(f"observer: params={json.dumps(params, sort_keys=True)}", file=sys.stderr, flush=True)
             continue
         if kind != "decision_request":
+            counters["unknown_messages"] += 1
             warn(f"kind:{kind}", f"ignoring unknown message_type {kind!r}")
             continue
         try:
@@ -113,10 +215,13 @@ def main() -> None:
             warn("no-sequence", "decision_request without a usable decision_sequence; ignored")
             continue
         if sequence in sent:  # 重发：原样重放，不再调用策略（策略状态已经前进了一步）
+            counters["replays"] += 1
             warn("replay", f"repeated decision_sequence {sequence}; replaying the recorded response")
             if not emit(sent[sequence]):
                 return
+            counters["responses"] += 1
             continue
+        counters["decisions"] += 1
         if not isinstance(payload, dict):
             decision = {**WAIT, "reason": "decision_request without an object payload"}
         else:
@@ -130,6 +235,16 @@ def main() -> None:
         sent[sequence] = respond(sequence, decision, version)
         if not emit(sent[sequence]):
             return
+        counters["responses"] += 1
+        if counters["decisions"] % 100 == 0:
+            planner = getattr(policy, "planner", None)
+            telemetry("checkpoint", **counters, wall_s=round(time.monotonic() - started, 3),
+                      cpu_s=_cpu_seconds(), rss_kib=_rss_kib(),
+                      plans=getattr(planner, "plans", 0), plan_s=round(getattr(planner, "plan_seconds", 0.0), 3))
+    planner = getattr(policy, "planner", None)
+    telemetry("final", **counters, wall_s=round(time.monotonic() - started, 3),
+              cpu_s=_cpu_seconds(), rss_kib=_rss_kib(),
+              plans=getattr(planner, "plans", 0), plan_s=round(getattr(planner, "plan_seconds", 0.0), 3))
 
 
 def emit(text: str) -> bool:
