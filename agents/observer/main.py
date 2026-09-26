@@ -8,8 +8,9 @@
 """
 from __future__ import annotations
 
-import json
+import atexit
 import importlib.metadata
+import json
 import os
 import platform
 import re
@@ -17,7 +18,6 @@ import sys
 import sysconfig
 import time
 import traceback
-import atexit
 from pathlib import Path
 
 try:
@@ -25,18 +25,25 @@ try:
 except ImportError:  # pragma: no cover - resource is Unix-only
     resource = None
 
+AGENT_DIR = Path(__file__).resolve().parent
+DEPS_DIR = AGENT_DIR / ".deps"
+if DEPS_DIR.is_dir():
+    # Complete-project builds install optional wheels here because the
+    # platform's user site may be read-only.  The source checkout is unchanged.
+    sys.path.insert(0, str(DEPS_DIR))
+
 try:  # Local CPython evaluations may provide orjson; the submitted agent also works without it.
     import orjson as fast_json
 except ImportError:
     fast_json = json
 
-AGENT_DIR = Path(__file__).resolve().parent
 if str(AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(AGENT_DIR))
 
 from policy import ObserverPolicy, epoch, load_params
 from protocol import ACCEPTED_PROTOCOL_VERSIONS, ACCEPTED_SNAPSHOT_VERSIONS, INITIAL_PUBLICATION_VERSION, decision_response
-from telemetry import TelemetryReporter, runtime_payload as remote_runtime_payload
+from telemetry import TelemetryReporter
+from telemetry import runtime_payload as remote_runtime_payload
 
 WAIT = {"action": "wait", "tile_id": "", "program": "", "request_id": "", "decision_source": "deterministic"}
 SEQUENCE = re.compile(r'"decision_sequence"\s*:\s*(\d+)')
@@ -49,7 +56,7 @@ def _package_version(name: str) -> str | None:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
         return None
-    except Exception:  # pragma: no cover - broken metadata should not stop the agent
+    except Exception:  # noqa: BLE001  # pragma: no cover - broken metadata should not stop the agent
         return "unknown"
 
 
@@ -92,7 +99,7 @@ def _runtime_fields() -> dict:
     if jit is not None and hasattr(jit, "is_enabled"):
         try:
             jit_enabled = bool(jit.is_enabled())
-        except Exception:  # pragma: no cover - interpreter-specific API
+        except Exception:  # noqa: BLE001  # pragma: no cover - interpreter-specific API
             jit_enabled = None
     gil_flag = sysconfig.get_config_var("Py_GIL_DISABLED")
     if gil_flag is None:
@@ -157,20 +164,25 @@ def respond(sequence: int, decision: dict, version) -> str:
 
 def main() -> None:
     params = load_params(AGENT_DIR)
-    reporter = TelemetryReporter.from_env()
+    reporter = TelemetryReporter.from_env(AGENT_DIR / "telemetry.config.json")
     atexit.register(reporter.close)
     policy = None
     sent: dict = {}  # decision_sequence -> 已发出的响应行；一场约 1,500 条，全部保留
     started = time.monotonic()
+    last_io_at = time.perf_counter()
     counters = {"messages": 0, "decisions": 0, "responses": 0, "replays": 0,
                 "parse_errors": 0, "unknown_messages": 0}
     runtime = _runtime_fields()
     telemetry("runtime", **runtime)
+    telemetry("telemetry_config", **reporter.status())
     if reporter.enabled:
+        reporter.emit("telemetry_config", reporter.status())
         reporter.emit("runtime", remote_runtime_payload())
     for line in sys.stdin:
         if not line.strip():
             continue
+        input_received = time.perf_counter()
+        input_wait_ms = round(max(0.0, (input_received - last_io_at) * 1000.0), 3)
         counters["messages"] += 1
         try:
             message = fast_json.loads(line)
@@ -188,6 +200,7 @@ def main() -> None:
                 if not emit(sent[sequence]):
                     return
                 counters["responses"] += 1
+                last_io_at = time.perf_counter()
             continue
         kind, version, payload = message.get("message_type"), message.get("protocol_version"), message.get("payload")
         if version not in ACCEPTED_PROTOCOL_VERSIONS:
@@ -219,6 +232,7 @@ def main() -> None:
                 policy = None
             sent.clear()
             print(f"observer: params={json.dumps(params, sort_keys=True)}", file=sys.stderr, flush=True)
+            last_io_at = time.perf_counter()
             continue
         if kind != "decision_request":
             counters["unknown_messages"] += 1
@@ -232,11 +246,24 @@ def main() -> None:
         if sequence in sent:  # 重发：原样重放，不再调用策略（策略状态已经前进了一步）
             counters["replays"] += 1
             warn("replay", f"repeated decision_sequence {sequence}; replaying the recorded response")
-            if not emit(sent[sequence]):
+            replay_started = time.perf_counter()
+            emitted = emit(sent[sequence])
+            replay_trace = {
+                "kind": "replay",
+                "sequence": sequence,
+                "input_wait_ms": input_wait_ms,
+                "stdout_ms": round((time.perf_counter() - replay_started) * 1000.0, 3),
+                "response_bytes": len(sent[sequence].encode("utf-8")),
+            }
+            telemetry("decision_trace", **replay_trace)
+            reporter.emit("decision_trace", replay_trace, sequence=sequence)
+            last_io_at = time.perf_counter()
+            if not emitted:
                 return
             counters["responses"] += 1
             continue
         counters["decisions"] += 1
+        decision_started = time.perf_counter()
         if not isinstance(payload, dict):
             decision = {**WAIT, "reason": "decision_request without an object payload"}
         else:
@@ -247,12 +274,40 @@ def main() -> None:
             except Exception:  # noqa: BLE001
                 traceback.print_exc(file=sys.stderr)
                 decision = fallback(payload, policy)
+        policy_ms = (time.perf_counter() - decision_started) * 1000.0
+        response_started = time.perf_counter()
         sent[sequence] = respond(sequence, decision, version)
-        if not emit(sent[sequence]):
-            return
+        response_ms = (time.perf_counter() - response_started) * 1000.0
+        stdout_started = time.perf_counter()
+        emitted = emit(sent[sequence])
+        stdout_ms = (time.perf_counter() - stdout_started) * 1000.0
         counters["responses"] += 1
+        planner = getattr(policy, "planner", None)
+        trace = {
+            "kind": "decision",
+            "sequence": sequence,
+            "input_wait_ms": input_wait_ms,
+            "decision_ms": round((time.perf_counter() - decision_started) * 1000.0, 3),
+            "policy_ms": round(policy_ms, 3),
+            "response_ms": round(response_ms, 3),
+            "stdout_ms": round(stdout_ms, 3),
+            "request_bytes": len(line.encode("utf-8")),
+            "response_bytes": len(sent[sequence].encode("utf-8")),
+            "candidate_count": len(payload.get("candidate_tiles") or []) if isinstance(payload, dict) else 0,
+            "active_request_count": len(payload.get("active_requests") or []) if isinstance(payload, dict) else 0,
+            "action": decision.get("action"),
+            "planning": getattr(policy, "planning", None),
+            "plans": getattr(planner, "plans", 0),
+            "plan_s": round(getattr(planner, "plan_seconds", 0.0), 3),
+            "wall_s": round(time.monotonic() - started, 3),
+            "cpu_s": _cpu_seconds(),
+        }
+        telemetry("decision_trace", **trace)
+        reporter.emit("decision_trace", trace, sequence=sequence)
+        last_io_at = time.perf_counter()
+        if not emitted:
+            return
         if counters["decisions"] % 100 == 0:
-            planner = getattr(policy, "planner", None)
             telemetry("checkpoint", **counters, wall_s=round(time.monotonic() - started, 3),
                       cpu_s=_cpu_seconds(), rss_kib=_rss_kib(),
                       plans=getattr(planner, "plans", 0), plan_s=round(getattr(planner, "plan_seconds", 0.0), 3))
@@ -279,6 +334,7 @@ def main() -> None:
     # Give the bounded uploader a short chance to flush the final counters;
     # the hard limit keeps telemetry from extending a run on a bad network.
     reporter.close(timeout=0.2)
+    telemetry("telemetry_final", **reporter.status())
 
 
 def emit(text: str) -> bool:

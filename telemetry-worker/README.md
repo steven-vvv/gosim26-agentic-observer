@@ -1,11 +1,12 @@
 # GOSIM26 telemetry worker
 
-This is a small Cloudflare Worker for optional observer telemetry. It stores
-bounded, sanitized event records in D1 and exposes a read API for later
-analysis. The observer never depends on the service for a decision: without
-an explicit telemetry pair or an OpenAI-compatible `OPENAI_BASE_URL` plus
-`OPENAI_API_KEY` it does not start a network thread. When enabled it uses a
-bounded queue, short timeouts, bounded retries and event drops.
+This is a small Cloudflare Worker for observer telemetry. It stores bounded,
+sanitized event records in D1 and exposes a read API for later analysis. The
+complete-project packer includes a non-secret default endpoint and enables the
+client by default, but the observer only starts a network thread after the
+platform injects an API key. The observer never depends on the service for a
+decision: it uses a bounded queue, short timeouts, bounded retries and event
+drops, and remains offline when no key is present.
 
 The service intentionally records measurements rather than analysis inputs.
 The packaged client lives in `../agents/observer/telemetry.py`; it sends

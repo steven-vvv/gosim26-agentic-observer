@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
+import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agents" / "observer"))
@@ -54,6 +55,29 @@ class TelemetryClientTests(unittest.TestCase):
         self.assertEqual(reporter.transport, "openai")
         self.assertEqual(reporter.url, "https://telemetry.example/v1/chat/completions")
         self.assertEqual(reporter.model, "telemetry-ack")
+        reporter.close()
+
+    def test_packaged_defaults_use_worker_without_logging_the_token(self):
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8") as handle:
+            json.dump({"enabled": True, "transport": "openai",
+                       "url": "https://worker.example/v1", "model": "telemetry-ack"}, handle)
+            handle.flush()
+            with patch.dict("os.environ", {"OPENAI_API_KEY": "ingest-secret"}, clear=True):
+                reporter = TelemetryReporter.from_env(handle.name)
+        self.assertTrue(reporter.enabled)
+        self.assertEqual(reporter.url, "https://worker.example/v1/chat/completions")
+        status = reporter.status()
+        self.assertTrue(status["configured"])
+        self.assertTrue(status["token_present"])
+        self.assertNotIn("ingest-secret", json.dumps(status))
+        reporter.close()
+
+    def test_status_redacts_endpoint_query_and_reports_queue_stats(self):
+        reporter = TelemetryReporter("https://example.test/v1?token=secret", "token", retries=0)
+        status = reporter.status()
+        self.assertEqual(status["endpoint"], "https://example.test/v1/telemetry")
+        self.assertNotIn("secret", json.dumps(status))
+        self.assertEqual(status["stats"], {"queued": 0, "sent": 0, "failed": 0, "dropped": 0})
         reporter.close()
 
     def test_openai_transport_wraps_event_in_messages(self):

@@ -18,6 +18,7 @@ import sysconfig
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from typing import Any
@@ -62,7 +63,7 @@ def _sanitize(value: Any, depth: int = 0) -> Any:
     if value is None or isinstance(value, (bool, int)):
         return value
     if isinstance(value, float):
-        return value if value == value and abs(value) != float("inf") else None
+        return value if value == value and abs(value) != float("inf") else None  # noqa: PLR0124
     if isinstance(value, str):
         return value[:4096]
     if depth >= 6:
@@ -84,7 +85,7 @@ def _package_version(name: str) -> str | None:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
         return None
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "unknown"
 
 
@@ -122,7 +123,7 @@ def runtime_payload() -> dict[str, Any]:
     jit = getattr(sys, "_jit", None)
     try:
         jit_enabled = bool(jit.is_enabled()) if jit is not None and hasattr(jit, "is_enabled") else None
-    except Exception:
+    except Exception:  # noqa: BLE001
         jit_enabled = None
     build, build_date = platform.python_build()
     payload: dict[str, Any] = {
@@ -184,24 +185,53 @@ class TelemetryReporter:
             self._thread.start()
 
     @classmethod
-    def from_env(cls) -> "TelemetryReporter":
+    def from_env(cls, defaults_path: str | os.PathLike[str] | None = None) -> TelemetryReporter:
         # The explicit event endpoint is preferred.  The OpenAI-compatible
         # variables are also a supported telemetry transport: on platforms
         # that only inject OPENAI_BASE_URL/OPENAI_API_KEY, the API key is the
         # telemetry ingest credential and no model call is required.
+        defaults: dict[str, Any] = {}
+        if defaults_path:
+            try:
+                with open(defaults_path, encoding="utf-8") as handle:
+                    loaded = json.load(handle)
+                if isinstance(loaded, dict):
+                    defaults = loaded
+            except (OSError, TypeError, ValueError):
+                # A malformed optional package config must never stop the
+                # protocol process.  Environment variables remain usable.
+                defaults = {}
+        if str(defaults.get("enabled", True)).lower() in {"0", "false", "no", "off"}:
+            return cls(None, None)
+        if os.environ.get("TELEMETRY_DISABLE", "").lower() in {"1", "true", "yes", "on"}:
+            return cls(None, None)
         url = os.environ.get("TELEMETRY_URL")
         token = os.environ.get("TELEMETRY_TOKEN")
-        transport = os.environ.get("TELEMETRY_TRANSPORT", "events").strip().lower()
+        transport_setting = os.environ.get("TELEMETRY_TRANSPORT")
+        if transport_setting:
+            transport = transport_setting.strip().lower()
+        elif url:
+            # An explicit event URL keeps the historical events transport;
+            # the packaged default uses OpenAI only when it supplies the URL.
+            transport = "events"
+        else:
+            transport = str(defaults.get("transport", "events")).strip().lower()
         if not (url and token) and os.environ.get("TELEMETRY_DISABLE_OPENAI", "").lower() not in {"1", "true", "yes", "on"}:
             openai_url = os.environ.get("OPENAI_BASE_URL")
             openai_key = os.environ.get("OPENAI_API_KEY")
             if openai_url and openai_key:
                 url, token, transport = openai_url, openai_key, "openai"
+            elif openai_key and defaults.get("url"):
+                # Complete-project packages carry a non-secret default Worker
+                # URL.  The platform still has to inject the write token.
+                url, token = str(defaults["url"]), openai_key
+                transport = str(defaults.get("transport", "openai")).strip().lower()
         model = (
             os.environ.get("TELEMETRY_MODEL")
             or os.environ.get("OPENAI_MODEL")
             or os.environ.get("MODEL_NAME")
             or os.environ.get("MODEL")
+            or str(defaults.get("model", ""))
             or "telemetry-ack"
         )
         return cls(
@@ -211,7 +241,7 @@ class TelemetryReporter:
             source=os.environ.get("TELEMETRY_SOURCE", "observer"),
             transport=transport,
             model=model,
-            queue_size=_safe_int(os.environ.get("TELEMETRY_QUEUE_SIZE"), 256, 1, 4096),
+            queue_size=_safe_int(os.environ.get("TELEMETRY_QUEUE_SIZE") or defaults.get("queue_size"), 1024, 1, 4096),
             timeout=_safe_float(os.environ.get("TELEMETRY_TIMEOUT_SECONDS"), 0.8, 0.1, 3.0),
             retries=_safe_int(os.environ.get("TELEMETRY_RETRIES"), 2, 0, 3),
         )
@@ -219,6 +249,15 @@ class TelemetryReporter:
     @staticmethod
     def _normalize_url(value: str, transport: str = "events") -> str:
         url = value.strip().rstrip("/")
+        try:
+            parsed = urllib.parse.urlsplit(url)
+            if parsed.scheme and parsed.netloc:
+                # Credentials belong in the Authorization header, never in a
+                # query string that could leak through diagnostics or proxies.
+                netloc = parsed.netloc.rsplit("@", 1)[-1]
+                url = urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path.rstrip("/"), "", ""))
+        except ValueError:
+            pass
         if transport == "openai":
             if url.endswith("/v1/chat/completions"):
                 return url
@@ -263,6 +302,30 @@ class TelemetryReporter:
         with self._lock:
             return dict(self._stats)
 
+    def status(self) -> dict[str, Any]:
+        """Return a redacted configuration and delivery snapshot for logs."""
+        endpoint = None
+        if self.url:
+            try:
+                parsed = urllib.parse.urlsplit(self.url)
+                endpoint = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, "", ""))
+            except ValueError:
+                endpoint = "<invalid>"
+        return {
+            "configured": self.url is not None and self.token is not None,
+            "enabled": self.enabled,
+            "transport": self.transport,
+            "endpoint": endpoint,
+            "token_present": self.token is not None,
+            "run_id": self.run_id,
+            "queue_capacity": self._queue.maxsize,
+            "queue_depth": self._queue.qsize(),
+            "timeout_s": self.timeout,
+            "retries": self.retries,
+            "thread_alive": bool(self._thread and self._thread.is_alive()),
+            "stats": self.stats(),
+        }
+
     def _run(self) -> None:
         while not self._stop.is_set() or not self._queue.empty():
             try:
@@ -276,7 +339,7 @@ class TelemetryReporter:
                     self._inc("sent")
                     delivered = True
                     break
-                except Exception:
+                except Exception:  # noqa: BLE001
                     self._inc("failed")
                     if attempt < self.retries:
                         self._stop.wait(self.backoff * (2**attempt))
