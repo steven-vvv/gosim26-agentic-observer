@@ -1,0 +1,2 @@
+TELEMETRY_INGEST_TOKEN=replace-with-a-long-random-ingest-token
+TELEMETRY_READ_TOKEN=replace-with-a-different-long-random-read-token

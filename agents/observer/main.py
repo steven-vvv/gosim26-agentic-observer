@@ -17,6 +17,7 @@ import sys
 import sysconfig
 import time
 import traceback
+import atexit
 from pathlib import Path
 
 try:
@@ -35,6 +36,7 @@ if str(AGENT_DIR) not in sys.path:
 
 from policy import ObserverPolicy, epoch, load_params
 from protocol import ACCEPTED_PROTOCOL_VERSIONS, ACCEPTED_SNAPSHOT_VERSIONS, INITIAL_PUBLICATION_VERSION, decision_response
+from telemetry import TelemetryReporter, runtime_payload as remote_runtime_payload
 
 WAIT = {"action": "wait", "tile_id": "", "program": "", "request_id": "", "decision_source": "deterministic"}
 SEQUENCE = re.compile(r'"decision_sequence"\s*:\s*(\d+)')
@@ -155,12 +157,17 @@ def respond(sequence: int, decision: dict, version) -> str:
 
 def main() -> None:
     params = load_params(AGENT_DIR)
+    reporter = TelemetryReporter.from_env()
+    atexit.register(reporter.close)
     policy = None
     sent: dict = {}  # decision_sequence -> 已发出的响应行；一场约 1,500 条，全部保留
     started = time.monotonic()
     counters = {"messages": 0, "decisions": 0, "responses": 0, "replays": 0,
                 "parse_errors": 0, "unknown_messages": 0}
-    telemetry("runtime", **_runtime_fields())
+    runtime = _runtime_fields()
+    telemetry("runtime", **runtime)
+    if reporter.enabled:
+        reporter.emit("runtime", remote_runtime_payload())
     for line in sys.stdin:
         if not line.strip():
             continue
@@ -194,6 +201,14 @@ def main() -> None:
                       tiles=len(catalog.get("tiles") or []), regions=len(catalog.get("region_ids") or []),
                       required=len(catalog.get("required_tile_ids") or []),
                       calendar_nights=(payload.get("calendar") or {}).get("night_count"))
+            reporter.emit("initialize", {
+                "protocol": version,
+                "schema_version": payload.get("schema_version"),
+                "tiles": len(catalog.get("tiles") or []),
+                "regions": len(catalog.get("region_ids") or []),
+                "required": len(catalog.get("required_tile_ids") or []),
+                "calendar_nights": (payload.get("calendar") or {}).get("night_count"),
+            })
             if payload.get("schema_version") != INITIAL_PUBLICATION_VERSION:
                 warn(f"init:{payload.get('schema_version')}", f"unknown initialize schema {payload.get('schema_version')!r}")
             payload.pop("target_catalog", None)  # 约 40 万行、占内存约 250 MB，策略用不到
@@ -241,10 +256,29 @@ def main() -> None:
             telemetry("checkpoint", **counters, wall_s=round(time.monotonic() - started, 3),
                       cpu_s=_cpu_seconds(), rss_kib=_rss_kib(),
                       plans=getattr(planner, "plans", 0), plan_s=round(getattr(planner, "plan_seconds", 0.0), 3))
+            reporter.emit("checkpoint", {
+                **counters,
+                "wall_s": round(time.monotonic() - started, 3),
+                "cpu_s": _cpu_seconds(),
+                "rss_kib": _rss_kib(),
+                "plans": getattr(planner, "plans", 0),
+                "plan_s": round(getattr(planner, "plan_seconds", 0.0), 3),
+            }, sequence=counters["decisions"])
     planner = getattr(policy, "planner", None)
     telemetry("final", **counters, wall_s=round(time.monotonic() - started, 3),
               cpu_s=_cpu_seconds(), rss_kib=_rss_kib(),
               plans=getattr(planner, "plans", 0), plan_s=round(getattr(planner, "plan_seconds", 0.0), 3))
+    reporter.emit("final", {
+        **counters,
+        "wall_s": round(time.monotonic() - started, 3),
+        "cpu_s": _cpu_seconds(),
+        "rss_kib": _rss_kib(),
+        "plans": getattr(planner, "plans", 0),
+        "plan_s": round(getattr(planner, "plan_seconds", 0.0), 3),
+    })
+    # Give the bounded uploader a short chance to flush the final counters;
+    # the hard limit keeps telemetry from extending a run on a bad network.
+    reporter.close(timeout=0.2)
 
 
 def emit(text: str) -> bool:

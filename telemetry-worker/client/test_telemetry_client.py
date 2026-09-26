@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+import time
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agents" / "observer"))
+
+from telemetry import TelemetryReporter, runtime_payload
+
+
+class TelemetryClientTests(unittest.TestCase):
+    def test_disabled_client_does_not_start_a_thread_or_send(self):
+        reporter = TelemetryReporter(None, None)
+        self.assertFalse(reporter.enabled)
+        self.assertFalse(reporter.emit("runtime", {"python": "test"}))
+        self.assertIsNone(reporter._thread)
+        reporter.close()
+
+    def test_endpoint_normalization_and_sanitization(self):
+        reporter = TelemetryReporter("https://example.test/v1", "token", queue_size=2)
+        with patch("telemetry.urllib.request.urlopen") as urlopen:
+            class Response:
+                status = 202
+                def __enter__(self): return self
+                def __exit__(self, *_): return False
+                def read(self, _): return b"{}"
+            urlopen.return_value = Response()
+            self.assertTrue(reporter.emit("runtime", {"api_key": "secret", "ok": 1}))
+            deadline = time.time() + 1.0
+            while reporter.stats()["sent"] < 1 and time.time() < deadline:
+                time.sleep(0.01)
+        reporter.close()
+        self.assertEqual(reporter.url, "https://example.test/v1/telemetry")
+        self.assertEqual(reporter.stats()["sent"], 1)
+        request = urlopen.call_args.args[0]
+        self.assertNotIn("secret", request.data.decode())
+
+    def test_queue_overflow_is_dropped_without_blocking(self):
+        reporter = TelemetryReporter(None, None, queue_size=1)
+        reporter.url = "https://example.test/v1/telemetry"
+        reporter.token = "token"
+        # Fill the queue directly so the worker's scheduling cannot make this
+        # assertion race with a successful upload.
+        reporter._queue.put_nowait({"sentinel": True})
+        started = time.monotonic()
+        self.assertFalse(reporter.emit("overflow", {"x": 2}))
+        self.assertLess(time.monotonic() - started, 0.05)
+        self.assertEqual(reporter.stats()["dropped"], 1)
+        reporter.close()
+
+    def test_invalid_timeout_uses_a_bounded_default(self):
+        reporter = TelemetryReporter(None, None, timeout="invalid")
+        self.assertEqual(reporter.timeout, 0.8)
+        reporter.close()
+
+    def test_upload_failure_is_bounded_and_dropped(self):
+        reporter = TelemetryReporter("https://example.test", "token", retries=0, timeout=0.1)
+        with patch("telemetry.urllib.request.urlopen", side_effect=OSError("offline")):
+            self.assertTrue(reporter.emit("offline", {"ok": True}))
+            deadline = time.time() + 1.0
+            while reporter.stats()["dropped"] < 1 and time.time() < deadline:
+                time.sleep(0.01)
+        reporter.close(timeout=0.1)
+        self.assertEqual(reporter.stats()["failed"], 1)
+        self.assertEqual(reporter.stats()["dropped"], 1)
+
+    def test_runtime_payload_has_no_environment_values(self):
+        payload = runtime_payload()
+        self.assertIn("python", payload)
+        self.assertIn("machine", payload)
+        self.assertNotIn("TELEMETRY_TOKEN", str(payload))
+
+
+if __name__ == "__main__":
+    unittest.main()

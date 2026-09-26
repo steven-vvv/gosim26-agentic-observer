@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gosim26-telemetry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-26",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gosim26-telemetry",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
+  "vars": {
+    "CORS_ORIGIN": "*",
+    "TELEMETRY_MAX_BATCH": "32",
+    "TELEMETRY_MAX_BODY_BYTES": "262144",
+    "TELEMETRY_RETENTION_DAYS": "30"
+  }
+}

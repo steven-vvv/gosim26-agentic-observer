@@ -18,3 +18,9 @@ runs/zero/
 # 完整项目的构建产物（tools/pack_project.py 随时可以重建；带 numpy wheel 约 31 MB）
 dist/project-*/
 dist/*-project.zip
+
+# Cloudflare telemetry worker local state and credentials
+telemetry-worker/node_modules/
+telemetry-worker/.wrangler/
+telemetry-worker/.dev.vars
+telemetry-worker/coverage/
