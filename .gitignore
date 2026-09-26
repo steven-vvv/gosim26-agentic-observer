@@ -28,3 +28,8 @@ telemetry-worker/node_modules/
 telemetry-worker/.wrangler/
 telemetry-worker/.dev.vars
 telemetry-worker/coverage/
+
+# 全知排程工具的中间产物（结果表约 17 MB，可由 tools/omni/tables.py 重建）；
+# 最终排程另存 agents/public_once/public_schedules.json
+runs/omni/
+tools/omni/dp.so
