@@ -3,8 +3,10 @@
 This is a small Cloudflare Worker for observer telemetry. It stores bounded,
 sanitized event records in D1 and exposes a read API for later analysis. The
 complete-project packer includes a non-secret default endpoint and enables the
-client by default, but the observer only starts a network thread after the
-platform injects an API key. The observer never depends on the service for a
+client by default, but the observer only starts a network thread with a
+dedicated `TELEMETRY_TOKEN` (or direct Worker credentials). The contest
+platform's injected `OPENAI_*` variables belong to the real model proxy.
+The observer never depends on the service for a
 decision: it uses a bounded queue, short timeouts, bounded retries and event
 drops, and remains offline when no key is present.
 
@@ -44,12 +46,11 @@ All protected routes accept `Authorization: Bearer <token>` or
   puts the event in a JSON user message using only standard Chat Completions
   fields, so strict gateways can forward it unchanged. The Worker stores one
   normalized event and returns a valid non-streaming completion or an SSE
-  completion when `stream` is true. In the contest runner, the injected
-  `OPENAI_*` pair belongs to the platform proxy; configure the platform's
-  saved team model to point at this Worker if those requests should arrive
-  here. The platform appends `/chat/completions` to the saved base URL. Set
-  that base URL to the Worker URL with `/v1` for the versioned route; the
-  unversioned route also accepts a saved Worker root URL.
+  completion when `stream` is true. Direct Worker testing may use a base URL
+  ending in `/v1` or the Worker root. In the contest runner, the injected
+  `OPENAI_*` pair belongs to the platform model proxy; configure the saved
+  team model with a real model and use a separate `TELEMETRY_TOKEN` for this
+  Worker.
 * `GET /v1/models` returns the `telemetry-ack` model and uses ingest access.
 
 An event has `run_id`, `event_type`, `source`, optional client timestamp and

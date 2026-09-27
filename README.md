@@ -42,8 +42,9 @@ git，默认分支 `main`。当前实验在 `codex` 分支；前一轮 `claude` 
 用 uv 管理，开发用 Python 3.14（`.python-version`），分析依赖见 `pyproject.toml`。agent 保持 Python 3.9 语法兼容
 （平台用 Python 3.12 运行，`ruff` 按 `target-version = "py39"` 检查）。规划器可选 numpy：完整项目包把 wheel 安装到
 可写的 `.deps/` 后走向量化路径，安装失败（或本地 PyPy）就用纯 Python；两条路径的结果逐位相同
-（`tests/test_observer.py` 与整场 decisions.csv 比对）。完整项目打包默认附带不含密钥的遥测配置和逐步性能追踪；只有
-平台注入 `OPENAI_API_KEY` 时才联网，网络失败不会阻塞决策。
+（`tests/test_observer.py` 与整场 decisions.csv 比对）。完整项目打包默认附带不含密钥的遥测配置和逐步性能追踪。
+平台注入的 `OPENAI_BASE_URL` / `OPENAI_API_KEY` 供有界模型决策使用；远程遥测需另设 `TELEMETRY_TOKEN`
+（可选 `TELEMETRY_URL`），否则逐步追踪只写 `agent.log`。两条网络路径失败时均回退到确定性决策。
 
 ```bash
 uv sync                                   # 建立 .venv

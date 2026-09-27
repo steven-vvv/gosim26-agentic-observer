@@ -1,6 +1,6 @@
 # 完整项目提交清单（2026-09-26）
 
-这份清单只针对当前主办方公开的 `practice-projects` 完整项目通道。它把“平台声明支持”和“本地已经验证”分开，提交新包前逐项勾选；不把凭证放进仓库或 ZIP。
+这份清单针对主办方的完整项目通道。它把“平台声明支持”和“本地已经验证”分开，提交新包前逐项勾选；不把凭证放进仓库或 ZIP。2026-09-27 的模型资格及凭据边界见 `notes/2026-09-27-claude-e5e6a5dc.md`，以下环境变量口径已据此更新。
 
 ## 通道与项目格式
 
@@ -23,11 +23,11 @@
 
 - [x] 默认遥测打包源固定为当前工作副本 `agents/observer`；冻结的 `agents/obs17` 没有客户端，误用时打包器会失败，只有显式 `--no-telemetry` 才允许打历史快照。
 - [x] 后续完整项目打包默认生成不含密钥的 `telemetry.config.json`，默认指向 Worker 的 OpenAI-compatible `/v1` 地址，逐步追踪开关为真。
-- [x] 平台或直连环境注入 `OPENAI_API_KEY` 后才启动后台遥测线程；直连时 `OPENAI_BASE_URL` 覆盖包内地址，比赛平台的这两个变量指向平台代理，需通过保存的团队模型转发到 Worker。没有密钥时完全离线，显式 `--no-telemetry` 可关闭。
-- [x] 显式 `TELEMETRY_URL`/`TELEMETRY_TOKEN` 仍可走 `/v1/telemetry`；显式事件端点默认使用 events 传输。
+- [x] 比赛平台的 `OPENAI_BASE_URL`/`OPENAI_API_KEY` 属于真实模型代理，不能用作 Worker 写入凭据。远程遥测须另设 `TELEMETRY_TOKEN`；未设 `TELEMETRY_URL` 时使用包内 Worker 地址和 OpenAI-compatible 传输，显式事件端点默认使用 events 传输。没有专用凭据时逐步追踪仍写 `agent.log`；显式 `--no-telemetry` 可关闭。
+- [x] 仅在直连测试中把 `OPENAI_BASE_URL` 设为同一个 Worker 且 `OPENAI_API_KEY` 设为它的写入令牌时，兼容旧的 OpenAI-shaped 遥测入口；单独注入模型 Key 不会启用 Worker 遥测。
 - [x] 每次决策在 stderr 和有界遥测队列记录输入等待、策略耗时、响应编码、stdout 刷新、请求/响应大小、候选数、规划计数、CPU 与墙钟；不记录 tile 内容、快照、prompt 或密钥。
 - [x] 启动和结束记录遥测配置状态、队列深度及 `queued/sent/failed/dropped`，状态会剥离 token、查询串和用户信息。
-- [ ] 下一次远端运行必须确认 `telemetry_config` 是 `enabled=true` 还是 `configured=false`，并确认平台保存的团队模型已指向 Worker，再用 D1/Worker 日志判断 DNS、连接超时、HTTP 拒绝或成功；不能从空结果直接断言 workers.dev 被阻断。
+- [ ] 下一次远端运行须确认 `telemetry_config` 与模型决策成功率。团队模型应指向真实大模型；注入专用遥测令牌后，再用 D1/Worker 日志判断 DNS、连接超时、HTTP 拒绝或成功；不能从空结果直接断言 workers.dev 被阻断。
 - [x] OpenAI 传输只发送平台代理允许的标准字段，事件放在 JSON user message；不再发送会被 `observer-model` 拒绝的 `metadata`/`telemetry` 顶层扩展字段。
 - [x] Worker 的持久 invocation logs 已在 `telemetry-worker/wrangler.jsonc` 开启，作为 D1 结构化事件的第二信号源。
 
