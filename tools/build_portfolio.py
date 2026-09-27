@@ -4,6 +4,8 @@
     uv run python tools/build_portfolio.py --agent agents/obs12 --count 30 --out dist/portfolio \
         [--structural '[{"plan_every_seconds": 3600}, {"rollout_seconds": 5400}]']
 
+这是历史的扁平程序包组合器，不是当前完整项目上传入口；完整项目请使用 tools/pack_project.py。
+
 规则按“每队取该阶段最佳的已评分提交”排名，比赛 3 天、每天 10 次，评测天气固定、agent 完全确定。
 近似等价的变体会走出不同的轨迹：obs11 的 8 个中性扰动在 4 个场景上的单场相对标准差约 0.15%，
 两个场景平均后约 0.10%，从 30 个里取最好一次，期望比单次提交高约 0.2%（runs/noise/）。

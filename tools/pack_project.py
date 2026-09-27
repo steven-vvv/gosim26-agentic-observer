@@ -12,6 +12,8 @@
 - telemetry.config.json：默认写入不含密钥的遥测配置。模型顾问和遥测可以共用一个 OpenAI-compatible
   Worker；Worker 按 `gosim26.telemetry` tool 标记消费遥测，其余请求代理到真实模型端点。
 - ZIP 内文件按名字排序、时间戳固定，同样的输入得到同样的 sha256。
+- 生成前会按平台规则检查 manifest、相对路径、敏感文件、符号链接、文件数量和展开体积；先在临时目录完成并验证，
+  最后才替换旧目录与 ZIP，坏输入不会清掉上一个可用包。
 
 输出 dist/project-<版本>/ 与 dist/observer-<版本>-project.zip，并打印 sha256。这两样都不入库（见 .gitignore），随时可以重建。
 """
@@ -21,15 +23,28 @@ import argparse
 import hashlib
 import json
 import py_compile
+import re
 import shutil
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_ZIP_BYTES = 50 << 20
+MAX_EXPANDED_BYTES = 100 << 20
+MAX_FILES = 10_000
+MAX_MANIFEST_BYTES = 64 << 10
 FIXED_TIME = (2026, 10, 1, 0, 0, 0)
 DEFAULT_TELEMETRY_URL = "https://gosim26-telemetry.wxlsteven.workers.dev/v1"
+MANIFEST_NAME = "observer.project.json"
+MANIFEST_SCHEMA = "observer-project-v1"
+MANIFEST_FIELDS = {"schema_version", "image", "run", "build", "working_directory", "environment", "protocol"}
+IMAGE_REFERENCE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._/:-]*(?:@sha256:[0-9a-f]{64})?$")
+ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+PRIVATE_ENV = re.compile(r"(SECRET|PASSWORD|TOKEN|API_KEY|PRIVATE_KEY)")
+ENV_TEMPLATES = {".env.example", ".env.sample", ".env.template"}
 
 README = """# Agentic Observer：{name}
 
@@ -70,6 +85,120 @@ The telemetry key comes only from environment variables and is never packaged.
 """
 
 
+def _is_argv(value) -> bool:
+    return (isinstance(value, list) and 1 <= len(value) <= 128 and
+            all(isinstance(item, str) and item and "\x00" not in item and len(item) <= 8192 for item in value) and
+            not value[0].startswith("-"))
+
+
+def _validate_manifest(raw: bytes, project_dir: Path | None = None) -> dict:
+    """Apply the platform manifest checks before a package can replace an old build."""
+    if len(raw) > MAX_MANIFEST_BYTES:
+        raise SystemExit(f"{MANIFEST_NAME} 超过 64 KiB 上限")
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeError) as exc:
+        raise SystemExit(f"{MANIFEST_NAME} 不是有效 JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit(f"{MANIFEST_NAME} 必须是 JSON object")
+    unknown = set(data) - MANIFEST_FIELDS
+    if unknown:
+        raise SystemExit(f"{MANIFEST_NAME} 含平台不认识的字段: {', '.join(sorted(unknown))}")
+    if data.get("schema_version") != MANIFEST_SCHEMA:
+        raise SystemExit(f"{MANIFEST_NAME}.schema_version 必须为 {MANIFEST_SCHEMA}")
+    image = data.get("image")
+    if not isinstance(image, str) or len(image) > 256 or not IMAGE_REFERENCE.fullmatch(image):
+        raise SystemExit(f"{MANIFEST_NAME}.image 不是有效的容器镜像引用")
+    if data.get("protocol", "jsonl-v2") != "jsonl-v2":
+        raise SystemExit(f"{MANIFEST_NAME}.protocol 必须为 jsonl-v2")
+    if not _is_argv(data.get("run")):
+        raise SystemExit(f"{MANIFEST_NAME}.run 必须是非空命令参数数组")
+    build = data.get("build", [])
+    if not isinstance(build, list) or len(build) > 16 or not all(_is_argv(command) for command in build):
+        raise SystemExit(f"{MANIFEST_NAME}.build 必须是最多 16 个命令参数数组")
+    workdir = data.get("working_directory", ".")
+    if (not isinstance(workdir, str) or len(workdir) > 512 or workdir.startswith("/") or "\\" in workdir or
+            ":" in workdir or (workdir != "." and any(part in ("", ".", "..") for part in workdir.split("/"))) or
+            any(ord(char) < 32 or ord(char) == 127 for char in workdir)):
+        raise SystemExit(f"{MANIFEST_NAME}.working_directory 必须是项目内的相对目录")
+    if project_dir is not None and not (project_dir / workdir).is_dir():
+        raise SystemExit(f"{MANIFEST_NAME}.working_directory 不存在: {workdir}")
+    environment = data.get("environment", {})
+    if not isinstance(environment, dict) or len(environment) > 32:
+        raise SystemExit(f"{MANIFEST_NAME}.environment 最多允许 32 个设置")
+    for key, value in environment.items():
+        if (not isinstance(key, str) or not ENV_NAME.fullmatch(key) or
+                key.startswith(("GITHUB_", "SUPABASE_", "OBSERVER_", "ACTIONS_")) or PRIVATE_ENV.search(key)):
+            raise SystemExit(f"{MANIFEST_NAME}.environment 含凭据或平台保留变量: {key}")
+        if not isinstance(value, str) or "\x00" in value or len(value) > 4096:
+            raise SystemExit(f"{MANIFEST_NAME}.environment.{key} 不是有效的短字符串")
+    return data
+
+
+def _validate_telemetry_url(value: str) -> None:
+    """Keep credentials out of the packaged non-secret telemetry configuration."""
+    if not isinstance(value, str) or not value or len(value) > 2048 or any(ord(char) < 32 for char in value):
+        raise SystemExit("遥测 URL 必须是短的 HTTP(S) 地址")
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+    except ValueError as exc:
+        raise SystemExit(f"遥测 URL 无效: {value!r}") from exc
+    if (parsed.scheme not in {"http", "https"} or not parsed.netloc or not hostname or
+            parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment):
+        raise SystemExit("遥测 URL 只能包含不带凭据、查询参数或片段的 HTTP(S) 地址")
+
+
+def _validate_archive_name(name: str) -> None:
+    """Reject paths the platform archive reader would reject."""
+    if (not name or name.startswith("/") or "\\" in name or ":" in name or
+            any(part in ("", ".", "..") for part in name.split("/")) or
+            any(ord(char) < 32 or ord(char) == 127 for char in name)):
+        raise SystemExit(f"包内路径不安全: {name!r}")
+    parts = name.split("/")
+    if any(part.casefold() == ".git" for part in parts):
+        raise SystemExit("包内不能包含 .git 历史")
+    for part in parts:
+        folded = part.casefold()
+        if (folded == ".env" or folded.startswith(".env.")) and part not in ENV_TEMPLATES:
+            raise SystemExit("包内不能包含 .env 凭据文件")
+
+
+def _validate_regular_file(path: Path, label: str) -> None:
+    if path.is_symlink():
+        raise SystemExit(f"{label} 不能是符号链接: {path}")
+    if not path.is_file():
+        raise SystemExit(f"{label} 不存在或不是普通文件: {path}")
+
+
+def _validate_package_files(project_dir: Path) -> list[Path]:
+    files = sorted((path for path in project_dir.rglob("*") if path.is_file() or path.is_symlink()),
+                   key=lambda path: path.relative_to(project_dir).as_posix())
+    if len(files) > MAX_FILES:
+        raise SystemExit(f"包内有 {len(files)} 个文件，超过 {MAX_FILES} 个上限")
+    total = 0
+    seen: set[str] = set()
+    for path in files:
+        if path.is_symlink():
+            raise SystemExit(f"包内不能包含符号链接: {path.relative_to(project_dir)}")
+        relative = path.relative_to(project_dir).as_posix()
+        _validate_archive_name(relative)
+        folded = relative.casefold()
+        if folded in seen:
+            raise SystemExit(f"包内存在大小写冲突的重复路径: {relative}")
+        seen.add(folded)
+        total += path.stat().st_size
+        if total > MAX_EXPANDED_BYTES:
+            raise SystemExit(f"包展开后超过 {MAX_EXPANDED_BYTES / 2**20:.0f} MiB 上限")
+    for relative in seen:
+        parts = relative.split("/")
+        if any("/".join(parts[:index]) in seen for index in range(1, len(parts))):
+            raise SystemExit(f"包内文件与目录路径冲突: {relative}")
+    if not files:
+        raise SystemExit("包内没有文件")
+    return files
+
+
 def build(
     agent: Path,
     out_dir: Path,
@@ -81,66 +210,151 @@ def build(
     public_schedules: Path | None = None,
     telemetry_source: Path | None = None,
 ) -> str:
-    sources = sorted(p for p in agent.glob("*.py")) + ([agent / "params.json"] if (agent / "params.json").exists() else [])
-    if (agent / "llm.config.json").exists():
-        sources.append(agent / "llm.config.json")
-    if telemetry_source is not None and not any(p.name == "telemetry.py" for p in sources):
+    agent = agent.resolve()
+    out_dir = out_dir.absolute()
+    zip_path = zip_path.absolute()
+    if not agent.is_dir():
+        raise SystemExit(f"agent 目录不存在: {agent}")
+    if out_dir == agent or agent in out_dir.parents:
+        raise SystemExit("输出目录不能位于 agent 目录内")
+    if zip_path == agent or agent in zip_path.parents:
+        raise SystemExit("ZIP 输出不能位于 agent 目录内")
+    if zip_path == out_dir or out_dir in zip_path.parents:
+        raise SystemExit("ZIP 输出不能位于项目输出目录内")
+    if out_dir.is_symlink() or (out_dir.exists() and not out_dir.is_dir()):
+        raise SystemExit(f"项目输出路径不是普通目录: {out_dir}")
+    if zip_path.is_symlink() or (zip_path.exists() and not zip_path.is_file()):
+        raise SystemExit(f"ZIP 输出路径不是普通文件: {zip_path}")
+
+    sources = sorted(agent.glob("*.py"), key=lambda path: path.name)
+    for optional in (agent / "params.json", agent / "llm.config.json"):
+        if optional.exists():
+            sources.append(optional)
+    if telemetry_source is not None and not any(path.name == "telemetry.py" for path in sources):
         sources.append(telemetry_source)
-    if not any(p.name == "main.py" for p in sources):
+    if not any(path.name == "main.py" for path in sources):
         raise SystemExit(f"{agent} 里没有 main.py")
-    if telemetry_enabled and not any(p.name == "telemetry.py" for p in sources):
+    if telemetry_enabled and not any(path.name == "telemetry.py" for path in sources):
         raise SystemExit(
             f"{agent} 里没有 telemetry.py；默认遥测需要当前工作副本 agents/observer。"
             "历史快照请显式使用 --no-telemetry。"
         )
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
-    out_dir.mkdir(parents=True)
+    source_names: set[str] = set()
     for path in sources:
-        shutil.copy2(path, out_dir / path.name)
-        if path.suffix == ".py":
-            py_compile.compile(str(out_dir / path.name), doraise=True, cfile=str(out_dir / "__pycache__" / "check.pyc"))
-    shutil.rmtree(out_dir / "__pycache__", ignore_errors=True)
+        _validate_regular_file(path, "源文件")
+        _validate_archive_name(path.name)
+        folded = path.name.casefold()
+        if folded in source_names:
+            raise SystemExit(f"源文件名大小写冲突: {path.name}")
+        source_names.add(folded)
+
     if public_schedules is not None:
-        shutil.copy2(public_schedules, out_dir / "public_schedules.json")
-    build_steps = []
+        _validate_regular_file(public_schedules, "公开排程")
+        if "public_schedules.json".casefold() in source_names:
+            raise SystemExit("源文件与 public_schedules.json 重名")
+
+    found_wheels: list[Path] = []
     if wheels is not None:
-        found = sorted(wheels.glob("numpy-*.whl"))
-        if not found:
+        wheels = wheels.absolute()
+        if wheels.is_symlink() or not wheels.is_dir():
+            raise SystemExit(f"wheel 目录不存在或不是普通目录: {wheels}")
+        wheels = wheels.resolve()
+        found_wheels = sorted(wheels.glob("numpy-*.whl"), key=lambda path: path.name)
+        if not found_wheels:
             raise SystemExit(f"{wheels} 里没有 numpy wheel")
-        (out_dir / "wheels").mkdir()
-        for wheel in found:
-            shutil.copy2(wheel, out_dir / "wheels" / wheel.name)
+        wheel_names: set[str] = set()
+        for wheel in found_wheels:
+            _validate_regular_file(wheel, "numpy wheel")
+            _validate_archive_name(f"wheels/{wheel.name}")
+            folded = wheel.name.casefold()
+            if folded in wheel_names:
+                raise SystemExit(f"wheel 文件名大小写冲突: {wheel.name}")
+            wheel_names.add(folded)
+
+    build_steps = []
+    if found_wheels:
         build_command = (
             "python3 -m pip install --disable-pip-version-check --no-index --target .deps --find-links wheels numpy "
             "|| python3 -m pip install --disable-pip-version-check --target .deps 'numpy>=1.26' || true"
         )
         build_steps.append(["sh", "-c", build_command])
-    (out_dir / "telemetry.config.json").write_text(json.dumps({
-        "enabled": bool(telemetry_enabled),
-        "transport": "openai",
-        "url": telemetry_url,
-        "model": "telemetry-ack",
-        "trace": agent.name != "public_once",
-        "timeout_seconds": 5.0 if agent.name == "public_once" else 3.0,
-        "queue_size": 1024,
-        "batch_size": 16,
-    }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    manifest = {"schema_version": "observer-project-v1", "protocol": "jsonl-v2", "image": image,
-                "working_directory": ".", "build": build_steps, "run": ["python3", "-u", "main.py"]}
-    (out_dir / "observer.project.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    (out_dir / "README.md").write_text(PUBLIC_README if agent.name == "public_once" else README.format(name=agent.name),
-                                       encoding="utf-8")
+    _validate_telemetry_url(telemetry_url)
+    manifest = {
+        "schema_version": MANIFEST_SCHEMA,
+        "protocol": "jsonl-v2",
+        "image": image,
+        "working_directory": ".",
+        "environment": {"PYTHONDONTWRITEBYTECODE": "1"},
+        "build": build_steps,
+        "run": ["python3", "-u", "main.py"],
+    }
+    manifest_bytes = json.dumps(manifest, indent=2, ensure_ascii=False).encode() + b"\n"
+    _validate_manifest(manifest_bytes)
+
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
     zip_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(p for p in out_dir.rglob("*") if p.is_file()):
-            info = zipfile.ZipInfo(str(path.relative_to(out_dir)), FIXED_TIME)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o644 << 16
-            archive.writestr(info, path.read_bytes())
-    size = zip_path.stat().st_size
-    if size > MAX_ZIP_BYTES:
-        raise SystemExit(f"{zip_path} 有 {size / 2**20:.1f} MB，超过 50 MB 上限")
+    with tempfile.TemporaryDirectory(prefix=f".{out_dir.name}.", dir=str(out_dir.parent)) as temp_root:
+        staging = Path(temp_root) / "project"
+        staging.mkdir()
+        for path in sources:
+            shutil.copy2(path, staging / path.name)
+            if path.suffix == ".py":
+                cache = staging / "__pycache__"
+                cache.mkdir(exist_ok=True)
+                py_compile.compile(str(staging / path.name), doraise=True, cfile=str(cache / "check.pyc"))
+        shutil.rmtree(staging / "__pycache__", ignore_errors=True)
+        if public_schedules is not None:
+            shutil.copy2(public_schedules, staging / "public_schedules.json")
+        if found_wheels:
+            wheel_dir = staging / "wheels"
+            wheel_dir.mkdir()
+            for wheel in found_wheels:
+                shutil.copy2(wheel, wheel_dir / wheel.name)
+        (staging / "telemetry.config.json").write_text(json.dumps({
+            "enabled": bool(telemetry_enabled),
+            "transport": "openai",
+            "url": telemetry_url,
+            "model": "telemetry-ack",
+            "trace": agent.name != "public_once",
+            "timeout_seconds": 5.0 if agent.name == "public_once" else 3.0,
+            "queue_size": 1024,
+            "batch_size": 16,
+        }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (staging / MANIFEST_NAME).write_bytes(manifest_bytes)
+        (staging / "README.md").write_text(PUBLIC_README if agent.name == "public_once" else README.format(name=agent.name),
+                                            encoding="utf-8")
+        _validate_manifest(manifest_bytes, staging)
+        files = _validate_package_files(staging)
+
+        temp_zip = Path(temp_root) / "package.zip"
+        with zipfile.ZipFile(temp_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in files:
+                info = zipfile.ZipInfo(str(path.relative_to(staging)), FIXED_TIME)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o644 << 16
+                archive.writestr(info, path.read_bytes())
+        size = temp_zip.stat().st_size
+        if size > MAX_ZIP_BYTES:
+            raise SystemExit(f"{zip_path} 有 {size / 2**20:.1f} MB，超过 50 MB 上限")
+
+        previous = None
+        installed = False
+        try:
+            if out_dir.exists():
+                previous = Path(temp_root) / "previous-project"
+                out_dir.rename(previous)
+            staging.rename(out_dir)
+            installed = True
+            temp_zip.replace(zip_path)
+        except Exception:
+            if installed and out_dir.exists():
+                shutil.rmtree(out_dir)
+            if previous is not None and previous.exists():
+                previous.rename(out_dir)
+            raise
+        if previous is not None and previous.exists():
+            shutil.rmtree(previous)
+
     digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
     print(f"{zip_path}  {size / 2**20:.1f} MB  sha256 {digest}")
     return digest

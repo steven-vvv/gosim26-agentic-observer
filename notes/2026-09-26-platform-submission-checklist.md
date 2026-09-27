@@ -6,6 +6,8 @@
 
 - [x] 当前阶段允许提交完整项目，完整项目使用持久的 JSONL stdin/stdout 进程。
 - [x] 使用根目录 `observer.project.json`，`schema_version=observer-project-v1`、`protocol=jsonl-v2`、`image`、`working_directory`、`build`、`run` 字段。
+- [x] `tools/pack_project.py` 在本地复核平台的 manifest（64 KiB）、ZIP（50 MiB）、展开体积（100 MiB）、文件数量（10,000）、相对路径、`.git`/`.env`、符号链接和大小写冲突规则；校验通过后才替换旧产物。
+- [x] manifest 写入 `PYTHONDONTWRITEBYTECODE=1`，避免运行时把 `__pycache__` 写入可写工作区。
 - [x] `run` 使用 `python3 -u main.py`；stdout 只输出协议响应，诊断和逐步追踪写 stderr。
 - [x] ZIP 不超过 50 MiB；当前带 x86_64/aarch64 wheel 的历史包约 30.5 MiB。
 - [ ] 每次上传前在登录后的页面确认项目版本指纹、准备测试结果、额度和场景仍未变化。匿名公开页面不能证明队伍状态。
@@ -57,5 +59,5 @@ df -h .
 ```
 
 最后一条检查应确认有 `telemetry.config.json`、没有 `.venv`/`.env`；再用
-`unzip -p ... observer.project.json | jq '.build'` 确认有 wheel 时使用 `.deps` build 步骤。
+`unzip -p ... observer.project.json | jq '.environment, .build'` 确认禁止 pyc 且有 wheel 时使用 `.deps` build 步骤。
 `.deps` 是平台构建阶段的可写目录，不应在提交 ZIP 中预生成。
