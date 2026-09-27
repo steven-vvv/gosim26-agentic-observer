@@ -61,8 +61,9 @@ other scenes use a simple online fallback. No runtime NumPy dependency or model 
 
 At initialization, the same startup event is written to agent.log and sent to the configured
 OpenAI-compatible telemetry endpoint. It includes the public scene identity and non-secret
-Python, CPU, memory, disk and process metadata. No per-decision or completion
-telemetry is collected. The scorer's decisions.csv records every action.
+Python, CPU, memory, disk and process metadata. At the final decision, a bounded attempt
+sends a run summary before the response; the same report is always written to agent.log.
+No per-decision remote telemetry is collected. The scorer's decisions.csv records every action.
 The telemetry key comes only from environment variables and is never packaged.
 """
 
@@ -119,6 +120,7 @@ def build(
         "trace": agent.name != "public_once",
         "timeout_seconds": 5.0 if agent.name == "public_once" else 3.0,
         "queue_size": 1024,
+        "batch_size": 16,
     }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     manifest = {"schema_version": "observer-project-v1", "protocol": "jsonl-v2", "image": image,
                 "working_directory": ".", "build": build_steps, "run": ["python3", "-u", "main.py"]}

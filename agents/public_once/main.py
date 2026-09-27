@@ -1,13 +1,14 @@
-"""One-off public-scene agent with mirrored startup telemetry and local logs."""
+"""One-off public-scene agent with startup and final telemetry."""
 from __future__ import annotations
 
 import json
 import math
 import sys
+import time
 from pathlib import Path
 
 from schedule import PublicSchedule, fingerprint
-from telemetry import TelemetryReporter, runtime_payload
+from telemetry import RunSummary, TelemetryReporter, TerminalStep, runtime_payload
 
 ROOT = Path(__file__).resolve().parent
 PROTOCOL = "participant-agent-protocol-v2"
@@ -50,25 +51,52 @@ def main() -> None:
     reporter = TelemetryReporter.from_env(ROOT / "telemetry.config.json")
     schedule = None
     sent = {}
+    summary = RunSummary()
+    terminal = TerminalStep()
+    started = time.monotonic()
+    runtime = runtime_payload()
+    counters = {"messages": 0, "decisions": 0, "responses": 0, "replays": 0, "errors": 0}
+    finished = False
 
-    def record(event: str, payload: dict) -> None:
+    def record(event: str, payload: dict, *, remote: bool = True) -> None:
         body = {"event": event, "run_id": reporter.run_id, **payload}
         print("observer: telemetry " + json.dumps(body, sort_keys=True, separators=(",", ":")), file=sys.stderr, flush=True)
-        reporter.emit(event, payload)
+        if remote:
+            reporter.emit(event, payload)
+
+    def finish(response_pending: bool = False) -> None:
+        nonlocal finished
+        if finished:
+            return
+        finished = True
+        report = {
+            **counters,
+            "wall_s": round(time.monotonic() - started, 3),
+            "summary": summary.report(),
+            "runtime": runtime,
+            "telemetry_status": reporter.status(),
+            "matched_scenario": schedule.scenario if schedule else None,
+            "final_response_pending": response_pending,
+        }
+        record("final", report, remote=False)
+        delivered = reporter.send_final(report, sequence=counters["decisions"], wait_seconds=5.0)
+        record("final_delivery", {"remote_delivered": delivered, **reporter.status()}, remote=False)
 
     for line in sys.stdin:
+        counters["messages"] += 1
         try:
             message = json.loads(line)
             kind = message.get("message_type")
             payload = message.get("payload") or {}
             if kind == "initialize":
+                terminal.initialize(payload)
                 try:
                     schedule = PublicSchedule(payload, ROOT / "public_schedules.json")
                 except (OSError, ValueError, TypeError, KeyError):
                     schedule = None
                 catalog = payload.get("tile_catalog") or {}
                 record("startup", {
-                    "runtime": runtime_payload(),
+                    "runtime": runtime,
                     "publication": {
                         "schema_version": payload.get("schema_version"),
                         "calendar": payload.get("calendar"),
@@ -87,6 +115,9 @@ def main() -> None:
                 continue
             sequence = int(message.get("decision_sequence", payload.get("decision_sequence")))
             if sequence not in sent:
+                if finished:
+                    finished = False
+                decision_started = time.monotonic()
                 decision = schedule.decide(payload) if schedule else None
                 if decision is None:
                     decision = fallback(payload)
@@ -96,11 +127,30 @@ def main() -> None:
                     "decision_sequence": sequence,
                     **decision,
                 }, separators=(",", ":"))
+                counters["decisions"] += 1
+                trace = {
+                    "kind": "decision", "sequence": sequence, "action": decision.get("action"),
+                    "policy_ms": round((time.monotonic() - decision_started) * 1000, 3),
+                    "request_bytes": len(line.encode("utf-8")),
+                    "response_bytes": len(sent[sequence].encode("utf-8")),
+                    "candidate_count": len(payload.get("candidate_tiles") or []),
+                    "active_request_count": len(payload.get("active_requests") or []),
+                    "wall_s": round(time.monotonic() - started, 3),
+                }
+                summary.add(trace)
+                if terminal.is_final(payload, decision):
+                    finish(response_pending=True)
+            else:
+                counters["replays"] += 1
             sys.stdout.write(sent[sequence] + "\n")
             sys.stdout.flush()
+            counters["responses"] += 1
         except Exception as exc:  # noqa: BLE001
+            counters["errors"] += 1
             print(f"observer: warning: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
-    reporter.close(timeout=20.0)
+    finish()
+    reporter.close(timeout=0.2)
+    record("telemetry_final", reporter.status(), remote=False)
 
 
 if __name__ == "__main__":

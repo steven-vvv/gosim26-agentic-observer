@@ -38,7 +38,7 @@ if str(AGENT_DIR) not in sys.path:
 
 from policy import ObserverPolicy, epoch, load_params
 from protocol import ACCEPTED_PROTOCOL_VERSIONS, ACCEPTED_SNAPSHOT_VERSIONS, INITIAL_PUBLICATION_VERSION, decision_response
-from telemetry import TelemetryReporter, runtime_payload
+from telemetry import RunSummary, TelemetryReporter, TerminalStep, runtime_payload
 
 WAIT = {"action": "wait", "tile_id": "", "program": "", "request_id": "", "decision_source": "deterministic"}
 SEQUENCE = re.compile(r'"decision_sequence"\s*:\s*(\d+)')
@@ -123,12 +123,38 @@ def main() -> None:
     last_io_at = time.perf_counter()
     counters = {"messages": 0, "decisions": 0, "responses": 0, "replays": 0,
                 "parse_errors": 0, "unknown_messages": 0}
+    summary = RunSummary()
+    terminal = TerminalStep()
+    finished = False
     runtime = _runtime_fields()
     telemetry("runtime", **runtime)
     telemetry("telemetry_config", **reporter.status())
     if reporter.enabled:
         reporter.emit("telemetry_config", reporter.status())
-        reporter.emit("runtime", runtime_payload())
+        reporter.emit("runtime", runtime)
+
+    def finish(response_pending: bool = False) -> None:
+        nonlocal finished
+        if finished:
+            return
+        finished = True
+        planner = getattr(policy, "planner", None)
+        report = {
+            **counters,
+            "wall_s": round(time.monotonic() - started, 3),
+            "cpu_s": _cpu_seconds(),
+            "rss_kib": _rss_kib(),
+            "plans": getattr(planner, "plans", 0),
+            "plan_s": round(getattr(planner, "plan_seconds", 0.0), 3),
+            "summary": summary.report(),
+            "runtime": runtime,
+            "telemetry_status": reporter.status(),
+            "final_response_pending": response_pending,
+        }
+        telemetry("final", **report)
+        delivered = reporter.send_final(report, sequence=counters["decisions"], wait_seconds=5.0)
+        telemetry("final_delivery", remote_delivered=delivered, **reporter.status())
+
     for line in sys.stdin:
         if not line.strip():
             continue
@@ -175,6 +201,7 @@ def main() -> None:
             })
             if payload.get("schema_version") != INITIAL_PUBLICATION_VERSION:
                 warn(f"init:{payload.get('schema_version')}", f"unknown initialize schema {payload.get('schema_version')!r}")
+            terminal.initialize(payload)
             payload.pop("target_catalog", None)  # 约 40 万行、占内存约 250 MB，策略用不到
             try:
                 policy = ObserverPolicy(payload, params)
@@ -213,6 +240,8 @@ def main() -> None:
                 return
             counters["responses"] += 1
             continue
+        if finished:
+            finished = False
         counters["decisions"] += 1
         decision_started = time.perf_counter()
         if not isinstance(payload, dict):
@@ -229,10 +258,6 @@ def main() -> None:
         response_started = time.perf_counter()
         sent[sequence] = respond(sequence, decision, version)
         response_ms = (time.perf_counter() - response_started) * 1000.0
-        stdout_started = time.perf_counter()
-        emitted = emit(sent[sequence])
-        stdout_ms = (time.perf_counter() - stdout_started) * 1000.0
-        counters["responses"] += 1
         planner = getattr(policy, "planner", None)
         trace = {
             "kind": "decision",
@@ -241,7 +266,7 @@ def main() -> None:
             "decision_ms": round((time.perf_counter() - decision_started) * 1000.0, 3),
             "policy_ms": round(policy_ms, 3),
             "response_ms": round(response_ms, 3),
-            "stdout_ms": round(stdout_ms, 3),
+            "stdout_ms": None,
             "request_bytes": len(line.encode("utf-8")),
             "response_bytes": len(sent[sequence].encode("utf-8")),
             "candidate_count": len(payload.get("candidate_tiles") or []) if isinstance(payload, dict) else 0,
@@ -253,6 +278,16 @@ def main() -> None:
             "wall_s": round(time.monotonic() - started, 3),
             "cpu_s": _cpu_seconds(),
         }
+        is_terminal = isinstance(payload, dict) and terminal.is_final(payload, decision)
+        if is_terminal:
+            summary.add(trace)
+            finish(response_pending=True)
+        stdout_started = time.perf_counter()
+        emitted = emit(sent[sequence])
+        trace["stdout_ms"] = round((time.perf_counter() - stdout_started) * 1000.0, 3)
+        counters["responses"] += 1
+        if not is_terminal:
+            summary.add(trace)
         telemetry("decision_trace", **trace)
         reporter.emit("decision_trace", trace, sequence=sequence)
         last_io_at = time.perf_counter()
@@ -270,20 +305,7 @@ def main() -> None:
                 "plans": getattr(planner, "plans", 0),
                 "plan_s": round(getattr(planner, "plan_seconds", 0.0), 3),
             }, sequence=counters["decisions"])
-    planner = getattr(policy, "planner", None)
-    telemetry("final", **counters, wall_s=round(time.monotonic() - started, 3),
-              cpu_s=_cpu_seconds(), rss_kib=_rss_kib(),
-              plans=getattr(planner, "plans", 0), plan_s=round(getattr(planner, "plan_seconds", 0.0), 3))
-    reporter.emit("final", {
-        **counters,
-        "wall_s": round(time.monotonic() - started, 3),
-        "cpu_s": _cpu_seconds(),
-        "rss_kib": _rss_kib(),
-        "plans": getattr(planner, "plans", 0),
-        "plan_s": round(getattr(planner, "plan_seconds", 0.0), 3),
-    })
-    # Give the bounded uploader a short chance to flush the final counters;
-    # the hard limit keeps telemetry from extending a run on a bad network.
+    finish()
     reporter.close(timeout=0.2)
     telemetry("telemetry_final", **reporter.status())
 

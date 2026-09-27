@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "agents" / "observer"))
 sys.path.insert(0, str(ROOT / "kit" / "agent"))
 
@@ -105,6 +107,41 @@ def test_agent_process_round_trip():
     assert '"event":"decision_trace"' in proc.stderr and '"policy_ms"' in proc.stderr
     assert '"event":"final"' in proc.stderr
     assert '"event":"telemetry_final"' in proc.stderr
+
+
+@pytest.mark.parametrize("agent", ["observer", "public_once"])
+def test_final_report_is_ready_before_the_last_response(agent, tmp_path):
+    publication = initial()
+    final_snapshot = snapshot([])
+    final_snapshot["cursor"] = {
+        "slot_id": "N20261007-S001", "night_id": "N20261007",
+        "timestamp_utc": "2026-10-08T10:45:00Z", "slot_offset_seconds": 0,
+    }
+    final_snapshot["night_start"] = {"night": {"observing_end_utc": "2026-10-08T11:00:00Z"}}
+    entry = ROOT / "agents" / "observer" / "main.py"
+    if agent == "public_once":
+        from tools.pack_project import build
+
+        project = tmp_path / "project"
+        build(ROOT / "agents" / "public_once", project, tmp_path / "package.zip", None,
+              "python:3.12-slim", public_schedules=ROOT / "agents" / "public_once" / "public_schedules.json",
+              telemetry_source=ROOT / "agents" / "observer" / "telemetry.py")
+        entry = project / "main.py"
+    envelope = {"protocol_version": "participant-agent-protocol-v2"}
+    lines = [dict(envelope, message_type="initialize", payload=publication),
+             dict(envelope, message_type="decision_request", decision_sequence=1, payload=final_snapshot)]
+    proc = subprocess.run([sys.executable, str(entry)],
+                          input="".join(json.dumps(line) + "\n" for line in lines),
+                          capture_output=True, text=True, timeout=60, check=True,
+                          env={**os.environ, "TELEMETRY_DISABLE": "1"})
+    response = json.loads(proc.stdout.strip())
+    assert response["message_type"] == "decision_response"
+    records = [json.loads(line.split("observer: telemetry ", 1)[1]) for line in proc.stderr.splitlines()
+               if line.startswith("observer: telemetry ")]
+    final = next(record for record in records if record["event"] == "final")
+    assert final["final_response_pending"] is True
+    assert final["summary"]["actions"] == {"wait": 1}
+    assert next(record for record in records if record["event"] == "final_delivery")["remote_delivered"] is False
 
 
 def test_geometry_matches_official_simulator():

@@ -167,6 +167,28 @@ describe("telemetry worker", () => {
     expect(network.country).toBe("CN");
   });
 
+  it("stores OpenAI message batches and enforces the batch limit", async () => {
+    const runId = `batch-${crypto.randomUUID()}`;
+    const events = [1, 2].map((sequence) => ({
+      id: `${runId}-${sequence}`, run_id: runId, event_type: "decision_trace", sequence,
+      payload: { action: sequence === 1 ? "observe" : "wait" },
+    }));
+    const request = (items: unknown[]) => call("/v1/chat/completions", {
+      method: "POST",
+      headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+      body: JSON.stringify({ model: "telemetry-ack", messages: [
+        { role: "user", content: JSON.stringify({ schema: "gosim26.telemetry.v1", events: items }) },
+      ] }),
+    });
+    expect((await request(events)).status).toBe(200);
+    const page = await call(`/v1/telemetry?run_id=${encodeURIComponent(runId)}`, {
+      headers: bearer("read-test-token"),
+    });
+    const result = await page.json() as { events: Array<{ sequence: number }> };
+    expect(result.events.map((event) => event.sequence).sort()).toEqual([1, 2]);
+    expect((await request([...events, ...events, ...events])).status).toBe(413);
+  });
+
   it("accepts the unversioned chat path used by upstream model relays", async () => {
     const runId = `relay-${crypto.randomUUID()}`;
     const event = { id: `${runId}-runtime`, run_id: runId, event_type: "runtime", payload: { python: "3.12" } };

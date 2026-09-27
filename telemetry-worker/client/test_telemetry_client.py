@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -10,7 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agents" / "observer"))
 
-from telemetry import TelemetryReporter, runtime_payload
+from telemetry import RunSummary, TelemetryReporter, TerminalStep, runtime_payload
 
 
 class TelemetryClientTests(unittest.TestCase):
@@ -110,6 +111,64 @@ class TelemetryClientTests(unittest.TestCase):
         self.assertEqual(envelope["schema"], "gosim26.telemetry.v1")
         self.assertEqual(envelope["event"]["event_type"], "runtime")
         self.assertNotIn("secret", request.data.decode())
+
+    def test_openai_batches_multiple_traces_in_one_request(self):
+        reporter = TelemetryReporter(None, None, transport="openai", batch_size=16)
+        reporter.url = "https://example.test/v1/chat/completions"
+        reporter.token = "token"
+        for sequence in range(1, 4):
+            self.assertTrue(reporter.emit("decision_trace", {"action": "wait"}, sequence=sequence))
+        with patch("telemetry.urllib.request.urlopen") as urlopen:
+            class Response:
+                status = 200
+                def __enter__(self): return self
+                def __exit__(self, *_): return False
+            urlopen.return_value = Response()
+            reporter._thread = None
+            reporter._stop.set()
+            reporter._run()
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(reporter.stats()["sent"], 3)
+        envelope = json.loads(json.loads(urlopen.call_args.args[0].data)["messages"][0]["content"])
+        self.assertEqual([event["sequence"] for event in envelope["events"]], [1, 2, 3])
+
+    def test_final_report_bypasses_full_queue_and_fails_boundedly(self):
+        reporter = TelemetryReporter(None, None, transport="openai", queue_size=1, timeout=0.1)
+        reporter.url = "https://example.test/v1/chat/completions"
+        reporter.token = "token"
+        reporter._queue.put_nowait({"sentinel": True})
+        with patch("telemetry.urllib.request.urlopen", side_effect=OSError("offline")):
+            started = time.monotonic()
+            self.assertFalse(reporter.send_final({"decisions": 10}, wait_seconds=0.3))
+            self.assertLess(time.monotonic() - started, 0.3)
+        self.assertEqual(reporter.stats()["dropped"], 1)
+
+    def test_final_wait_has_a_hard_limit_when_network_hangs(self):
+        reporter = TelemetryReporter(None, None, transport="openai", timeout=0.1)
+        reporter.url = "https://example.test/v1/chat/completions"
+        reporter.token = "token"
+        release = threading.Event()
+        with patch("telemetry.urllib.request.urlopen", side_effect=lambda *_args, **_kwargs: release.wait(1.0)):
+            started = time.monotonic()
+            self.assertFalse(reporter.send_final({"decisions": 10}, wait_seconds=0.05))
+            self.assertLess(time.monotonic() - started, 0.2)
+        release.set()
+
+    def test_terminal_step_and_summary(self):
+        terminal = TerminalStep()
+        terminal.initialize({"calendar": {"last_night": "2026-10-07", "slot_duration_seconds": 900}})
+        snap = {
+            "cursor": {"night_id": "N20261007", "timestamp_utc": "2026-10-08T10:45:00Z", "slot_offset_seconds": 0},
+            "night_start": {"night": {"observing_end_utc": "2026-10-08T11:00:00Z"}},
+            "candidate_tiles": [{"tile_id": "T1", "nominal_exptime_seconds": 900}],
+        }
+        self.assertTrue(terminal.is_final(snap, {"action": "observe", "tile_id": "T1"}))
+        self.assertFalse(terminal.is_final(snap, {"action": "invalid"}))
+        summary = RunSummary()
+        summary.add({"kind": "decision", "sequence": 1, "action": "observe", "policy_ms": 10.0})
+        summary.add({"kind": "decision", "sequence": 2, "action": "wait", "policy_ms": 30.0})
+        self.assertEqual(summary.report()["actions"], {"observe": 1, "wait": 1})
+        self.assertEqual(summary.report()["metrics"]["policy_ms"]["p50"], 20.0)
 
     def test_queue_overflow_is_dropped_without_blocking(self):
         reporter = TelemetryReporter(None, None, queue_size=1)

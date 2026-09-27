@@ -2,7 +2,7 @@ import { requireIngestAuth } from "./auth";
 import { insertEvents } from "./storage";
 import { requestNetworkMetadata, withServerNetwork } from "./network";
 import { jsonBytes } from "./sanitize";
-import { readJson, RequestError } from "./validation";
+import { maxBatch, readJson, RequestError } from "./validation";
 import type { Env, JsonValue, NormalizedEvent } from "./types";
 
 function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}): Response {
@@ -70,30 +70,40 @@ function integerValue(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
-/** Find a structured event in the custom envelope or in a standard message. */
-function eventFromEnvelope(value: unknown): Record<string, unknown> | null {
+/** Find structured events in the custom envelope or in a standard message. */
+function eventsFromEnvelope(value: unknown): Record<string, unknown>[] | null {
   const envelope = objectValue(value);
   if (!envelope) return null;
+  if (Array.isArray(envelope.events)) {
+    if (envelope.events.length === 0) throw new RequestError(400, "empty_batch", "at least one event is required");
+    return envelope.events.map((event) => {
+      const item = objectValue(event);
+      if (!item) throw new RequestError(400, "invalid_event", "telemetry event must be an object");
+      return item;
+    });
+  }
   const nested = objectValue(envelope.event);
-  if (nested) return nested;
-  if (envelope.event_type || envelope.event || envelope.kind) return envelope;
+  if (nested) return [nested];
+  if (envelope.event_type || envelope.event || envelope.kind) return [envelope];
   return null;
 }
 
-function eventFromRequest(value: Record<string, unknown>, messages: unknown[]): Record<string, unknown> | null {
-  const direct = eventFromEnvelope(value.telemetry);
+function eventsFromRequest(value: Record<string, unknown>, messages: unknown[]): Record<string, unknown>[] | null {
+  const direct = eventsFromEnvelope(value.telemetry);
   if (direct) return direct;
   for (const message of [...messages].reverse()) {
     const item = objectValue(message);
     const content = item?.content;
     if (typeof content !== "string") continue;
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(content) as unknown;
-      const candidate = eventFromEnvelope(parsed);
-      if (candidate) return candidate;
+      parsed = JSON.parse(content) as unknown;
     } catch {
       // Ordinary model prompts are not telemetry envelopes.
+      continue;
     }
+    const candidate = eventsFromEnvelope(parsed);
+    if (candidate) return candidate;
   }
   return null;
 }
@@ -140,9 +150,12 @@ export async function handleChatCompletions(request: Request, env: Env): Promise
   const metadata = objectValue(value.metadata) ?? {};
   const network = requestNetworkMetadata(request);
   const receivedAt = Date.now();
-  const candidate = eventFromRequest(value, messages);
-  const event = candidate
-    ? eventFromTelemetry(candidate, metadata, network, receivedAt)
+  const candidates = eventsFromRequest(value, messages);
+  if (candidates && candidates.length > maxBatch(env)) {
+    throw new RequestError(413, "batch_too_large", "too many events in one request");
+  }
+  const events = candidates
+    ? candidates.map((candidate) => eventFromTelemetry(candidate, metadata, network, receivedAt))
     : (() => {
         const payload = withServerNetwork({
           model,
@@ -151,7 +164,7 @@ export async function handleChatCompletions(request: Request, env: Env): Promise
           metadata,
         }, network);
         const encoded = payloadBytes(payload);
-        return {
+        return [{
           id: crypto.randomUUID(),
           run_id: stringValue(metadata.run_id) ?? "openai-compatible",
           event_type: "openai_request",
@@ -161,9 +174,9 @@ export async function handleChatCompletions(request: Request, env: Env): Promise
           received_at_ms: receivedAt,
           payload_json: encoded.json,
           payload_bytes: encoded.bytes,
-        } satisfies NormalizedEvent;
+        } satisfies NormalizedEvent];
       })();
-  await insertEvents(env.DB, [event]);
+  await insertEvents(env.DB, events);
 
   const id = responseId();
   const created = Math.floor(Date.now() / 1000);
