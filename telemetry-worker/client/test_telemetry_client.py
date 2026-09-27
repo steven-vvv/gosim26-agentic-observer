@@ -58,19 +58,14 @@ class TelemetryClientTests(unittest.TestCase):
         self.assertEqual(reporter.model, "telemetry-ack")
         reporter.close()
 
-    def test_packaged_defaults_use_worker_without_logging_the_token(self):
+    def test_model_key_alone_does_not_authorize_packaged_worker(self):
         with tempfile.NamedTemporaryFile("w", encoding="utf-8") as handle:
             json.dump({"enabled": True, "transport": "openai",
                        "url": "https://worker.example/v1", "model": "telemetry-ack"}, handle)
             handle.flush()
-            with patch.dict("os.environ", {"OPENAI_API_KEY": "ingest-secret"}, clear=True):
+            with patch.dict("os.environ", {"OPENAI_API_KEY": "model-secret"}, clear=True):
                 reporter = TelemetryReporter.from_env(handle.name)
-        self.assertTrue(reporter.enabled)
-        self.assertEqual(reporter.url, "https://worker.example/v1/chat/completions")
-        status = reporter.status()
-        self.assertTrue(status["configured"])
-        self.assertTrue(status["token_present"])
-        self.assertNotIn("ingest-secret", json.dumps(status))
+        self.assertFalse(reporter.enabled)
         reporter.close()
 
     def test_packaged_defaults_do_not_send_traces_to_model_proxy(self):
@@ -90,6 +85,20 @@ class TelemetryClientTests(unittest.TestCase):
                        "url": "https://worker.example/v1", "model": "telemetry-ack"}, handle)
             handle.flush()
             with patch.dict("os.environ", {"TELEMETRY_TOKEN": "telemetry-secret"}, clear=True):
+                reporter = TelemetryReporter.from_env(handle.name)
+        self.assertTrue(reporter.enabled)
+        self.assertEqual(reporter.url, "https://worker.example/v1/chat/completions")
+        self.assertEqual(reporter.token, "telemetry-secret")
+        reporter.close()
+
+    def test_dedicated_token_takes_precedence_over_model_environment(self):
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8") as handle:
+            json.dump({"enabled": True, "transport": "openai",
+                       "url": "https://worker.example/v1", "model": "telemetry-ack"}, handle)
+            handle.flush()
+            with patch.dict("os.environ", {"TELEMETRY_TOKEN": "telemetry-secret",
+                                           "OPENAI_BASE_URL": "https://worker.example/v1",
+                                           "OPENAI_API_KEY": "model-secret"}, clear=True):
                 reporter = TelemetryReporter.from_env(handle.name)
         self.assertTrue(reporter.enabled)
         self.assertEqual(reporter.url, "https://worker.example/v1/chat/completions")

@@ -452,7 +452,7 @@ class TelemetryReporter:
             transport = "events"
         else:
             transport = str(defaults.get("transport", "events")).strip().lower()
-        if not (url and token) and os.environ.get("TELEMETRY_DISABLE_OPENAI", "").lower() not in {"1", "true", "yes", "on"}:
+        if not token and os.environ.get("TELEMETRY_DISABLE_OPENAI", "").lower() not in {"1", "true", "yes", "on"}:
             openai_url = os.environ.get("OPENAI_BASE_URL")
             openai_key = os.environ.get("OPENAI_API_KEY")
             if openai_url and openai_key:
@@ -460,11 +460,6 @@ class TelemetryReporter:
                 injected_host = urllib.parse.urlsplit(openai_url).hostname
                 if not default_host or injected_host == default_host:
                     url, token, transport = openai_url, openai_key, "openai"
-            elif openai_key and defaults.get("url"):
-                # Complete-project packages carry a non-secret default Worker
-                # URL.  The platform still has to inject the write token.
-                url, token = str(defaults["url"]), openai_key
-                transport = str(defaults.get("transport", "openai")).strip().lower()
         if token and not url and defaults.get("url"):
             # A dedicated telemetry token may use the packaged default URL;
             # never substitute the model proxy key here.
