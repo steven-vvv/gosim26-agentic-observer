@@ -84,6 +84,18 @@ class TelemetryClientTests(unittest.TestCase):
         self.assertFalse(reporter.enabled)
         reporter.close()
 
+    def test_dedicated_token_uses_packaged_default_url(self):
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8") as handle:
+            json.dump({"enabled": True, "transport": "openai",
+                       "url": "https://worker.example/v1", "model": "telemetry-ack"}, handle)
+            handle.flush()
+            with patch.dict("os.environ", {"TELEMETRY_TOKEN": "telemetry-secret"}, clear=True):
+                reporter = TelemetryReporter.from_env(handle.name)
+        self.assertTrue(reporter.enabled)
+        self.assertEqual(reporter.url, "https://worker.example/v1/chat/completions")
+        self.assertEqual(reporter.token, "telemetry-secret")
+        reporter.close()
+
     def test_status_redacts_endpoint_query_and_reports_queue_stats(self):
         reporter = TelemetryReporter("https://example.test/v1?token=secret", "token", retries=0)
         status = reporter.status()

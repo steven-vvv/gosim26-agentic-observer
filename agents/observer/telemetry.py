@@ -465,6 +465,11 @@ class TelemetryReporter:
                 # URL.  The platform still has to inject the write token.
                 url, token = str(defaults["url"]), openai_key
                 transport = str(defaults.get("transport", "openai")).strip().lower()
+        if token and not url and defaults.get("url"):
+            # A dedicated telemetry token may use the packaged default URL;
+            # never substitute the model proxy key here.
+            url = str(defaults["url"])
+            transport = str(defaults.get("transport", "openai")).strip().lower()
         model = (
             os.environ.get("TELEMETRY_MODEL")
             or os.environ.get("OPENAI_MODEL")
