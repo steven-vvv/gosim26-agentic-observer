@@ -73,6 +73,17 @@ class TelemetryClientTests(unittest.TestCase):
         self.assertNotIn("ingest-secret", json.dumps(status))
         reporter.close()
 
+    def test_packaged_defaults_do_not_send_traces_to_model_proxy(self):
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8") as handle:
+            json.dump({"enabled": True, "transport": "openai",
+                       "url": "https://worker.example/v1", "model": "telemetry-ack"}, handle)
+            handle.flush()
+            with patch.dict("os.environ", {"OPENAI_BASE_URL": "https://platform-model.example/v1",
+                                           "OPENAI_API_KEY": "model-proxy-token"}, clear=True):
+                reporter = TelemetryReporter.from_env(handle.name)
+        self.assertFalse(reporter.enabled)
+        reporter.close()
+
     def test_status_redacts_endpoint_query_and_reports_queue_stats(self):
         reporter = TelemetryReporter("https://example.test/v1?token=secret", "token", retries=0)
         status = reporter.status()

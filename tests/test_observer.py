@@ -88,6 +88,92 @@ def test_coverage_prefers_the_starved_region():
     assert decision["tile_id"] == "T00001"
 
 
+def test_model_choices_drive_planning_interval_and_action():
+    class Advisor:
+        enabled = True
+        calls = 0
+        failures = 0
+
+        def choose(self, stage, options, context):
+            self.calls += 1
+            assert len(options) == 2
+            assert context["night_id"] == "N20261005"
+            return {"plan_adaptation": "economy", "action_decision": "C1"}[stage]
+
+    initial_data = initial()
+    initial_data["tile_catalog"]["tiles"][1]["ra_deg"] = initial_data["tile_catalog"]["tiles"][0]["ra_deg"]
+    snap = snapshot([candidate("T00001", "R01", 1.2), candidate("T00002", "R00", 1.2)])
+    params = dict(DEFAULTS, plan_beta=0)
+    baseline = ObserverPolicy(initial_data, params)
+    expected = baseline.decide(snap)
+    policy = ObserverPolicy(initial_data, params)
+    policy.advisor = Advisor()
+    decision = policy.decide(snap)
+    assert policy.advised_every == 3600
+    assert policy.advisor.calls == 2
+    assert decision["action"] == "observe"
+    assert decision["tile_id"] != expected["tile_id"]
+    assert decision["decision_source"] == "model"
+
+
+def test_model_advisor_validates_choices_and_stops_after_failures(monkeypatch):
+    from model_advisor import ModelAdvisor
+
+    advisor = ModelAdvisor("https://model.example/v1", "secret", timeout=0.1)
+    options = [{"id": "C0"}, {"id": "C1"}]
+
+    class Response:
+        def __init__(self, choice):
+            self.choice = choice
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return json.dumps({"choices": [{"message": {"content": json.dumps({"choice": self.choice})}}]}).encode()
+
+    def answer(request, timeout):
+        assert request.full_url == "https://model.example/v1/chat/completions"
+        assert timeout == pytest.approx(0.2)
+        assert json.loads(request.data)["model"] == "team-model"
+        return Response("C1")
+
+    monkeypatch.setattr("model_advisor.urllib.request.urlopen", answer)
+    assert advisor.choose("action_decision", options, {}) == "C1"
+    monkeypatch.setattr("model_advisor.urllib.request.urlopen", lambda *_args, **_kwargs: Response("invalid"))
+    for _ in range(3):
+        assert advisor.choose("action_decision", options, {}) is None
+    assert not advisor.enabled
+    assert advisor.calls == 4
+    assert advisor.failures == 3
+
+
+def test_model_advisor_bounds_successful_stage_calls(monkeypatch):
+    from model_advisor import ModelAdvisor
+
+    advisor = ModelAdvisor("https://model.example/v1", "secret")
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return b'{"choices":[{"message":{"content":"{\\"choice\\":\\"C0\\"}"}}]}'
+
+    monkeypatch.setattr("model_advisor.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
+    options = [{"id": "C0"}, {"id": "C1"}]
+    for _ in range(5):
+        assert advisor.choose("plan_adaptation", options, {}) in {"C0", None}
+    assert advisor.calls == 4
+    assert advisor.stage_calls == {"plan_adaptation": 4}
+
+
 def test_agent_process_round_trip():
     """整个 agent 进程：一条 initialize + 一条 decision_request，输出一条合法的 decision_response。"""
     envelope = {"protocol_version": "participant-agent-protocol-v2"}
@@ -334,6 +420,32 @@ def test_recent_weather_keeps_night_level_signal():
     base = planner._value_factor(quantiles)
     assert factor and all(factor[b](0.6) > base(0.6) for b in bins)
     assert factor[bins[0]](0.6) >= factor[bins[-1]](0.6)
+
+
+def test_recent_weather_smoothing_uses_only_recent_clean_samples():
+    from planner import Planner
+
+    planner = Planner(initial(), dict(DEFAULTS, plan_recent_weather_smoothing_slots=3))
+    quantiles = planner._weather_quantiles()
+    mean = sum(quantiles) / len(quantiles)
+    now = planner.nights[0][0] + 2 * planner.slot
+    planner.recent_clean_weather = [(now - 4500, mean * 0.1, 0),
+                                    (now - 1800, mean * 0.8, 0),
+                                    (now - 900, mean, 0),
+                                    (now, mean * 1.5, 0)]
+    planner.last_clean_weather = (now, mean * 1.5, 0)
+    bins = [b for b, (night, start, _stop, _samples) in enumerate(planner.bins)
+            if night == 0 and now <= start < now + 3 * 3600]
+    smoothed = planner._recent_weather_factors(quantiles, now, bins)
+    planner.p["plan_recent_weather_smoothing_slots"] = 1
+    single = planner._recent_weather_factors(quantiles, now, bins)
+    assert smoothed
+    close = [b for b in bins if planner.bins[b][1] - now < 3600]
+    distant = [b for b in bins if planner.bins[b][1] - now >= 3600]
+    assert close and distant
+    assert all(smoothed[b](0.6) == pytest.approx(single[b](0.6)) for b in close)
+    assert all(smoothed[b](0.6) < single[b](0.6) for b in distant)
+    assert planner._recent_weather_factors(quantiles, now + 2 * 3600, bins) == {}
 
 
 def test_value_factor_numpy_matches_python_fallback(monkeypatch):

@@ -9,8 +9,8 @@
 - 代码：源目录里的 *.py 与 params.json（若有），原样复制；
 - numpy：给了 --wheels 时把其中的 *.whl 放进 wheels/，构建阶段安装到可写的 .deps/；装不上再尝试联网安装，仍失败也不中止，
   agent 自动退回纯 Python 规划器（两条路径逐位相同，只是更慢）；
-- telemetry.config.json：默认写入不含密钥的遥测配置；直连时由 OPENAI_* 变量启用 Worker 遥测，比赛平台的
-  OPENAI_* 变量则指向平台代理，需在平台保存的团队模型中把上游配置为 Worker。
+- telemetry.config.json：默认写入不含密钥的遥测配置。比赛平台注入的 OPENAI_* 用于真正的模型决策；
+  遥测直连 Worker 需要单独设置 TELEMETRY_URL 和 TELEMETRY_TOKEN。
 - ZIP 内文件按名字排序、时间戳固定，同样的输入得到同样的 sha256。
 
 输出 dist/project-<版本>/ 与 dist/observer-<版本>-project.zip，并打印 sha256。这两样都不入库（见 .gitignore），随时可以重建。
@@ -33,24 +33,25 @@ DEFAULT_TELEMETRY_URL = "https://gosim26-telemetry.wxlsteven.workers.dev/v1"
 
 README = """# Agentic Observer：{name}
 
-GOSIM 2026 巡天智能体参赛项目。确定性策略，不调用模型；模型密钥不是决策所需，平台若注入
-`OPENAI_API_KEY`，它只按下文说明作为遥测写入鉴权密钥使用。
+GOSIM 2026 巡天智能体参赛项目。确定性规划器生成安全候选；可用模型代理时，模型在计划自适应和
+行动决策两个运行时环节选择候选。调用失败或输出非法时回退到确定性首选。
 
 - 入口 `main.py`：JSON-Lines 协议循环（participant-agent-protocol-v2）。协议层容忍未知的消息类型和版本，同一序号的请求重发时原样重放响应。
 - `policy.py`：在线决策。先按 (现在拍的收益 − 机会价值) / 曝光秒数粗排，再按分段几何精算并选档位，最后做 60 分钟推演。
   另外包括覆盖边际、REQUIRED 短窗口保护、仪器故障与标签的读数检测，以及寒潮期效率修正。
 - `planner.py`：天区 → 未来 1 小时时段分配问题的对偶价格（次梯度法），得到每块天区的机会价值。
   规划时计入每周天气预报（`events.py`）。有 numpy 时走向量化路径，与纯 Python 路径逐位相同。
+- `model_advisor.py`：通过平台的 `OPENAI_BASE_URL`、`OPENAI_API_KEY` 调用模型代理；每环节最多四次，
+  单次默认最多五秒，连续三次失败后停用。行动次选的优先级差距上限为 5%；选择写入逐步追踪。
 - `geometry.py`：与官方公式一致的几何与日历。
 
 构建：离线安装 `wheels/` 里的 numpy 到可写的 `.deps/`；失败时退回纯 Python，结果不变，只是更慢。
-遥测默认开启：包内只有 Worker 地址、传输方式和逐步追踪开关等非机密配置。直接运行时，
-`OPENAI_BASE_URL` 与 `OPENAI_API_KEY` 可以分别指向 Worker 和其写入密钥；比赛平台会把这两个变量改为平台代理
-地址与单次运行凭据，此时应在平台保存的团队模型中把上游地址、模型和密钥配置为 Worker。客户端只发送标准
-Chat Completions 字段，事件放在 JSON user message 中，失败会丢弃且不影响决策。密钥不会写入日志；没有可用
-密钥时客户端保持离线。
+遥测默认开启：包内只有 Worker 地址、传输方式和逐步追踪开关等非机密配置。平台注入的 `OPENAI_*`
+属于模型代理，不能用作 Worker 写入密钥；远程遥测需另设 `TELEMETRY_URL` 和 `TELEMETRY_TOKEN`。
+无遥测密钥时逐步追踪仍写入 `agent.log`。网络失败会丢弃事件且不影响策略；密钥不会写入日志。
+「参赛」页保存的上游模型应指向真实大模型，不能继续指向遥测 Worker；隐藏评测前还须选择加密保存模型密钥。
 需要完全关闭时，用打包器的 `--no-telemetry`。
-复现：同一场景、同一种子下运行确定性；与本地官方 runner 的比对方法见仓库 `notes/`。
+复现：关闭模型路径时，同一场景和种子下运行确定性；与本地官方 runner 的比对方法见仓库 `notes/`。
 """
 
 PUBLIC_README = """# Public practice telemetry run
@@ -148,7 +149,7 @@ def main(argv=None) -> int:
     parser.add_argument("--wheels", type=Path, default=None, help="放 numpy wheel 的目录（不给则不带 numpy，纯 Python 运行）")
     parser.add_argument("--image", default="python:3.12-slim")
     parser.add_argument("--telemetry-url", default=DEFAULT_TELEMETRY_URL,
-                        help="遥测 Worker 的非机密默认地址（环境变量 OPENAI_BASE_URL 可覆盖）")
+                        help="遥测 Worker 的非机密默认地址（TELEMETRY_URL 可覆盖）")
     parser.add_argument("--no-telemetry", action="store_true", help="在生成的完整项目中关闭默认遥测")
     parser.add_argument("--public-schedules", type=Path, default=None,
                         help="仅在公开场景目录指纹匹配时使用的预排动作 JSON")

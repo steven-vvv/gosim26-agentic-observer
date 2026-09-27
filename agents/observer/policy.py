@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 import events as events_mod
+from model_advisor import ModelAdvisor
 
 DEFAULTS = {
     "timing_alpha": 1.0,
@@ -40,6 +41,7 @@ DEFAULTS = {
     "plan_recent_weather": True,   # 同夜规划按最新未受事件影响的天气观测修正未来价值；92 场 +0.053%
     "plan_recent_weather_hours": 10.0,
     "plan_recent_weather_floor": 0.82,  # 夜级天气状态带来的同夜相关性下限
+    "plan_recent_weather_smoothing_slots": 1,  # 实验：用最近若干无事件时隙估计同夜天气状态
     "plan_recent_weather_conditional": False,  # 按相关系数收窄条件天气分布；实验参数
     "plan_clean_weather_quantiles": False,  # 只用无站点事件的天气估计长期分位数；实验参数
     "plan_trim_current_bin": False,  # 半小时重规划时，当前小时只用尚未过去的几何采样点
@@ -141,6 +143,11 @@ class ObserverPolicy:
         self.planning = bool(params["plan"])
         self.planned_night = None
         self.planned_at = -1e18
+        self.advisor = ModelAdvisor.from_env()
+        self.advised_night = None
+        self.advised_every = None
+        self.action_advised_night = None
+        self._model_candidates = []
         clocks = [float(v) for v in (initial.get("global_wallclock_seconds"), os.environ.get("SAC_WALLCLOCK_SECONDS")) if v]
         self.wallclock = min(clocks) if clocks else 3600.0  # 本地 runner 的 --wallclock 只体现在环境变量里
         self.clock_started = None
@@ -587,7 +594,8 @@ class ObserverPolicy:
                 self.planner.set_events(events, mode, until)
             self.planner.observe_weather(snapshot)
             night = (snapshot.get("cursor") or {}).get("night_id")
-            every = float(self.p["plan_every_seconds"]) if self.frequent else max(3600.0, float(self.p["plan_every_seconds"]))
+            interval = self.advised_every or float(self.p["plan_every_seconds"])
+            every = interval if self.frequent else max(3600.0, interval)
             hourly_due = self.hourly and now - self.planned_at >= every
             if night != self.planned_night or hourly_due:
                 self.planned_night, self.planned_at = night, now
@@ -804,6 +812,7 @@ class ObserverPolicy:
         return realized - banked, self.coverage_weight * (base - self.banked_base.get(tile, base)) * evenness
 
     def _choose(self, snapshot: dict, now: float, v3: bool, deadline=None, protected=frozenset()):
+        self._model_candidates = []
         counts = self.counts
         n = len(counts)
         total_done = sum(counts)
@@ -864,6 +873,7 @@ class ObserverPolicy:
         entries.sort(key=lambda entry: entry[0], reverse=True)
         top = int(self.p["refine_top_k"])
         if top <= 0 or self.planner is None or not self.planning:
+            self._model_candidates = [entry[:5] for entry in entries[:2]]
             return entries[0][:5]
         refined_entries = []
         for key, c, band, weather, quality, context in entries[:top]:
@@ -873,8 +883,63 @@ class ObserverPolicy:
             refined_entries.append((refined[0], c, refined[1], weather, quality))
         refined_entries.sort(key=lambda entry: entry[0], reverse=True)
         if int(self.p["rollout_k"]) > 1 and len(refined_entries) > 1:
-            return self._rollout(refined_entries[: int(self.p["rollout_k"])], entries, now)
-        return refined_entries[0]
+            best = self._rollout(refined_entries[: int(self.p["rollout_k"])], entries, now)
+        else:
+            best = refined_entries[0]
+        self._model_candidates = [best] + [entry for entry in refined_entries
+                                           if entry[0][2:4] != best[0][2:4]][:1]
+        return best
+
+    def _adapt_plan_with_model(self, snapshot: dict, now: float) -> None:
+        night = (snapshot.get("cursor") or {}).get("night_id")
+        if night == self.advised_night:
+            return
+        self.advised_night = night
+        self.advised_every = float(self.p["plan_every_seconds"])
+        if not self.advisor.enabled or not self.planning or self.advised_every >= 3600.0:
+            return
+        elapsed = max(0.0, time.monotonic() - self.clock_started) if self.clock_started is not None else 0.0
+        pressure = elapsed / max(1.0, self.wallclock)
+        preferred = max(0.90, min(0.995, 0.995 - pressure * 0.08))
+        choice = self.advisor.choose("plan_adaptation", [
+            {"id": "frequent", "replan_interval_seconds": self.advised_every,
+             "prior_probability": round(preferred, 4), "benefit": "higher expected score"},
+            {"id": "economy", "replan_interval_seconds": 3600,
+             "prior_probability": round(1.0 - preferred, 4), "benefit": "lower CPU cost"},
+        ], {"night_id": night, "elapsed_wall_seconds": round(elapsed, 1),
+            "wallclock_budget_seconds": self.wallclock,
+            "completed_tiles": len(self.completed),
+            "forecast_events": len(self.forecasts)})
+        if choice == "economy":
+            self.advised_every = 3600.0
+
+    def _select_action_with_model(self, snapshot: dict, best):
+        night = (snapshot.get("cursor") or {}).get("night_id")
+        if night == self.action_advised_night or not self.advisor.enabled:
+            return best, "deterministic"
+        candidates = [entry for entry in self._model_candidates if entry[0][1] > 0 and entry[0][0] > 0]
+        if len(candidates) < 2:
+            return best, "deterministic"
+        first, second = candidates[:2]
+        margin = abs(first[0][0] - second[0][0]) / max(abs(first[0][0]), abs(second[0][0]), 1e-9)
+        if margin > 0.05:
+            return best, "deterministic"
+        self.action_advised_night = night
+        preferred = min(0.999, 0.99 + 0.009 * margin)
+        options = []
+        for index, entry in enumerate((first, second)):
+            key, tile, band, _weather, _quality = entry
+            options.append({"id": f"C{index}", "tile_id": key[2], "program": band,
+                            "request_id": key[3], "expected_gain": round(key[1], 2),
+                            "priority_per_hour": round(key[0] * 3600.0, 2),
+                            "prior_probability": round(preferred if index == 0 else 1.0 - preferred, 4),
+                            "seconds": tile["nominal_exptime_seconds"]})
+        choice = self.advisor.choose("action_decision", options,
+                                     {"night_id": night, "completed_tiles": len(self.completed),
+                                      "active_requests": len(snapshot.get("active_requests") or [])})
+        if choice in {"C0", "C1"}:
+            return candidates[int(choice[1])], "model"
+        return best, "deterministic"
 
     def _rollout(self, finalists, entries, now):
         """对前几名分别往后推演一段时间（沿用 (收益 − μ)/曝光 规则，天气按当前有效天气持续、不考虑关闭），
@@ -994,6 +1059,7 @@ class ObserverPolicy:
                 issued = epoch(weekly.get("issued_at_utc") or snapshot["cursor"]["timestamp_utc"])
                 until = issued + 7 * 86400.0
                 self._pending_events = ([e for e in self._truth_events() if e.end > issued and e.start < until], "truth", until)
+        self._adapt_plan_with_model(snapshot, now)
         self._plan(snapshot, now)
         reports = []
         if v3:
@@ -1009,6 +1075,9 @@ class ObserverPolicy:
             next_boundary = now + slot - float(cursor.get("slot_offset_seconds") or 0) % slot
             if next_boundary > deadline:
                 best = self._choose(snapshot, now, v3)  # 等待也赶不上这个窗口，保护无意义
+        source = "deterministic"
+        if best is not None:
+            best, source = self._select_action_with_model(snapshot, best)
         planned = self.planning and self.planner is not None and not self.p["plan_allow_wait"]
         if best is None or (best[0][1] <= 0 if planned else best[0][0] <= 0):
             self.pending = None
@@ -1031,7 +1100,7 @@ class ObserverPolicy:
                             "site_event_ids": [str(e) for e in site.get("active_event_ids") or []]}
             decision = {"action": "observe", "tile_id": tile, "program": band, "request_id": request_id,
                         "reason": f"marginal gain {gain:.1f} ({index * 3600:.1f}/h)"}
-        decision["decision_source"] = "deterministic"
+        decision["decision_source"] = source
         if reports:
             decision["reports"] = reports
         return decision

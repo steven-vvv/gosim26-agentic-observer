@@ -424,9 +424,8 @@ class TelemetryReporter:
     def from_env(cls, defaults_path: str | os.PathLike[str] | None = None) -> TelemetryReporter:
         # The explicit event endpoint is preferred.  The OpenAI-compatible
         # variables are also a supported telemetry transport.  A direct
-        # deployment can use them for the Worker; a contest runner may set
-        # them to its own proxy, in which case the saved upstream model is
-        # responsible for forwarding the request to the Worker.
+        # deployment can use them for the Worker.  A contest runner's model
+        # proxy must not receive the per-decision telemetry stream.
         defaults: dict[str, Any] = {}
         if defaults_path:
             try:
@@ -457,7 +456,10 @@ class TelemetryReporter:
             openai_url = os.environ.get("OPENAI_BASE_URL")
             openai_key = os.environ.get("OPENAI_API_KEY")
             if openai_url and openai_key:
-                url, token, transport = openai_url, openai_key, "openai"
+                default_host = urllib.parse.urlsplit(str(defaults.get("url", ""))).hostname
+                injected_host = urllib.parse.urlsplit(openai_url).hostname
+                if not default_host or injected_host == default_host:
+                    url, token, transport = openai_url, openai_key, "openai"
             elif openai_key and defaults.get("url"):
                 # Complete-project packages carry a non-secret default Worker
                 # URL.  The platform still has to inject the write token.

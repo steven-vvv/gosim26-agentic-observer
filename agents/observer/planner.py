@@ -102,6 +102,7 @@ class Planner:
         self.w_samples: list = []
         self.night_w: dict = {}  # 夜序号 -> 该夜实测的 W0（天气持续性用）
         self.last_clean_weather: tuple[float, float, int] | None = None
+        self.recent_clean_weather: list[tuple[float, float, int]] = []
         self.open_slots = 0
         self.seen_slots: set = set()
         self.plans = 0
@@ -130,6 +131,8 @@ class Planner:
                 self.night_w.setdefault(night, []).append(w0)
                 if clean:
                     self.last_clean_weather = (moment, w0, night)
+                    self.recent_clean_weather.append((moment, w0, night))
+                    del self.recent_clean_weather[:-16]
 
     def _weather_quantiles(self) -> list:
         """观测样本不足时混入先验；样本越多越依赖实测。"""
@@ -201,6 +204,10 @@ class Planner:
         observed_at, observed_w, observed_night = self.last_clean_weather
         if not 0 <= now - observed_at <= 3600.0:
             return {}
+        count = max(1, int(self.p.get("plan_recent_weather_smoothing_slots", 1)))
+        recent = [w for t, w, night in self.recent_clean_weather
+                  if night == observed_night and 0 <= observed_at - t <= 3600.0]
+        smoothed_w = sum(recent[-count:]) / min(count, len(recent)) if count > 1 and recent else observed_w
         mean = sum(quantiles) / len(quantiles)
         limit = float(self.p["plan_recent_weather_hours"]) * 3600.0
         floor = float(self.p["plan_recent_weather_floor"])
@@ -211,7 +218,8 @@ class Planner:
                 continue
             midpoint = (max(start, now) + stop) / 2.0
             rho = floor + (1.0 - floor) * 0.88 ** (max(0.0, midpoint - observed_at) / self.slot)
-            shift = rho * (observed_w - mean)
+            forecast_w = smoothed_w if midpoint - observed_at > 3600.0 else observed_w
+            shift = rho * (forecast_w - mean)
             spread = math.sqrt(max(0.0, 1.0 - rho * rho)) if self.p.get("plan_recent_weather_conditional") else 1.0
             factors[b] = self._value_factor([max(0.05, mean + spread * (w - mean) + shift) for w in quantiles])
         return factors
