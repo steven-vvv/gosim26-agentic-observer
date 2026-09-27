@@ -12,6 +12,8 @@
 - [`2026-09-26-beta11.md`](2026-09-26-beta11.md)：机会价格系数实验。
 - [`2026-09-26-final-selection.md`](2026-09-26-final-selection.md)：策略收束和提交选择。
 - [`2026-09-27-forward-optimizations.md`](2026-09-27-forward-optimizations.md)：前向未知场景的优化筛选。
+- [`2026-09-28-public-transfer-research.md`](2026-09-28-public-transfer-research.md)：公开场景策略迁移研究计划。
+- [`2026-09-28-public-transfer-research-report.md`](2026-09-28-public-transfer-research-report.md)：计划执行结果、策略采用与否及排行榜威胁判断。
 
 ## 性能与排程
 
