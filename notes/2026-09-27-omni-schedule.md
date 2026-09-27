@@ -99,3 +99,6 @@ uv run python tools/omni/export.py --reference agents/public_once/omni/dev-refer
 - 空等罚分与“仍未完成、可完成的天区集合”直接挂钩。重访串和注定中断观测都能把等待换成不计罚的动作。
   正式赛是新版规则：`mechanics` 开启，完成的天区可以重复观测并取最高分，按 `_repeat_score_potential` 判断
   是否仍可行动。所以这里的填补思路要按新版规则重新推导，不能照搬。
+
+正式赛赛制和练习榜的最新核对、以及把确定性候选计划交给模型做有限选择的资格方案，见
+[`notes/2026-09-27-claude-e5e6a5dc.md`](2026-09-27-claude-e5e6a5dc.md)。练习榜全知分数不代表隐藏场景成绩；若引入模型，模型输出必须真正改变候选计划或计划自适应结果，遥测请求本身不计入规则 3.6。
