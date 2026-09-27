@@ -27,15 +27,16 @@
 | `tools/summary.py` | 汇总各版本在开发集 / 留出集 / 练习场景上相对基线的提升 |
 | `tests/` | 单元测试（与官方估值口径一致、覆盖边际方向、协议往返） |
 | `scenarios/` | 本地生成的决赛同规模场景（可重新生成，每个约 20 MB） |
-| `results/` | 评测结果（精简 JSON） |
+| `results/` | 临时评测结果（精简 JSON），归档后进入 `result_temp/evaluations/` |
 | `runs/` | 临时运行产物（评测脚本会自动删除大文件，可随时清空） |
-| `result_temp/` | 平台下载的完整项目结果、`agent.log` 与 workflow 归档；本地忽略，见 `notes/2026-09-26-platform-result-analysis.md` |
-| `notes/` | 实验记录 |
+| `result_temp/` | 平台下载的完整项目结果、`agent.log` 与 workflow 归档，按日期/attempt 分层；只跟踪目录说明 |
+| `notes/` | 实验记录，按主题索引见 `notes/README.md` |
+| `docs/workspace-layout.md` | 代码、实验、输出、平台归档和 VCS 的边界；`tools/organize_workspace.py` 负责带校验的迁移 |
 
 ## 版本库
 
 git，默认分支 `main`。当前实验在 `codex` 分支；前一轮 `claude` 分支的工作已同步到 `main`。
-本地 comp-* 场景、`dist/` 构建导出和临时运行产物不入库（见 `.gitignore`），都可以用对应工具重新生成。
+本地 comp-* 场景、`dist/` 构建导出、`results/` 评测 JSON 和 `runs/` 的运行输出不入库（见 `.gitignore`），都可以用对应工具重新生成；实验脚本、参数、报告和冻结 agent 仍保留。
 
 ## 环境
 
@@ -43,8 +44,7 @@ git，默认分支 `main`。当前实验在 `codex` 分支；前一轮 `claude` 
 （平台用 Python 3.12 运行，`ruff` 按 `target-version = "py39"` 检查）。规划器可选 numpy：完整项目包把 wheel 安装到
 可写的 `.deps/` 后走向量化路径，安装失败（或本地 PyPy）就用纯 Python；两条路径的结果逐位相同
 （`tests/test_observer.py` 与整场 decisions.csv 比对）。完整项目打包默认附带不含密钥的遥测配置和逐步性能追踪。
-平台注入的 `OPENAI_BASE_URL` / `OPENAI_API_KEY` 供有界模型决策使用；远程遥测需另设 `TELEMETRY_TOKEN`
-（可选 `TELEMETRY_URL`），否则逐步追踪只写 `agent.log`。两条网络路径失败时均回退到确定性决策。
+平台注入的 `OPENAI_BASE_URL` / `OPENAI_API_KEY` 供可选、有界模型顾问使用；顾问每次独立发送固定前缀加实时快照，确定性策略先给出首选，响应只接受合法候选和概率分布，非确定性候选默认须达到 0.85 概率才会改变动作，超时、格式错误或连续失败会熔断并回退。遥测默认复用同一 OpenAI-compatible Worker 和凭据，也可另设 `TELEMETRY_URL` / `TELEMETRY_TOKEN` 使用独立入口；带 `tool_call_id=gosim26.telemetry` 的标记消息由 Worker 入库，不会消耗上游推理 token。两条网络路径失败时均回退到确定性决策。
 
 ```bash
 uv sync                                   # 建立 .venv

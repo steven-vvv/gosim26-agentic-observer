@@ -422,10 +422,10 @@ class TelemetryReporter:
 
     @classmethod
     def from_env(cls, defaults_path: str | os.PathLike[str] | None = None) -> TelemetryReporter:
-        # The explicit event endpoint is preferred.  The OpenAI-compatible
-        # variables are also a supported telemetry transport.  A direct
-        # deployment can use them for the Worker.  A contest runner's model
-        # proxy must not receive the per-decision telemetry stream.
+        # An explicit event endpoint remains available for deployments that
+        # want separate ingestion. Otherwise the OpenAI-compatible variables
+        # select the shared Worker, whose marker-aware router consumes events
+        # before ordinary model traffic reaches the upstream provider.
         defaults: dict[str, Any] = {}
         if defaults_path:
             try:
@@ -631,19 +631,17 @@ class TelemetryReporter:
 
     def _send(self, events: list[dict[str, Any]], *, timeout: float | None = None) -> None:
         if self.transport == "openai":
-            # Keep the event in a standard user message.  Some OpenAI
-            # compatible gateways validate the request against the official
-            # chat schema and reject extension fields such as ``metadata`` or
-            # ``telemetry`` before forwarding the request.  Our Worker can
-            # recover the structured event from this JSON envelope, so the
-            # standard-only body works both through that gateway and when
-            # connecting to the Worker directly.
+            # The shared Worker consumes this marked tool message before any
+            # provider call.  It is deliberately distinguishable from normal
+            # model traffic, so telemetry does not spend inference tokens.
             envelope = {"schema": "gosim26.telemetry.v1"}
             envelope["event" if len(events) == 1 else "events"] = events[0] if len(events) == 1 else events
             body_object = {
                 "model": self.model,
                 "messages": [{
-                    "role": "user",
+                    "role": "tool",
+                    "tool_call_id": "gosim26.telemetry",
+                    "name": "gosim26.telemetry",
                     "content": json.dumps(envelope, separators=(",", ":")),
                 }],
                 "stream": False,

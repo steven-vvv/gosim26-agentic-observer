@@ -9,8 +9,8 @@
 - 代码：源目录里的 *.py 与 params.json（若有），原样复制；
 - numpy：给了 --wheels 时把其中的 *.whl 放进 wheels/，构建阶段安装到可写的 .deps/；装不上再尝试联网安装，仍失败也不中止，
   agent 自动退回纯 Python 规划器（两条路径逐位相同，只是更慢）；
-- telemetry.config.json：默认写入不含密钥的遥测配置。比赛平台注入的 OPENAI_* 用于真正的模型决策；
-  遥测直连 Worker 需要单独设置 TELEMETRY_URL 和 TELEMETRY_TOKEN。
+- telemetry.config.json：默认写入不含密钥的遥测配置。模型顾问和遥测可以共用一个 OpenAI-compatible
+  Worker；Worker 按 `gosim26.telemetry` tool 标记消费遥测，其余请求代理到真实模型端点。
 - ZIP 内文件按名字排序、时间戳固定，同样的输入得到同样的 sha256。
 
 输出 dist/project-<版本>/ 与 dist/observer-<版本>-project.zip，并打印 sha256。这两样都不入库（见 .gitignore），随时可以重建。
@@ -42,13 +42,14 @@ GOSIM 2026 巡天智能体参赛项目。确定性规划器生成安全候选；
 - `planner.py`：天区 → 未来 1 小时时段分配问题的对偶价格（次梯度法），得到每块天区的机会价值。
   规划时计入每周天气预报（`events.py`）。有 numpy 时走向量化路径，与纯 Python 路径逐位相同。
 - `model_advisor.py`：通过平台的 `OPENAI_BASE_URL`、`OPENAI_API_KEY` 调用模型代理；每环节最多四次，
-  单次默认最多五秒，连续三次失败后停用。行动次选的优先级差距上限为 5%；选择写入逐步追踪。
+  单次默认最多五秒，连续三次失败后停用。行动次选的优先级差距上限为 5%；非确定性候选还要达到
+  0.85 的概率门槛才会被接受，顾问选择和概率分布写入逐步追踪。
 - `geometry.py`：与官方公式一致的几何与日历。
 
 构建：离线安装 `wheels/` 里的 numpy 到可写的 `.deps/`；失败时退回纯 Python，结果不变，只是更慢。
-遥测默认开启：包内只有 Worker 地址、传输方式和逐步追踪开关等非机密配置。平台注入的 `OPENAI_*`
-属于模型代理，不能用作 Worker 写入密钥；远程遥测需另设 `TELEMETRY_URL` 和 `TELEMETRY_TOKEN`。
-无遥测密钥时逐步追踪仍写入 `agent.log`。网络失败会丢弃事件且不影响策略；密钥不会写入日志。
+遥测默认开启：包内只有 Worker 地址、传输方式和逐步追踪开关等非机密配置。`OPENAI_BASE_URL` /
+`OPENAI_API_KEY` 可以同时供模型顾问和带标记的遥测请求使用；显式 `TELEMETRY_URL` /
+`TELEMETRY_TOKEN` 仍可覆盖遥测路由。无遥测密钥时逐步追踪仍写入 `agent.log`。网络失败会丢弃事件且不影响策略；密钥不会写入日志。
 「参赛」页保存的上游模型应指向真实大模型，不能继续指向遥测 Worker；隐藏评测前还须选择加密保存模型密钥。
 需要完全关闭时，用打包器的 `--no-telemetry`。
 复现：关闭模型路径时，同一场景和种子下运行确定性；与本地官方 runner 的比对方法见仓库 `notes/`。
@@ -81,6 +82,8 @@ def build(
     telemetry_source: Path | None = None,
 ) -> str:
     sources = sorted(p for p in agent.glob("*.py")) + ([agent / "params.json"] if (agent / "params.json").exists() else [])
+    if (agent / "llm.config.json").exists():
+        sources.append(agent / "llm.config.json")
     if telemetry_source is not None and not any(p.name == "telemetry.py" for p in sources):
         sources.append(telemetry_source)
     if not any(p.name == "main.py" for p in sources):

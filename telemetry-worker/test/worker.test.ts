@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:test";
 import worker from "../src/index";
 import type { Env } from "../src/types";
@@ -119,6 +119,87 @@ describe("telemetry worker", () => {
     const body = await completion.text();
     expect(body).toContain("data: [DONE]");
     expect(body).not.toContain("\n\n data:");
+  });
+
+  it("consumes the marked tool telemetry message without forwarding it", async () => {
+    const runId = `tool-${crypto.randomUUID()}`;
+    const response = await call("/v1/chat/completions", {
+      method: "POST",
+      headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "team-model",
+        messages: [{
+          role: "tool",
+          tool_call_id: "gosim26.telemetry",
+          name: "gosim26.telemetry",
+          content: JSON.stringify({ schema: "gosim26.telemetry.v1", event: {
+            run_id: runId, event_type: "decision_trace", payload: { action: "observe" },
+          } }),
+        }],
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-telemetry-accepted")).toBe("true");
+    const page = await call(`/v1/telemetry?run_id=${encodeURIComponent(runId)}`, {
+      headers: bearer("read-test-token"),
+    });
+    const result = await page.json() as { events: Array<{ event_type: string }> };
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].event_type).toBe("decision_trace");
+  });
+
+  it("proxies ordinary model traffic and does not persist its prompt", async () => {
+    const oldUrl = runtimeEnv.LLM_UPSTREAM_URL;
+    const oldKey = runtimeEnv.LLM_UPSTREAM_API_KEY;
+    runtimeEnv.LLM_UPSTREAM_URL = "https://provider.test/v1";
+    runtimeEnv.LLM_UPSTREAM_API_KEY = "provider-secret";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://provider.test/v1/chat/completions");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer provider-secret");
+      expect(String(init?.body)).toContain("private prompt");
+      return new Response(JSON.stringify({ id: "upstream-1", choices: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const response = await call("/v1/chat/completions", {
+        method: "POST",
+        headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+        body: JSON.stringify({ model: "team-model", messages: [{ role: "user", content: "private prompt" }] }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-gosim26-route")).toBe("llm-proxy");
+      expect(await response.json()).toEqual({ id: "upstream-1", choices: [] });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+      runtimeEnv.LLM_UPSTREAM_URL = oldUrl;
+      runtimeEnv.LLM_UPSTREAM_API_KEY = oldKey;
+    }
+  });
+
+  it("rejects malformed telemetry markers without calling the provider", async () => {
+    const oldUrl = runtimeEnv.LLM_UPSTREAM_URL;
+    const fetchMock = vi.fn(async () => new Response("should not be called", { status: 200 }));
+    runtimeEnv.LLM_UPSTREAM_URL = "https://provider.test/v1";
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const response = await call("/v1/chat/completions", {
+        method: "POST",
+        headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "team-model",
+          messages: [{ role: "tool", tool_call_id: "gosim26.telemetry", content: "not-json" }],
+        }),
+      });
+      expect(response.status).toBe(400);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      runtimeEnv.LLM_UPSTREAM_URL = oldUrl;
+    }
   });
 
   it("accepts structured OpenAI telemetry and records edge network metadata", async () => {

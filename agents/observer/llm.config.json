@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "max_stage_calls": 4,
+  "max_total_calls": 8,
+  "max_consecutive_failures": 3,
+  "max_context_bytes": 120000,
+  "max_response_bytes": 65536,
+  "temperature": 0,
+  "top_p": 1,
+  "selection_mode": "guided",
+  "min_alternative_probability": 0.85
+}

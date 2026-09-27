@@ -1,7 +1,0 @@
-scenario        pkg-obs13-np
-comp-a-s101         183031.0
-mean                183031.0
-
-[pkg-obs13-np] base_science=122909  program_bonus=21559  coverage_bonus=36463  coverage_evenness=0.848  request_reward=700  report_reward=1400  completed_tiles=1173
-      penalties(sum)={}  outcomes(sum)={'completed': 1175, 'wait': 189, 'report_recorded': 14, 'weather_interrupted': 18, 'report_correct': 1, 'report_neutral': 2}
-      fault(delay_h, misreports)=[(17.42, 0)]  tags(sum)={'reddening:correct': 6, 'nova:correct': 8}

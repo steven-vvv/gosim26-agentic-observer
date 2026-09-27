@@ -143,7 +143,7 @@ class ObserverPolicy:
         self.planning = bool(params["plan"])
         self.planned_night = None
         self.planned_at = -1e18
-        self.advisor = ModelAdvisor.from_env()
+        self.advisor = ModelAdvisor.from_env(Path(__file__).with_name("llm.config.json"))
         self.advised_night = None
         self.advised_every = None
         self.action_advised_night = None
@@ -890,6 +890,60 @@ class ObserverPolicy:
                                            if entry[0][2:4] != best[0][2:4]][:1]
         return best
 
+    def _model_context(self, snapshot: dict, *, deterministic_choice: str | None = None,
+                       candidates: list[dict] | None = None) -> dict:
+        """Build a bounded, explicit snapshot for the optional model call.
+
+        The controller still computes the operation before this method is
+        called. The model sees the live cursor, weather, progress, requests,
+        and the candidate facts used by that calculation, with no hidden
+        mutable state or credentials.
+        """
+        cursor = snapshot.get("cursor") or {}
+        progress = snapshot.get("progress") or {}
+        tiles = list(snapshot.get("candidate_tiles") or [])
+        requests = list(snapshot.get("active_requests") or [])
+        night_start = snapshot.get("night_start") or {}
+        weekly = snapshot.get("weekly") or {}
+
+        def bounded_publication(value: object, limits: dict[str, int]) -> dict:
+            if not isinstance(value, dict):
+                return {}
+            result = {key: item for key, item in value.items() if key not in limits}
+            for key, limit in limits.items():
+                items = value.get(key)
+                if isinstance(items, list):
+                    result[key] = items[:limit]
+                    result[f"{key}_omitted"] = max(0, len(items) - limit)
+            return result
+
+        context = {
+            "schema": "gosim26.observer.live_state.v1",
+            "snapshot_schema": snapshot.get("schema_version"),
+            "decision_sequence": snapshot.get("decision_sequence"),
+            "slot_id": cursor.get("slot_id"),
+            "night_id": cursor.get("night_id"),
+            "timestamp_utc": cursor.get("timestamp_utc"),
+            "slot_offset_seconds": cursor.get("slot_offset_seconds"),
+            "current_site_weather": snapshot.get("current_site_weather") or {},
+            "progress": progress,
+            "active_requests": requests[:32],
+            "active_requests_omitted": max(0, len(requests) - 32),
+            "candidate_tiles": tiles[:64],
+            "candidate_tiles_omitted": max(0, len(tiles) - 64),
+            "tile_last_finished": snapshot.get("tile_last_finished"),
+            "fault_status": snapshot.get("fault_status"),
+            "night_start": bounded_publication(night_start, {"tile_windows": 64}),
+            "weekly": bounded_publication(weekly, {
+                "weather_forecast": 64,
+                "tile_windows": 64,
+                "observation_requests": 32,
+            }),
+            "deterministic_choice": deterministic_choice,
+            "deterministic_candidates": candidates or [],
+        }
+        return context
+
     def _adapt_plan_with_model(self, snapshot: dict, now: float) -> None:
         night = (snapshot.get("cursor") or {}).get("night_id")
         if night == self.advised_night:
@@ -901,15 +955,20 @@ class ObserverPolicy:
         elapsed = max(0.0, time.monotonic() - self.clock_started) if self.clock_started is not None else 0.0
         pressure = elapsed / max(1.0, self.wallclock)
         preferred = max(0.90, min(0.995, 0.995 - pressure * 0.08))
+        context = self._model_context(snapshot, deterministic_choice="frequent", candidates=[
+            {"id": "frequent", "replan_interval_seconds": self.advised_every},
+            {"id": "economy", "replan_interval_seconds": 3600},
+        ])
+        context.update({"elapsed_wall_seconds": round(elapsed, 1),
+                        "wallclock_budget_seconds": self.wallclock,
+                        "completed_tiles": len(self.completed),
+                        "forecast_events": len(self.forecasts)})
         choice = self.advisor.choose("plan_adaptation", [
             {"id": "frequent", "replan_interval_seconds": self.advised_every,
              "prior_probability": round(preferred, 4), "benefit": "higher expected score"},
             {"id": "economy", "replan_interval_seconds": 3600,
              "prior_probability": round(1.0 - preferred, 4), "benefit": "lower CPU cost"},
-        ], {"night_id": night, "elapsed_wall_seconds": round(elapsed, 1),
-            "wallclock_budget_seconds": self.wallclock,
-            "completed_tiles": len(self.completed),
-            "forecast_events": len(self.forecasts)})
+        ], context)
         if choice == "economy":
             self.advised_every = 3600.0
 
@@ -934,9 +993,11 @@ class ObserverPolicy:
                             "priority_per_hour": round(key[0] * 3600.0, 2),
                             "prior_probability": round(preferred if index == 0 else 1.0 - preferred, 4),
                             "seconds": tile["nominal_exptime_seconds"]})
-        choice = self.advisor.choose("action_decision", options,
-                                     {"night_id": night, "completed_tiles": len(self.completed),
-                                      "active_requests": len(snapshot.get("active_requests") or [])})
+        context = self._model_context(snapshot, deterministic_choice="C0", candidates=options)
+        context.update({"completed_tiles": len(self.completed),
+                        "active_request_count": len(snapshot.get("active_requests") or []),
+                        "deterministic_choice_reason": "highest computed marginal gain"})
+        choice = self.advisor.choose("action_decision", options, context)
         if choice in {"C0", "C1"}:
             return candidates[int(choice[1])], "model"
         return best, "deterministic"

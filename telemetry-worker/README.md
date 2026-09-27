@@ -3,9 +3,10 @@
 This is a small Cloudflare Worker for observer telemetry. It stores bounded,
 sanitized event records in D1 and exposes a read API for later analysis. The
 complete-project packer includes a non-secret default endpoint and enables the
-client by default, but the observer only starts a network thread with a
-dedicated `TELEMETRY_TOKEN` (or direct Worker credentials). The contest
-platform's injected `OPENAI_*` variables belong to the real model proxy.
+client by default. When `OPENAI_BASE_URL` points to this Worker,
+`OPENAI_API_KEY` authenticates both the optional model advisor and marked
+telemetry messages; a dedicated `TELEMETRY_TOKEN` remains available for a
+separate ingestion route.
 The observer never depends on the service for a
 decision: it uses a bounded queue, short timeouts, bounded retries and event
 drops, and remains offline when no key is present.
@@ -39,19 +40,17 @@ All protected routes accept `Authorization: Bearer <token>` or
   newest-first events with decoded `payload` objects. Read access uses
   `TELEMETRY_READ_TOKEN`.
 * `POST /v1/chat/completions` (also `/chat/completions` for relays that omit
-  `/v1`) is an OpenAI-compatible telemetry endpoint. For
-  direct use, set `OPENAI_BASE_URL` to this Worker and
-  `OPENAI_API_KEY` to the Worker's `TELEMETRY_INGEST_TOKEN`; the key is
-  telemetry authentication, never an upstream model credential. The client
-  puts the event in a JSON user message using only standard Chat Completions
-  fields, so strict gateways can forward it unchanged. The Worker stores one
-  normalized event and returns a valid non-streaming completion or an SSE
-  completion when `stream` is true. Direct Worker testing may use a base URL
-  ending in `/v1` or the Worker root. In the contest runner, the injected
-  `OPENAI_*` pair belongs to the platform model proxy; configure the saved
-  team model with a real model and use a separate `TELEMETRY_TOKEN` for this
-  Worker.
-* `GET /v1/models` returns the `telemetry-ack` model and uses ingest access.
+  `/v1`) is the shared OpenAI-compatible endpoint. A message with
+  `role=tool`, `tool_call_id=gosim26.telemetry` and `name=gosim26.telemetry`
+  is consumed as telemetry and never reaches the model provider. The Worker
+  stores normalized events and returns a valid non-streaming completion or an
+  SSE completion when `stream` is true. Ordinary Chat Completions requests
+  are forwarded to `LLM_UPSTREAM_URL` with `LLM_UPSTREAM_API_KEY`; prompts and
+  provider responses are not written to D1. Direct Worker testing may use a
+  base URL ending in `/v1` or the Worker root, with the ingest token as the
+  bearer credential.
+* `GET /v1/models` returns `telemetry-ack` and, when configured, the upstream
+  model name; it uses ingest access.
 
 An event has `run_id`, `event_type`, `source`, optional client timestamp and
 sequence, and a `payload` object. The worker limits request size, batch size,
@@ -91,8 +90,11 @@ then performs no network or disk I/O. The explicit event transport uses
 set `OPENAI_BASE_URL=http://127.0.0.1:8790`,
 `OPENAI_API_KEY=local-ingest-token`, and optionally
 `TELEMETRY_MODEL=telemetry-ack` (the default). The client normalizes the base
-URL to `/v1/chat/completions`. `TELEMETRY_URL`/`TELEMETRY_TOKEN` take priority;
-set `TELEMETRY_DISABLE_OPENAI=1` to prevent the OpenAI fallback.
+URL to `/v1/chat/completions` and sends the marked tool message. The same
+variables are used by the optional observer model advisor; configure the
+Worker's `LLM_UPSTREAM_*` values when ordinary model traffic should be
+forwarded. `TELEMETRY_URL`/`TELEMETRY_TOKEN` take priority; set
+`TELEMETRY_DISABLE_OPENAI=1` to prevent the OpenAI fallback.
 
 ## First real deployment
 

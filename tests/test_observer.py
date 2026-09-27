@@ -174,6 +174,66 @@ def test_model_advisor_bounds_successful_stage_calls(monkeypatch):
     assert advisor.stage_calls == {"plan_adaptation": 4}
 
 
+def test_model_advisor_guided_mode_keeps_deterministic_choice_below_threshold(monkeypatch):
+    from model_advisor import AdvisorConfig, ModelAdvisor
+
+    advisor = ModelAdvisor(
+        "https://model.example/v1",
+        "secret",
+        config=AdvisorConfig(min_alternative_probability=0.85),
+    )
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return (b'{"choices":[{"message":{"content":"'
+                    b'{\\"choice\\":\\"C1\\",\\"probabilities\\":'
+                    b'{\\"C0\\":0.6,\\"C1\\":0.4}}"}}]}')
+
+    monkeypatch.setattr("model_advisor.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
+    assert advisor.choose("action_decision", [{"id": "C0"}, {"id": "C1"}],
+                          {"deterministic_choice": "C0"}) is None
+    assert advisor.last_outcome["guided_override"] is True
+    assert advisor.last_outcome["accepted_choice"] is None
+
+
+def test_model_advisor_request_keeps_live_state_at_dynamic_suffix(monkeypatch):
+    from model_advisor import ModelAdvisor
+
+    advisor = ModelAdvisor("https://model.example/v1", "secret")
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return b'{"choices":[{"message":{"content":"{\\"choice\\":\\"C0\\"}"}}]}'
+
+    def answer(request, timeout):
+        captured["body"] = json.loads(request.data)
+        return Response()
+
+    monkeypatch.setattr("model_advisor.urllib.request.urlopen", answer)
+    context = {
+        "schema": "gosim26.observer.live_state.v1",
+        "night_id": "N20261005",
+        "weekly": {"weather_forecast": [{"condition": "cloudy"}]},
+    }
+    assert advisor.choose("action_decision", [{"id": "C0"}, {"id": "C1"}], context) == "C0"
+    assert [message["role"] for message in captured["body"]["messages"]] == ["system", "user"]
+    dynamic = json.loads(captured["body"]["messages"][-1]["content"])
+    assert dynamic["live_state"]["weekly"]["weather_forecast"] == [{"condition": "cloudy"}]
+
+
 def test_agent_process_round_trip():
     """整个 agent 进程：一条 initialize + 一条 decision_request，输出一条合法的 decision_response。"""
     envelope = {"protocol_version": "participant-agent-protocol-v2"}

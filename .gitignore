@@ -9,19 +9,44 @@ __pycache__/
 # 蒙特卡洛场景（mc-*）很小（大文件是指向 data/scenarios 的符号链接），纳入版本库
 scenarios/comp-*/
 
-# 临时运行产物：评测的完整运行目录、剖析数据、零分结果文件，都可以重跑
+# 临时运行产物：评测的完整运行目录、剖析数据、零分结果文件，都可以重跑；脚本和说明仍保留在 Git
 runs/eval/
 runs/perf/
 runs/prof/
 runs/zero/
 runs/public_once/
+runs/*.json
+runs/**/*.json
+runs/*.txt
+runs/**/*.txt
+runs/*.stderr
+runs/**/*.stderr
+runs/*.log
+runs/**/*.log
+runs/*.done
+runs/**/*.done
+runs/**/done
+# Reusable experiment inputs and package metadata remain versioned.
+!runs/dev_scenarios.txt
+!runs/holdout_scenarios.txt
+!runs/offline-params.txt
+!runs/**/params.json
+!runs/**/requirements.txt
+!runs/fable-0925c/jobs*.txt
+!runs/fable-0925c/order.txt
+!runs/platform-2026-09-25/example_*.json
+!runs/platform-2026-09-25/example_tree.txt
+
+# 批量评测输出（由 tools/evaluate.py 可重建；磁盘上的旧结果保留）
+results/
 
 # 构建与评测导出（可由 tools/pack_project.py、build_portfolio.py、zero_score.py 重建）
 # 包括完整项目包、历史 agent 包、择优组合和 Playground CSV，不进入版本库。
 dist/
 
-# 平台下载的评测结果、agent.log 与 workflow 归档，不作为版本输入。
-result_temp/
+# 平台下载的评测结果、agent.log 与 workflow 归档，不作为版本输入；目录说明除外。
+result_temp/*
+!result_temp/README.md
 
 # Cloudflare telemetry worker local state and credentials
 telemetry-worker/node_modules/

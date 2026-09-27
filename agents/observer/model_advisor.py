@@ -1,93 +1,363 @@
-"""Bounded OpenAI-compatible model choices for two online decision stages."""
+"""Optional, bounded OpenAI-compatible model advice for the observer.
+
+The observer remains the source of truth. This client only supplies an
+advisory choice and an optional probability distribution; every transport,
+schema, or validation failure is treated as a deterministic fallback.
+"""
+
 from __future__ import annotations
 
 import json
+import logging
+import math
 import os
-import sys
-import urllib.parse
 import urllib.request
+import uuid
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+LOG = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AdvisorConfig:
+    """Runtime limits for the optional advisory call."""
+
+    enabled: bool = True
+    model: str = "team-model"
+    timeout: float = 5.0
+    max_stage_calls: int = 4
+    max_total_calls: int = 8
+    max_consecutive_failures: int = 3
+    max_context_bytes: int = 120_000
+    max_response_bytes: int = 65_536
+    temperature: float = 0.0
+    top_p: float = 1.0
+    selection_mode: str = "guided"
+    min_alternative_probability: float = 0.85
+
+
+def _as_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"0", "false", "no", "off", "disable", "disabled"}
+
+
+def _as_int(value: Any, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_float(value: Any, default: float, minimum: float = 0.0, maximum: float | None = None) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(parsed):
+        return default
+    parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _load_defaults(path: str | os.PathLike[str] | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 class ModelAdvisor:
-    def __init__(self, url: str | None, key: str | None, model: str = "team-model", timeout: float = 5.0) -> None:
-        self.url = self._endpoint(url) if url and key else None
-        self.key = key if self.url else None
-        self.model = model or "team-model"
-        self.timeout = min(5.0, max(0.2, timeout))
+    """Small fail-closed client for an OpenAI-compatible chat endpoint."""
+
+    # Keep these messages byte-for-byte stable so providers can reuse the
+    # prefix in their prompt cache. Current state and candidates are appended
+    # in the user message and therefore vary only at the end of the request.
+    _SYSTEM_PROMPT = (
+        "You are an advisory component inside the GOSIM26 observer. "
+        "Return JSON only. The deterministic controller has already selected "
+        "the preferred operation. Evaluate the supplied live state, assign a "
+        "probability to every candidate id, and normally preserve that choice. "
+        "Never invent state or candidates. "
+        "Output one object with keys choice (string) and probabilities (object "
+        "mapping every candidate id to a number between 0 and 1). "
+        "The probabilities should sum to 1. If the request is incomplete, "
+        "repeat deterministic_choice and use a conservative distribution."
+    )
+
+    def __init__(
+        self,
+        url: str | None,
+        key: str | None,
+        model: str = "team-model",
+        timeout: float = 5.0,
+        *,
+        config: AdvisorConfig | None = None,
+        transport: Any | None = None,
+    ) -> None:
+        supplied = config or AdvisorConfig(model=model, timeout=timeout)
+        self.config = supplied
+        self.url = self._endpoint(url) if url else None
+        self.key = key
+        self.model = supplied.model or model
+        # A very small timeout makes local proxies flaky and was the source of
+        # avoidable retries in the original implementation.
+        self.timeout = _as_float(supplied.timeout, 5.0, minimum=0.2, maximum=30.0)
         self.calls = 0
         self.successes = 0
         self.failures = 0
         self.consecutive_failures = 0
         self.stage_calls: dict[str, int] = {}
+        self.last_outcome: dict[str, Any] = {
+            "available": bool(self.url and self.key and supplied.enabled),
+            "choice": None,
+            "deterministic_choice": None,
+            "probabilities": {},
+            "fallback": True,
+        }
+        # Keep the default lookup late so tests and embedding applications can
+        # replace ``urllib.request.urlopen`` after constructing the advisor.
+        self._transport = transport
 
     @staticmethod
     def _endpoint(value: str) -> str:
-        url = value.strip().rstrip("/")
-        if url.endswith("/chat/completions"):
-            return url
-        return f"{url}/chat/completions" if url.endswith("/v1") else f"{url}/v1/chat/completions"
+        value = value.rstrip("/")
+        if value.endswith("/chat/completions"):
+            return value
+        if value.endswith("/v1"):
+            return f"{value}/chat/completions"
+        return f"{value}/v1/chat/completions"
 
     @classmethod
-    def from_env(cls) -> ModelAdvisor:
-        if os.environ.get("OBSERVER_MODEL_DISABLE", "").lower() in {"1", "true", "yes", "on"}:
-            return cls(None, None)
-        url = os.environ.get("OPENAI_BASE_URL", "")
-        key = os.environ.get("OPENAI_API_KEY", "")
-        # Direct Worker deployments use the same OpenAI-shaped endpoint for telemetry.
-        # Its acknowledgement is not a planning model.
-        host = urllib.parse.urlsplit(url).hostname or ""
-        if host == "gosim26-telemetry.wxlsteven.workers.dev":
-            return cls(None, None)
-        raw_timeout = os.environ.get("OBSERVER_MODEL_TIMEOUT_SECONDS", "5")
-        try:
-            timeout = float(raw_timeout)
-        except ValueError:
-            timeout = 5.0
-        return cls(url, key, os.environ.get("MODEL_NAME") or os.environ.get("OPENAI_MODEL") or "team-model", timeout)
+    def from_env(cls, defaults_path: str | os.PathLike[str] | None = None) -> ModelAdvisor:
+        defaults = _load_defaults(defaults_path)
+        env = os.environ
+
+        def pick(name: str, default: Any = None) -> Any:
+            short = name.removeprefix("OBSERVER_MODEL_").lower()
+            return env.get(name, defaults.get(short, defaults.get(name.lower(), defaults.get(name, default))))
+
+        enabled = _as_bool(pick("OBSERVER_MODEL_ENABLED", True), True)
+        if _as_bool(env.get("OBSERVER_MODEL_DISABLE"), False):
+            enabled = False
+        url = pick("OBSERVER_MODEL_BASE_URL") or pick("OPENAI_BASE_URL")
+        key = pick("OBSERVER_MODEL_API_KEY") or pick("OPENAI_API_KEY")
+        selection_mode = str(pick("OBSERVER_MODEL_SELECTION_MODE", "guided") or "guided").strip().lower()
+        if selection_mode not in {"guided", "deterministic"}:
+            selection_mode = "guided"
+        config = AdvisorConfig(
+            enabled=enabled,
+            model=str(pick("OBSERVER_MODEL_NAME") or pick("MODEL_NAME") or pick("OPENAI_MODEL") or "team-model"),
+            timeout=_as_float(pick("OBSERVER_MODEL_TIMEOUT", 5.0), 5.0, minimum=0.2, maximum=30.0),
+            max_stage_calls=_as_int(pick("OBSERVER_MODEL_MAX_STAGE_CALLS", 4), 4),
+            max_total_calls=_as_int(pick("OBSERVER_MODEL_MAX_TOTAL_CALLS", 8), 8),
+            max_consecutive_failures=_as_int(pick("OBSERVER_MODEL_MAX_FAILURES", 3), 3),
+            max_context_bytes=_as_int(pick("OBSERVER_MODEL_MAX_CONTEXT_BYTES", 120_000), 120_000, 4_096),
+            max_response_bytes=_as_int(pick("OBSERVER_MODEL_MAX_RESPONSE_BYTES", 65_536), 65_536, 1_024),
+            temperature=_as_float(pick("OBSERVER_MODEL_TEMPERATURE", 0.0), 0.0, 0.0, 2.0),
+            top_p=_as_float(pick("OBSERVER_MODEL_TOP_P", 1.0), 1.0, 0.0, 1.0),
+            selection_mode=selection_mode,
+            min_alternative_probability=_as_float(
+                pick("OBSERVER_MODEL_MIN_ALTERNATIVE_PROBABILITY", 0.85), 0.85, 0.0, 1.0
+            ),
+        )
+        return cls(url, key, config.model, config.timeout, config=config)
 
     @property
     def enabled(self) -> bool:
-        return bool(self.url and self.key and self.consecutive_failures < 3)
+        return bool(
+            self.config.enabled
+            and self.url
+            and self.key
+            and self.calls < self.config.max_total_calls
+            and self.consecutive_failures < self.config.max_consecutive_failures
+        )
 
-    def choose(self, stage: str, options: list[dict], context: dict) -> str | None:
-        """Return a validated option ID; callers execute it rather than recomputing the choice."""
-        if not self.enabled or len(options) < 2 or self.stage_calls.get(stage, 0) >= 4:
-            return None
-        ids = {option["id"] for option in options}
-        prompt = {"stage": stage, "context": context, "options": options,
-                  "instruction": "Choose one safe option. Return only JSON: {\"choice\":\"<option id>\"}."}
-        body = json.dumps({
+    def status(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "configured": bool(self.config.enabled and self.url and self.key),
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": "You schedule an astronomical survey. Select one of the provided valid options to maximize expected final score while respecting the remaining compute budget."},
-                {"role": "user", "content": json.dumps(prompt, separators=(",", ":"))},
-            ],
-            "stream": False,
-        }, separators=(",", ":")).encode("utf-8")
-        request = urllib.request.Request(self.url or "", data=body, method="POST", headers={
-            "authorization": f"Bearer {self.key}", "content-type": "application/json",
-            "user-agent": "gosim26-observer-model/1",
-        })
-        self.calls += 1
-        self.stage_calls[stage] = self.stage_calls.get(stage, 0) + 1
+            "calls": self.calls,
+            "successes": self.successes,
+            "failures": self.failures,
+            "consecutive_failures": self.consecutive_failures,
+            "selection_mode": self.config.selection_mode,
+            "min_alternative_probability": self.config.min_alternative_probability,
+            "last_outcome": dict(self.last_outcome),
+        }
+
+    @staticmethod
+    def _json_content(content: Any) -> dict[str, Any] | None:
+        if isinstance(content, dict):
+            return content
+        if not isinstance(content, str):
+            return None
+        text = content.strip()
+        if text.startswith("```"):
+            text = text.strip("`").removeprefix("json").strip()
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                data = response.read(65537)
-            if len(data) > 65536:
-                raise ValueError("oversized model response")
-            message = json.loads(data)["choices"][0]["message"]["content"]
-            choice = json.loads(message)["choice"]
+            value = json.loads(text)
+        except ValueError:
+            start, end = text.find("{"), text.rfind("}")
+            if start < 0 or end <= start:
+                return None
+            try:
+                value = json.loads(text[start : end + 1])
+            except ValueError:
+                return None
+        return value if isinstance(value, dict) else None
+
+    @staticmethod
+    def _normalise_probabilities(value: Any, ids: Sequence[str]) -> dict[str, float] | None:
+        if not isinstance(value, Mapping):
+            return None
+        parsed: dict[str, float] = {}
+        for choice_id in ids:
+            try:
+                probability = float(value.get(choice_id, 0.0))
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(probability) or probability < 0:
+                return None
+            parsed[choice_id] = probability
+        total = sum(parsed.values())
+        if total <= 0 or not math.isfinite(total):
+            return None
+        return {choice_id: round(probability / total, 8) for choice_id, probability in parsed.items()}
+
+    def _request_body(self, stage: str, options: Sequence[Mapping[str, Any]], context: Mapping[str, Any]) -> dict[str, Any]:
+        ids = [str(option.get("id", "")) for option in options]
+        deterministic = context.get("deterministic_choice") or (ids[0] if ids else None)
+        dynamic = {
+            "schema": "gosim26.observer.advice.v2",
+            "stage": stage,
+            "deterministic_choice": deterministic,
+            "candidates": list(options),
+            "live_state": dict(context),
+        }
+        encoded = json.dumps(dynamic, ensure_ascii=True, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > self.config.max_context_bytes:
+            # Preserve the decision-critical fields when a provider or proxy
+            # imposes a smaller body limit. The omission is explicit.
+            dynamic["live_state"] = {
+                "schema": context.get("schema"),
+                "night_id": context.get("night_id"),
+                "decision_sequence": context.get("decision_sequence"),
+                "deterministic_choice": deterministic,
+                "context_truncated": True,
+            }
+        return {
+            "model": self.model,
+            "temperature": self.config.temperature,
+            "top_p": self.config.top_p,
+            "max_tokens": 256,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": self._SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(dynamic, ensure_ascii=True, separators=(",", ":"))},
+            ],
+        }
+
+    def _fallback(self, stage: str, deterministic: str | None, reason: str) -> None:
+        self.last_outcome = {
+            "stage": stage,
+            "available": self.enabled,
+            "choice": None,
+            "deterministic_choice": deterministic,
+            "probabilities": {},
+            "fallback": True,
+            "reason": reason,
+        }
+
+    def choose(self, stage: str, options: Sequence[Mapping[str, Any]], context: Mapping[str, Any]) -> str | None:
+        """Return a validated model choice, or ``None`` for deterministic fallback."""
+
+        ids = [str(option.get("id", "")) for option in options]
+        deterministic = str(context.get("deterministic_choice") or (ids[0] if ids else "")) or None
+        if len(ids) < 2:
+            self._fallback(stage, deterministic, "not_enough_candidates")
+            return None
+        if not self.enabled:
+            self._fallback(stage, deterministic, "disabled_or_circuit_open")
+            return None
+        used = self.stage_calls.get(stage, 0)
+        if used >= self.config.max_stage_calls:
+            self._fallback(stage, deterministic, "stage_budget_exhausted")
+            return None
+
+        self.stage_calls[stage] = used + 1
+        self.calls += 1
+        body = self._request_body(stage, options, context)
+        request = urllib.request.Request(
+            self.url or "",
+            data=json.dumps(body, ensure_ascii=True, separators=(",", ":")).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "X-GOSIM26-Request-ID": uuid.uuid4().hex,
+            },
+            method="POST",
+        )
+        try:
+            transport = self._transport or urllib.request.urlopen
+            with transport(request, timeout=self.timeout) as response:
+                raw = response.read(self.config.max_response_bytes + 1)
+            if len(raw) > self.config.max_response_bytes:
+                raise ValueError("response_too_large")
+            payload = json.loads(raw.decode("utf-8"))
+            message = payload.get("choices", [{}])[0].get("message", {}) if isinstance(payload, dict) else {}
+            parsed = self._json_content(message.get("content") if isinstance(message, dict) else None)
+            choice = str(parsed.get("choice")) if parsed and parsed.get("choice") is not None else ""
             if choice not in ids:
-                raise ValueError("choice outside candidate set")
+                raise ValueError("invalid_choice")
+            probabilities = self._normalise_probabilities(parsed.get("probabilities") if parsed else None, ids)
+            if probabilities is None:
+                # Older compatible endpoints returned only ``choice``. Keep
+                # the call useful while making the missing distribution
+                # explicit: the deterministic choice receives all probability.
+                probabilities = {choice_id: (1.0 if choice_id == choice else 0.0) for choice_id in ids}
             self.successes += 1
             self.consecutive_failures = 0
-            print(f"observer: model_choice stage={stage} choice={choice}", file=sys.stderr, flush=True)
+            self.last_outcome = {
+                "stage": stage,
+                "available": True,
+                "choice": choice,
+                "deterministic_choice": deterministic,
+                "probabilities": probabilities,
+                "fallback": False,
+                "latency_ms": None,
+            }
+            if self.config.selection_mode == "deterministic":
+                return None
+            if (
+                self.config.selection_mode == "guided"
+                and deterministic is not None
+                and choice != deterministic
+                and probabilities.get(choice, 0.0) < self.config.min_alternative_probability
+            ):
+                self.last_outcome["guided_override"] = True
+                self.last_outcome["accepted_choice"] = None
+                return None
+            self.last_outcome["accepted_choice"] = choice
             return choice
-        except Exception as exc:  # noqa: BLE001  A model outage must not stop the survey.
+        except Exception as exc:  # noqa: BLE001  # network, provider, and schema failures all fail closed
             self.failures += 1
             self.consecutive_failures += 1
-            print(f"observer: model_fallback stage={stage} error={type(exc).__name__}", file=sys.stderr, flush=True)
+            self._fallback(stage, deterministic, type(exc).__name__)
+            LOG.warning("model advice failed at %s: %s", stage, exc)
             return None
 
 
-__all__ = ["ModelAdvisor"]
+__all__ = ["AdvisorConfig", "ModelAdvisor"]

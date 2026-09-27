@@ -9,6 +9,11 @@ export interface Env {
   TELEMETRY_MAX_BODY_BYTES?: string;
   TELEMETRY_RETENTION_DAYS?: string;
   CORS_ORIGIN?: string;
+  /** OpenAI-compatible upstream used for ordinary chat completions. */
+  LLM_UPSTREAM_URL?: string;
+  LLM_UPSTREAM_API_KEY?: string;
+  LLM_UPSTREAM_TIMEOUT_MS?: string;
+  LLM_MODEL_NAME?: string;
 }
 
 export interface NormalizedEvent {

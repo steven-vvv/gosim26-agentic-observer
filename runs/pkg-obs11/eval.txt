@@ -1,8 +1,0 @@
-scenario      pkg-obs11-py312
-comp-a-s101         181187.6
-mean                181187.6
-
-[pkg-obs11-py312] base_science=121932  program_bonus=21258  coverage_bonus=36398  coverage_evenness=0.853  request_reward=700  report_reward=900  completed_tiles=1173
-      penalties(sum)={}  outcomes(sum)={'completed': 1176, 'weather_interrupted': 18, 'wait': 194, 'report_recorded': 9, 'report_correct': 1, 'report_neutral': 2}
-      fault(delay_h, misreports)=[(17.42, 0)]  tags(sum)={'reddening:correct': 4, 'nova:correct': 5}
-exit=0 wall=825s

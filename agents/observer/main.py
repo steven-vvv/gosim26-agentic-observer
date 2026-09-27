@@ -259,6 +259,8 @@ def main() -> None:
         sent[sequence] = respond(sequence, decision, version)
         response_ms = (time.perf_counter() - response_started) * 1000.0
         planner = getattr(policy, "planner", None)
+        advisor = getattr(policy, "advisor", None)
+        advisor_status = advisor.status() if advisor is not None and hasattr(advisor, "status") else {}
         trace = {
             "kind": "decision",
             "sequence": sequence,
@@ -275,6 +277,7 @@ def main() -> None:
             "decision_source": decision.get("decision_source"),
             "model_calls": getattr(getattr(policy, "advisor", None), "calls", 0),
             "model_failures": getattr(getattr(policy, "advisor", None), "failures", 0),
+            "model_advice": advisor_status.get("last_outcome", {}),
             "planning": getattr(policy, "planning", None),
             "plans": getattr(planner, "plans", 0),
             "plan_s": round(getattr(planner, "plan_seconds", 0.0), 3),

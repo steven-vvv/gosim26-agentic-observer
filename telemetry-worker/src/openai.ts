@@ -2,6 +2,7 @@ import { requireIngestAuth } from "./auth";
 import { insertEvents } from "./storage";
 import { requestNetworkMetadata, withServerNetwork } from "./network";
 import { jsonBytes } from "./sanitize";
+import { proxyChatCompletion } from "./proxy";
 import { maxBatch, readJson, RequestError } from "./validation";
 import type { Env, JsonValue, NormalizedEvent } from "./types";
 
@@ -93,17 +94,28 @@ function eventsFromRequest(value: Record<string, unknown>, messages: unknown[]):
   if (direct) return direct;
   for (const message of [...messages].reverse()) {
     const item = objectValue(message);
+    const marked = item?.role === "tool" && (
+      item.tool_call_id === "gosim26.telemetry" || item.name === "gosim26.telemetry"
+    );
+    // A marked tool message is the current protocol. It is consumed here and
+    // never forwarded to the real model, so it costs no provider tokens.
+    if (!marked && value.model !== "telemetry-ack") continue;
     const content = item?.content;
+    if (marked && typeof content !== "string") {
+      throw new RequestError(400, "invalid_telemetry", "marked telemetry content must be a JSON string");
+    }
     if (typeof content !== "string") continue;
     let parsed: unknown;
     try {
       parsed = JSON.parse(content) as unknown;
     } catch {
       // Ordinary model prompts are not telemetry envelopes.
+      if (marked) throw new RequestError(400, "invalid_telemetry", "marked telemetry content is not valid JSON");
       continue;
     }
     const candidate = eventsFromEnvelope(parsed);
     if (candidate) return candidate;
+    if (marked) throw new RequestError(400, "invalid_telemetry", "marked telemetry envelope is invalid");
   }
   return null;
 }
@@ -154,6 +166,11 @@ export async function handleChatCompletions(request: Request, env: Env): Promise
   if (candidates && candidates.length > maxBatch(env)) {
     throw new RequestError(413, "batch_too_large", "too many events in one request");
   }
+  if (!candidates && model !== "telemetry-ack") {
+    // Ordinary model traffic shares this endpoint but is never written to D1.
+    return proxyChatCompletion(request, value, env);
+  }
+
   const events = candidates
     ? candidates.map((candidate) => eventFromTelemetry(candidate, metadata, network, receivedAt))
     : (() => {
@@ -184,9 +201,13 @@ export async function handleChatCompletions(request: Request, env: Env): Promise
   return jsonResponse(completionBody(model, id, created), 200, { "x-telemetry-accepted": "true" });
 }
 
-export function modelList(): Response {
+export function modelList(env?: Env): Response {
+  const data = [{ id: "telemetry-ack", object: "model", created: 0, owned_by: "gosim26-telemetry" }];
+  if (env?.LLM_MODEL_NAME?.trim()) {
+    data.push({ id: env.LLM_MODEL_NAME.trim().slice(0, 128), object: "model", created: 0, owned_by: "llm-upstream" });
+  }
   return jsonResponse({
     object: "list",
-    data: [{ id: "telemetry-ack", object: "model", created: 0, owned_by: "gosim26-telemetry" }],
+    data,
   });
 }

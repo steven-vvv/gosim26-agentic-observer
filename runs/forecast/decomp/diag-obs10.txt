@@ -1,8 +1,0 @@
-scenario          diag-obs10
-comp-a-s101         180906.0
-comp-b-s201         187438.5
-mean                184172.3
-
-[diag-obs10] base_science=123942  program_bonus=20623  coverage_bonus=37977  coverage_evenness=0.875  request_reward=980  report_reward=650  completed_tiles=1212
-      penalties(sum)={}  outcomes(sum)={'completed': 2441, 'weather_interrupted': 40, 'wait': 349, 'report_recorded': 13, 'report_correct': 2, 'report_neutral': 1, 'report_misreport': 1}
-      fault(delay_h, misreports)=[(17.42, 0), (43.58, 1)]  tags(sum)={'nova:correct': 13}

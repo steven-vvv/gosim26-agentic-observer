@@ -101,7 +101,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
   if (url.pathname === "/v1/models" && request.method === "GET") {
     if (!(await requireIngestAuth(request, env))) return json({ error: "unauthorized" }, 401);
-    return modelList();
+    return modelList(env);
   }
   return json({ error: "not_found" }, 404);
 }

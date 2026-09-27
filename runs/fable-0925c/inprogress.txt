@@ -1,3 +1,0 @@
-scenarios/comp-a-s103
-scenarios/mc-a-9102
-scenarios/mc-b-9202
