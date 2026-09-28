@@ -138,6 +138,7 @@ def main() -> None:
         if finished:
             return
         finished = True
+        reporter.close(timeout=2.0)
         planner = getattr(policy, "planner", None)
         report = {
             **counters,
@@ -287,6 +288,8 @@ def main() -> None:
         is_terminal = isinstance(payload, dict) and terminal.is_final(payload, decision)
         if is_terminal:
             summary.add(trace)
+            telemetry("decision_trace", **trace)
+            reporter.emit("decision_trace", trace, sequence=sequence)
             finish(response_pending=True)
         stdout_started = time.perf_counter()
         emitted = emit(sent[sequence])
@@ -294,12 +297,12 @@ def main() -> None:
         counters["responses"] += 1
         if not is_terminal:
             summary.add(trace)
-        telemetry("decision_trace", **trace)
-        reporter.emit("decision_trace", trace, sequence=sequence)
+            telemetry("decision_trace", **trace)
+            reporter.emit("decision_trace", trace, sequence=sequence)
         last_io_at = time.perf_counter()
         if not emitted:
             return
-        if counters["decisions"] % 100 == 0:
+        if not is_terminal and counters["decisions"] % 100 == 0:
             telemetry("checkpoint", **counters, wall_s=round(time.monotonic() - started, 3),
                       cpu_s=_cpu_seconds(), rss_kib=_rss_kib(),
                       plans=getattr(planner, "plans", 0), plan_s=round(getattr(planner, "plan_seconds", 0.0), 3))

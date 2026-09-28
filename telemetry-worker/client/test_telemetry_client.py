@@ -41,6 +41,22 @@ class TelemetryClientTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         self.assertNotIn("secret", request.data.decode())
 
+    def test_close_drains_queued_events_before_final_report(self):
+        class Response:
+            status = 200
+
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+
+        with patch("telemetry.urllib.request.urlopen", return_value=Response()):
+            reporter = TelemetryReporter("https://example.test/v1", "token", transport="openai")
+            for sequence in range(4):
+                self.assertTrue(reporter.emit("decision_trace", {"sequence": sequence}, sequence=sequence))
+            reporter.close(timeout=1.0)
+        self.assertFalse(reporter.status()["thread_alive"])
+        self.assertEqual(reporter.stats()["queued"], 4)
+        self.assertEqual(reporter.stats()["sent"], 4)
+
     def test_openai_environment_is_a_telemetry_transport(self):
         with patch.dict(
             "os.environ",
