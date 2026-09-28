@@ -220,12 +220,12 @@ class ModelAdvisor:
 
     @staticmethod
     def _normalise_probabilities(value: Any, ids: Sequence[str]) -> dict[str, float] | None:
-        if not isinstance(value, Mapping):
+        if not isinstance(value, Mapping) or set(value) != set(ids):
             return None
         parsed: dict[str, float] = {}
         for choice_id in ids:
             try:
-                probability = float(value.get(choice_id, 0.0))
+                probability = float(value[choice_id])
             except (TypeError, ValueError):
                 return None
             if not math.isfinite(probability) or probability < 0:
@@ -298,19 +298,19 @@ class ModelAdvisor:
 
         self.stage_calls[stage] = used + 1
         self.calls += 1
-        body = self._request_body(stage, options, context)
-        request = urllib.request.Request(
-            self.url or "",
-            data=json.dumps(body, ensure_ascii=True, separators=(",", ":")).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.key}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "X-GOSIM26-Request-ID": uuid.uuid4().hex,
-            },
-            method="POST",
-        )
         try:
+            body = self._request_body(stage, options, context)
+            request = urllib.request.Request(
+                self.url or "",
+                data=json.dumps(body, ensure_ascii=True, separators=(",", ":")).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {self.key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "X-GOSIM26-Request-ID": uuid.uuid4().hex,
+                },
+                method="POST",
+            )
             transport = self._transport or urllib.request.urlopen
             with transport(request, timeout=self.timeout) as response:
                 raw = response.read(self.config.max_response_bytes + 1)
@@ -324,10 +324,7 @@ class ModelAdvisor:
                 raise ValueError("invalid_choice")
             probabilities = self._normalise_probabilities(parsed.get("probabilities") if parsed else None, ids)
             if probabilities is None:
-                # Older compatible endpoints returned only ``choice``. Keep
-                # the call useful while making the missing distribution
-                # explicit: the deterministic choice receives all probability.
-                probabilities = {choice_id: (1.0 if choice_id == choice else 0.0) for choice_id in ids}
+                raise ValueError("invalid_probabilities")
             self.successes += 1
             self.consecutive_failures = 0
             self.last_outcome = {
@@ -356,7 +353,7 @@ class ModelAdvisor:
             self.failures += 1
             self.consecutive_failures += 1
             self._fallback(stage, deterministic, type(exc).__name__)
-            LOG.warning("model advice failed at %s: %s", stage, exc)
+            LOG.warning("model advice failed at %s: %s", stage, type(exc).__name__)
             return None
 
 

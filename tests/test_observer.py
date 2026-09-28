@@ -133,7 +133,9 @@ def test_model_advisor_validates_choices_and_stops_after_failures(monkeypatch):
             return False
 
         def read(self, _limit):
-            return json.dumps({"choices": [{"message": {"content": json.dumps({"choice": self.choice})}}]}).encode()
+            return json.dumps({"choices": [{"message": {"content": json.dumps({
+                "choice": self.choice, "probabilities": {"C0": 0.1, "C1": 0.9}
+            })}}]}).encode()
 
     def answer(request, timeout):
         assert request.full_url == "https://model.example/v1/chat/completions"
@@ -164,7 +166,7 @@ def test_model_advisor_bounds_successful_stage_calls(monkeypatch):
             return False
 
         def read(self, _limit):
-            return b'{"choices":[{"message":{"content":"{\\"choice\\":\\"C0\\"}"}}]}'
+            return b'{"choices":[{"message":{"content":"{\\"choice\\":\\"C0\\",\\"probabilities\\":{\\"C0\\":0.9,\\"C1\\":0.1}}"}}]}'
 
     monkeypatch.setattr("model_advisor.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
     options = [{"id": "C0"}, {"id": "C1"}]
@@ -216,7 +218,7 @@ def test_model_advisor_request_keeps_live_state_at_dynamic_suffix(monkeypatch):
             return False
 
         def read(self, _limit):
-            return b'{"choices":[{"message":{"content":"{\\"choice\\":\\"C0\\"}"}}]}'
+            return b'{"choices":[{"message":{"content":"{\\"choice\\":\\"C0\\",\\"probabilities\\":{\\"C0\\":0.9,\\"C1\\":0.1}}"}}]}'
 
     def answer(request, timeout):
         captured["body"] = json.loads(request.data)
@@ -232,6 +234,45 @@ def test_model_advisor_request_keeps_live_state_at_dynamic_suffix(monkeypatch):
     assert [message["role"] for message in captured["body"]["messages"]] == ["system", "user"]
     dynamic = json.loads(captured["body"]["messages"][-1]["content"])
     assert dynamic["live_state"]["weekly"]["weather_forecast"] == [{"condition": "cloudy"}]
+
+
+def test_model_advisor_rejects_incomplete_distribution_and_hides_transport_error(monkeypatch, caplog):
+    from model_advisor import ModelAdvisor
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return b'{"choices":[{"message":{"content":"{\\"choice\\":\\"C1\\",\\"probabilities\\":{\\"C1\\":1}}"}}]}'
+
+    advisor = ModelAdvisor("https://model.example/v1", "secret")
+    monkeypatch.setattr("model_advisor.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
+    options = [{"id": "C0"}, {"id": "C1"}]
+    assert advisor.choose("action_decision", options, {"deterministic_choice": "C0"}) is None
+    assert advisor.last_outcome["reason"] == "ValueError"
+
+    advisor = ModelAdvisor("https://model.example/v1", "secret")
+
+    def fail(*_args, **_kwargs):
+        raise OSError("sensitive-provider-detail")
+
+    monkeypatch.setattr("model_advisor.urllib.request.urlopen", fail)
+    assert advisor.choose("action_decision", options, {"deterministic_choice": "C0"}) is None
+    assert "sensitive-provider-detail" not in caplog.text
+    assert "OSError" in caplog.text
+
+
+def test_model_advisor_request_construction_failure_falls_back():
+    from model_advisor import ModelAdvisor
+
+    advisor = ModelAdvisor("https://model.example/v1", "bad\nkey")
+    assert advisor.choose("action_decision", [{"id": "C0"}, {"id": "C1"}],
+                          {"deterministic_choice": "C0"}) is None
+    assert advisor.last_outcome["fallback"] is True
 
 
 def test_agent_process_round_trip():
