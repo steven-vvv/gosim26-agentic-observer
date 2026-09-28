@@ -5,7 +5,7 @@ import { requestNetworkMetadata } from "./network";
 import { parseEvents, RequestError } from "./validation";
 import type { Env, QueryEvents } from "./types";
 
-const VERSION = "2026-09-27.telemetry-v2";
+const VERSION = "2026-09-28.telemetry-v3";
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(body), {

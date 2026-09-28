@@ -151,15 +151,19 @@ describe("telemetry worker", () => {
   it("proxies ordinary model traffic and does not persist its prompt", async () => {
     const oldUrl = runtimeEnv.LLM_UPSTREAM_URL;
     const oldKey = runtimeEnv.LLM_UPSTREAM_API_KEY;
+    const oldModel = runtimeEnv.LLM_MODEL_NAME;
     runtimeEnv.LLM_UPSTREAM_URL = "https://provider.test/v1";
     runtimeEnv.LLM_UPSTREAM_API_KEY = "provider-secret";
+    runtimeEnv.LLM_MODEL_NAME = "ds/deepseek-flash";
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe("https://provider.test/v1/chat/completions");
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer provider-secret");
-      expect(String(init?.body)).toContain("private prompt");
+      const forwarded = JSON.parse(String(init?.body)) as { model: string; messages: Array<{ content: string }> };
+      expect(forwarded.model).toBe("ds/deepseek-flash");
+      expect(forwarded.messages[0].content).toBe("private prompt");
       return new Response(JSON.stringify({ id: "upstream-1", choices: [] }), {
         status: 200,
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "content-encoding": "gzip", "content-length": "900" },
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -171,12 +175,51 @@ describe("telemetry worker", () => {
       });
       expect(response.status).toBe(200);
       expect(response.headers.get("x-gosim26-route")).toBe("llm-proxy");
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(response.headers.get("content-length")).toBeNull();
       expect(await response.json()).toEqual({ id: "upstream-1", choices: [] });
       expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllGlobals();
       runtimeEnv.LLM_UPSTREAM_URL = oldUrl;
       runtimeEnv.LLM_UPSTREAM_API_KEY = oldKey;
+      runtimeEnv.LLM_MODEL_NAME = oldModel;
+    }
+  });
+
+  it("rejects an unadvertised oversized chat body before completing the stream", async () => {
+    const request = new Request("https://telemetry.test/v1/chat/completions", {
+      method: "POST",
+      headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+      body: JSON.stringify({ model: "team-model", messages: [{ role: "user", content: "x".repeat(270_000) }] }),
+    });
+    expect(request.headers.get("content-length")).toBeNull();
+    const response = await worker.fetch(request, runtimeEnv);
+    expect(response.status).toBe(413);
+    expect((await response.json() as { error: { code: string } }).error.code).toBe("body_too_large");
+  });
+
+  it("passes provider failures through and converts connection failures to a bounded error", async () => {
+    const oldUrl = runtimeEnv.LLM_UPSTREAM_URL;
+    runtimeEnv.LLM_UPSTREAM_URL = "https://provider.test/v1";
+    const request = () => call("/v1/chat/completions", {
+      method: "POST",
+      headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+      body: JSON.stringify({ model: "team-model", messages: [{ role: "user", content: "hello" }] }),
+    });
+    try {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response('{"error":"temporary"}', { status: 502 })));
+      const providerError = await request();
+      expect(providerError.status).toBe(502);
+      expect(providerError.headers.get("x-gosim26-route")).toBe("llm-proxy");
+
+      vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("connection failed"); }));
+      const connectionError = await request();
+      expect(connectionError.status).toBe(502);
+      expect((await connectionError.json() as { error: { code: string } }).error.code).toBe("llm_upstream_error");
+    } finally {
+      vi.unstubAllGlobals();
+      runtimeEnv.LLM_UPSTREAM_URL = oldUrl;
     }
   });
 

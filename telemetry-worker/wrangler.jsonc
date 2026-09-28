@@ -28,6 +28,7 @@
   },
   "vars": {
     "CORS_ORIGIN": "*",
+    "LLM_MODEL_NAME": "ds/deepseek-flash",
     "TELEMETRY_MAX_BATCH": "32",
     "TELEMETRY_MAX_BODY_BYTES": "262144",
     "TELEMETRY_RETENTION_DAYS": "30"

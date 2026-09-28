@@ -45,7 +45,9 @@ All protected routes accept `Authorization: Bearer <token>` or
   is consumed as telemetry and never reaches the model provider. The Worker
   stores normalized events and returns a valid non-streaming completion or an
   SSE completion when `stream` is true. Ordinary Chat Completions requests
-  are forwarded to `LLM_UPSTREAM_URL` with `LLM_UPSTREAM_API_KEY`; prompts and
+  are forwarded to `LLM_UPSTREAM_URL` with `LLM_UPSTREAM_API_KEY`. When
+  `LLM_MODEL_NAME` is set, the Worker uses that model ID for every forwarded
+  request; the current deployment uses `ds/deepseek-flash` only. Prompts and
   provider responses are not written to D1. Direct Worker testing may use a
   base URL ending in `/v1` or the Worker root, with the ingest token as the
   bearer credential.
@@ -98,16 +100,29 @@ forwarded. `TELEMETRY_URL`/`TELEMETRY_TOKEN` take priority; set
 
 ## First real deployment
 
-After logging in, create a D1 database and replace the placeholder
-`database_id` in `wrangler.jsonc`:
+For a new deployment, create a D1 database and set its `database_id` in
+`wrangler.jsonc`. The existing deployment already has this database. Set the
+telemetry tokens once, then configure the upstream from the private local file:
 
 ```bash
-wrangler d1 create gosim26-telemetry
-pnpm db:migrate:remote
-wrangler secret put TELEMETRY_INGEST_TOKEN
-wrangler secret put TELEMETRY_READ_TOKEN
-wrangler deploy
+pnpm exec wrangler d1 create gosim26-telemetry
+pnpm run db:migrate:remote
+pnpm exec wrangler secret put TELEMETRY_INGEST_TOKEN
+pnpm exec wrangler secret put TELEMETRY_READ_TOKEN
+set +x
+set -a
+source /home/steven/.config/gosim26-telemetry.env
+set +a
+printf '%s' "$OBSERVER_MODEL_BASE_URL" | pnpm exec wrangler secret put LLM_UPSTREAM_URL
+printf '%s' "$OBSERVER_MODEL_API_KEY" | pnpm exec wrangler secret put LLM_UPSTREAM_API_KEY
+pnpm exec wrangler deploy
 ```
+
+The upstream secrets use the same provider endpoint and key as the local
+advisor test; do not paste their values into the repository or terminal
+output. The model ID is the non-secret `LLM_MODEL_NAME` variable in
+`wrangler.jsonc`. A provider failure returns a bounded error to the agent,
+whose optional advisor falls back to the deterministic choice.
 
 Keep tokens outside the repository. Set `CORS_ORIGIN` to a specific origin if
 the read API will be called by a browser; the default `*` is suitable for

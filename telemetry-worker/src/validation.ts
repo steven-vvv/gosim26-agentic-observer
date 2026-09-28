@@ -37,9 +37,22 @@ export async function readJson(request: Request, env: Env): Promise<unknown> {
   if (Number.isFinite(advertised) && advertised > limit) {
     throw new RequestError(413, "body_too_large", "request body exceeds the configured limit");
   }
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > limit) {
-    throw new RequestError(413, "body_too_large", "request body exceeds the configured limit");
+  const reader = request.body?.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  if (reader) {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > limit) {
+        await reader.cancel();
+        throw new RequestError(413, "body_too_large", "request body exceeds the configured limit");
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
   }
   try {
     return JSON.parse(text);

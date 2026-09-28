@@ -37,11 +37,11 @@ export async function proxyChatCompletion(
     const upstream = await fetch(upstreamEndpoint(env.LLM_UPSTREAM_URL), {
       method: "POST",
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, model: env.LLM_MODEL_NAME?.trim() || body.model }),
       signal: controller.signal,
     });
     const responseHeaders = new Headers();
-    for (const name of ["content-type", "cache-control", "content-encoding", "content-length", "retry-after"]) {
+    for (const name of ["content-type", "cache-control", "retry-after"]) {
       const value = upstream.headers.get(name);
       if (value) responseHeaders.set(name, value);
     }
