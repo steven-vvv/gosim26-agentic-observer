@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import os
+import urllib.error
 import urllib.request
 import uuid
 from collections.abc import Mapping, Sequence
@@ -21,18 +22,23 @@ from typing import Any
 LOG = logging.getLogger(__name__)
 
 
+class AdviceError(ValueError):
+    """A fixed validation reason safe to expose in local diagnostics."""
+
+
 @dataclass(frozen=True)
 class AdvisorConfig:
     """Runtime limits for the optional advisory call."""
 
     enabled: bool = True
     model: str = "team-model"
-    timeout: float = 5.0
+    timeout: float = 18.0
     max_stage_calls: int = 4
     max_total_calls: int = 8
     max_consecutive_failures: int = 3
     max_context_bytes: int = 120_000
     max_response_bytes: int = 65_536
+    max_tokens: int = 4096
     temperature: float = 0.0
     top_p: float = 1.0
     selection_mode: str = "guided"
@@ -100,7 +106,7 @@ class ModelAdvisor:
         url: str | None,
         key: str | None,
         model: str = "team-model",
-        timeout: float = 5.0,
+        timeout: float = 18.0,
         *,
         config: AdvisorConfig | None = None,
         transport: Any | None = None,
@@ -112,7 +118,9 @@ class ModelAdvisor:
         self.model = supplied.model or model
         # A very small timeout makes local proxies flaky and was the source of
         # avoidable retries in the original implementation.
-        self.timeout = _as_float(supplied.timeout, 5.0, minimum=0.2, maximum=30.0)
+        self.timeout = _as_float(supplied.timeout, 18.0, minimum=0.2, maximum=30.0)
+        self.context_bytes = 0
+        self.context_truncated = False
         self.calls = 0
         self.successes = 0
         self.failures = 0
@@ -158,12 +166,13 @@ class ModelAdvisor:
         config = AdvisorConfig(
             enabled=enabled,
             model=str(pick("OBSERVER_MODEL_NAME") or pick("MODEL_NAME") or pick("OPENAI_MODEL") or "team-model"),
-            timeout=_as_float(pick("OBSERVER_MODEL_TIMEOUT", 5.0), 5.0, minimum=0.2, maximum=30.0),
+            timeout=_as_float(pick("OBSERVER_MODEL_TIMEOUT", 18.0), 18.0, minimum=0.2, maximum=30.0),
             max_stage_calls=_as_int(pick("OBSERVER_MODEL_MAX_STAGE_CALLS", 4), 4),
             max_total_calls=_as_int(pick("OBSERVER_MODEL_MAX_TOTAL_CALLS", 8), 8),
             max_consecutive_failures=_as_int(pick("OBSERVER_MODEL_MAX_FAILURES", 3), 3),
             max_context_bytes=_as_int(pick("OBSERVER_MODEL_MAX_CONTEXT_BYTES", 120_000), 120_000, 4_096),
             max_response_bytes=_as_int(pick("OBSERVER_MODEL_MAX_RESPONSE_BYTES", 65_536), 65_536, 1_024),
+            max_tokens=min(4_096, _as_int(pick("OBSERVER_MODEL_MAX_TOKENS", 4_096), 4_096, 128)),
             temperature=_as_float(pick("OBSERVER_MODEL_TEMPERATURE", 0.0), 0.0, 0.0, 2.0),
             top_p=_as_float(pick("OBSERVER_MODEL_TOP_P", 1.0), 1.0, 0.0, 1.0),
             selection_mode=selection_mode,
@@ -247,7 +256,9 @@ class ModelAdvisor:
             "live_state": dict(context),
         }
         encoded = json.dumps(dynamic, ensure_ascii=True, separators=(",", ":"))
-        if len(encoded.encode("utf-8")) > self.config.max_context_bytes:
+        self.context_bytes = len(encoded.encode("utf-8"))
+        self.context_truncated = self.context_bytes > self.config.max_context_bytes
+        if self.context_truncated:
             # Preserve the decision-critical fields when a provider or proxy
             # imposes a smaller body limit. The omission is explicit.
             dynamic["live_state"] = {
@@ -261,7 +272,7 @@ class ModelAdvisor:
             "model": self.model,
             "temperature": self.config.temperature,
             "top_p": self.config.top_p,
-            "max_tokens": 256,
+            "max_tokens": self.config.max_tokens,
             "stream": False,
             "messages": [
                 {"role": "system", "content": self._SYSTEM_PROMPT},
@@ -278,11 +289,15 @@ class ModelAdvisor:
             "probabilities": {},
             "fallback": True,
             "reason": reason,
+            "context_bytes": self.context_bytes,
+            "context_truncated": self.context_truncated,
         }
 
     def choose(self, stage: str, options: Sequence[Mapping[str, Any]], context: Mapping[str, Any]) -> str | None:
         """Return a validated model choice, or ``None`` for deterministic fallback."""
 
+        self.context_bytes = 0
+        self.context_truncated = False
         ids = [str(option.get("id", "")) for option in options]
         deterministic = str(context.get("deterministic_choice") or (ids[0] if ids else "")) or None
         if len(ids) < 2:
@@ -307,6 +322,7 @@ class ModelAdvisor:
                     "Authorization": f"Bearer {self.key}",
                     "Content-Type": "application/json",
                     "Accept": "application/json",
+                    "User-Agent": "gosim26-observer/1",
                     "X-GOSIM26-Request-ID": uuid.uuid4().hex,
                 },
                 method="POST",
@@ -315,16 +331,23 @@ class ModelAdvisor:
             with transport(request, timeout=self.timeout) as response:
                 raw = response.read(self.config.max_response_bytes + 1)
             if len(raw) > self.config.max_response_bytes:
-                raise ValueError("response_too_large")
+                raise AdviceError("response_too_large")
             payload = json.loads(raw.decode("utf-8"))
-            message = payload.get("choices", [{}])[0].get("message", {}) if isinstance(payload, dict) else {}
+            choices = payload.get("choices") if isinstance(payload, dict) else None
+            if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+                raise AdviceError("missing_choice")
+            if choices[0].get("finish_reason") == "length":
+                raise AdviceError("completion_truncated")
+            message = choices[0].get("message")
             parsed = self._json_content(message.get("content") if isinstance(message, dict) else None)
+            if parsed is None:
+                raise AdviceError("invalid_advice_json")
             choice = str(parsed.get("choice")) if parsed and parsed.get("choice") is not None else ""
             if choice not in ids:
-                raise ValueError("invalid_choice")
+                raise AdviceError("invalid_choice")
             probabilities = self._normalise_probabilities(parsed.get("probabilities") if parsed else None, ids)
             if probabilities is None:
-                raise ValueError("invalid_probabilities")
+                raise AdviceError("invalid_probabilities")
             self.successes += 1
             self.consecutive_failures = 0
             self.last_outcome = {
@@ -335,6 +358,8 @@ class ModelAdvisor:
                 "probabilities": probabilities,
                 "fallback": False,
                 "latency_ms": None,
+                "context_bytes": self.context_bytes,
+                "context_truncated": self.context_truncated,
             }
             if self.config.selection_mode == "deterministic":
                 return None
@@ -352,8 +377,10 @@ class ModelAdvisor:
         except Exception as exc:  # noqa: BLE001  # network, provider, and schema failures all fail closed
             self.failures += 1
             self.consecutive_failures += 1
-            self._fallback(stage, deterministic, type(exc).__name__)
-            LOG.warning("model advice failed at %s: %s", stage, type(exc).__name__)
+            reason = (str(exc) if isinstance(exc, AdviceError) else
+                      f"http_{exc.code}" if isinstance(exc, urllib.error.HTTPError) else type(exc).__name__)
+            self._fallback(stage, deterministic, reason)
+            LOG.warning("model advice failed at %s: %s", stage, reason)
             return None
 
 

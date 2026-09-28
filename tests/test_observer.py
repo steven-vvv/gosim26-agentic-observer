@@ -140,6 +140,7 @@ def test_model_advisor_validates_choices_and_stops_after_failures(monkeypatch):
     def answer(request, timeout):
         assert request.full_url == "https://model.example/v1/chat/completions"
         assert timeout == pytest.approx(0.2)
+        assert request.get_header("User-agent") == "gosim26-observer/1"
         assert json.loads(request.data)["model"] == "team-model"
         return Response("C1")
 
@@ -232,6 +233,9 @@ def test_model_advisor_request_keeps_live_state_at_dynamic_suffix(monkeypatch):
     }
     assert advisor.choose("action_decision", [{"id": "C0"}, {"id": "C1"}], context) == "C0"
     assert [message["role"] for message in captured["body"]["messages"]] == ["system", "user"]
+    assert captured["body"]["max_tokens"] == 4096
+    assert advisor.last_outcome["context_bytes"] > 0
+    assert advisor.last_outcome["context_truncated"] is False
     dynamic = json.loads(captured["body"]["messages"][-1]["content"])
     assert dynamic["live_state"]["weekly"]["weather_forecast"] == [{"condition": "cloudy"}]
 
@@ -253,7 +257,17 @@ def test_model_advisor_rejects_incomplete_distribution_and_hides_transport_error
     monkeypatch.setattr("model_advisor.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
     options = [{"id": "C0"}, {"id": "C1"}]
     assert advisor.choose("action_decision", options, {"deterministic_choice": "C0"}) is None
-    assert advisor.last_outcome["reason"] == "ValueError"
+    assert advisor.last_outcome["reason"] == "invalid_probabilities"
+
+    advisor = ModelAdvisor("https://model.example/v1", "secret")
+
+    class Truncated(Response):
+        def read(self, _limit):
+            return b'{"choices":[{"finish_reason":"length","message":{"content":"{\\"choice\\":"}}]}'
+
+    monkeypatch.setattr("model_advisor.urllib.request.urlopen", lambda *_args, **_kwargs: Truncated())
+    assert advisor.choose("action_decision", options, {"deterministic_choice": "C0"}) is None
+    assert advisor.last_outcome["reason"] == "completion_truncated"
 
     advisor = ModelAdvisor("https://model.example/v1", "secret")
 
