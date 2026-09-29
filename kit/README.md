@@ -100,10 +100,16 @@ live run reports `survey_complete`, `global_wallclock_expired`, `agent_error` or
 3. The global wall clock starts. For every decision opportunity the platform writes one `decision_request`
    line and waits for one `decision_response` line with the same `decision_sequence`. Reading a snapshot never
    advances simulated time; a committed action does.
-4. The run ends when the survey is complete, when the wall clock expires (the process is killed; an
-   in-flight response is ignored), or when the agent exits / answers with something unparseable
+4. The run ends when the survey is complete, when the wall clock expires (an in-flight response is
+   ignored), or when the agent exits / answers with something unparseable
    (`agent_error`: the remaining survey stays unobserved, so every remaining REQUIRED tile counts as missed).
-5. The platform replays `decisions.csv` with the public scorer and stores `score_report.json`.
+5. After normal completion (`survey_complete` or `global_wallclock_expired`), the runtime sends `finish`,
+   closes stdin, and allows up to 30 s for final logging and shutdown. No reply is expected and no further
+   action can affect the score. A process still running after the grace period is forcibly closed.
+6. The platform replays `decisions.csv` with the public scorer and stores `score_report.json`.
+
+`finish` is best-effort: a response timeout may already have killed the process, and errors or older runtimes
+may close it without this notice. Handle stdin EOF as well; it carries no confirmed termination reason.
 
 The wall clock is the only time rule: no per-decision timeout, no synthetic fallback action. The reference
 scenario's budget is 7200 s; hidden scenarios publish their own budget in `initialize.global_wallclock_seconds`
@@ -137,6 +143,9 @@ and in the `SAC_WALLCLOCK_SECONDS` environment variable.
 {"protocol_version":"participant-agent-protocol-v2","message_type":"decision_response","decision_sequence":17,
  "action":"observe","tile_id":"...","program":"DARK","request_id":"","reason":"short text",
  "reports":[{"kind":"NOVA","tile_id":"T00037"},{"kind":"Instrument_Failure"}]}
+// platform -> agent, normal end of run; no reply, then stdin EOF
+{"protocol_version":"participant-agent-protocol-v2","message_type":"finish",
+ "payload":{"termination_reason":"survey_complete","last_decision_sequence":17,"grace_seconds":30}}
 ```
 
 `action` is `observe` or `wait`. `program` is `DARK`, `BRIGHT` or `BACKUP`; `request_id` may be empty. Only

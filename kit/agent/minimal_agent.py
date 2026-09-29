@@ -35,6 +35,7 @@ def run(stdin=sys.stdin, stdout=sys.stdout) -> None:
         provider_status = f"deterministic fallback ({type(exc).__name__})"
     print(f"minimal-agent provider={provider_status}", file=sys.stderr, flush=True)
     agent: MinimalDecisionAgent | None = None
+    decisions = 0
     for line in stdin:
         if not line.strip():
             continue
@@ -45,9 +46,20 @@ def run(stdin=sys.stdin, stdout=sys.stdout) -> None:
                 payload, model=model, top_k=settings.top_k_candidates
             )
             continue
+        if message_type == "finish":
+            # End of the run: no reply is expected and stdin is about to close.
+            # Write the one-line summary and exit on our own inside the grace period.
+            print(
+                f"minimal-agent finished: termination_reason={payload.get('termination_reason')} "
+                f"decisions={decisions} last_decision_sequence={payload.get('last_decision_sequence')}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
         if agent is None:
             raise RuntimeError("decision_request received before initialize")
         decision = agent.decide(payload)
+        decisions += 1
         response = decision_response(int(message["decision_sequence"]), decision, decision.get("reports"))
         print(
             json.dumps(response, ensure_ascii=False, separators=(",", ":")),
@@ -62,4 +74,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -36,6 +36,10 @@ def parse_platform_message(message: Mapping[str, object]) -> tuple[str, dict]:
             payload.get("decision_sequence", -2)
         ):
             raise ProtocolError("decision sequence differs between envelope and payload")
+    elif message_type == "finish":
+        # End-of-run notice: no reply, no schema checks. payload carries
+        # termination_reason, last_decision_sequence and grace_seconds.
+        pass
     else:
         raise ProtocolError(f"unsupported platform message_type {message_type!r}")
     return message_type, payload
@@ -62,4 +66,3 @@ def decision_response(sequence: int, decision: Mapping[str, object], reports: Se
     if reports:
         envelope["reports"] = [dict(entry) for entry in reports]
     return envelope
-

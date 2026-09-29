@@ -1,6 +1,7 @@
 """agents/observer 的单元测试：与官方 kit 口径一致性、覆盖边际方向、协议往返。"""
 from __future__ import annotations
 
+import importlib.util
 import io
 import json
 import os
@@ -80,6 +81,39 @@ def final_snapshot() -> dict:
 def telemetry_records(stderr: str) -> list[dict]:
     return [json.loads(line.split("observer: telemetry ", 1)[1]) for line in stderr.splitlines()
             if line.startswith("observer: telemetry ")]
+
+
+@pytest.mark.parametrize("relative_path", ["agents/observer/protocol.py", "kit/agent/protocol.py"])
+@pytest.mark.parametrize("reason", ["survey_complete", "global_wallclock_expired"])
+def test_public_protocol_accepts_finish_without_snapshot_schema(relative_path, reason):
+    spec = importlib.util.spec_from_file_location("participant_protocol", ROOT / relative_path)
+    assert spec is not None and spec.loader is not None
+    protocol = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(protocol)
+    payload = {"termination_reason": reason, "last_decision_sequence": 1, "grace_seconds": 30}
+    message = {"protocol_version": "participant-agent-protocol-v2", "message_type": "finish", "payload": payload}
+    assert protocol.parse_platform_message(message) == ("finish", payload)
+
+
+@pytest.mark.parametrize("reason", ["survey_complete", "global_wallclock_expired"])
+def test_starter_agent_exits_on_finish_without_another_response(reason):
+    envelope = {"protocol_version": "participant-agent-protocol-v2"}
+    request = dict(envelope, message_type="decision_request", decision_sequence=1, payload=snapshot([]))
+    messages = [dict(envelope, message_type="initialize", payload=initial()), request,
+                dict(envelope, message_type="finish", payload={"termination_reason": reason,
+                     "last_decision_sequence": 1, "grace_seconds": 30}), request]
+    proc = subprocess.run(
+        [sys.executable, "-B", str(ROOT / "kit" / "agent" / "minimal_agent.py")],
+        input="".join(json.dumps(message) + "\n" for message in messages), text=True, capture_output=True,
+        env={"PATH": os.environ["PATH"], "MODEL_PROVIDER": "deterministic"}, timeout=10, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    responses = [json.loads(line) for line in proc.stdout.splitlines()]
+    assert len(responses) == 1
+    assert responses[0]["message_type"] == "decision_response"
+    assert responses[0]["decision_sequence"] == 1
+    assert proc.stderr.count("minimal-agent finished:") == 1
+    assert f"termination_reason={reason} decisions=1 last_decision_sequence=1" in proc.stderr
 
 
 def test_jain_extremes():
