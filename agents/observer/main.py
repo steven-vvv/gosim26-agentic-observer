@@ -133,7 +133,7 @@ def main() -> None:
     observability.emit("runtime", runtime)
     observability.emit("telemetry_config", observability.status())
 
-    def finish(response_pending: bool = False) -> None:
+    def finish(response_pending: bool = False, termination_reason: str | None = None) -> None:
         nonlocal finished
         if finished:
             return
@@ -152,6 +152,7 @@ def main() -> None:
             "telemetry_status": reporter.status(),
             "model_status": policy.advisor.status() if policy is not None else None,
             "final_response_pending": response_pending,
+            "termination_reason": termination_reason,
         }
         delivered = observability.send_final(report, sequence=counters["decisions"])
         observability.emit("final_delivery", {"remote_delivered": delivered, **reporter.status()}, remote=False)
@@ -217,6 +218,17 @@ def main() -> None:
             sent.clear()
             last_io_at = time.perf_counter()
             continue
+        if kind == "finish":
+            details = payload if isinstance(payload, dict) else {}
+            reason = details.get("termination_reason")
+            reason = reason[:64] if isinstance(reason, str) else None
+            last_sequence = details.get("last_decision_sequence")
+            observability.emit("finish_received", {
+                "termination_reason": reason,
+                "last_decision_sequence": last_sequence if type(last_sequence) is int else None,
+            }, remote=not finished)
+            finish(termination_reason=reason)
+            break
         if kind != "decision_request":
             counters["unknown_messages"] += 1
             observability.emit("protocol_error", {"kind": "unknown_message", "message_type": str(kind)[:96]})

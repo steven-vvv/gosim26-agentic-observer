@@ -32,6 +32,7 @@
     "policy_error": true,
     "warning": true,
     "feedback_read": true,
+    "finish_received": true,
     "final": true,
     "final_delivery": true,
     "telemetry_final": true

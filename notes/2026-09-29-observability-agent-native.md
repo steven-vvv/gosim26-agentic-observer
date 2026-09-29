@@ -42,6 +42,6 @@
 
 ## 验证与剩余风险
 
-自动检查覆盖 75 个 Python 单元测试、12 个 Worker 测试、ruff、TypeScript 类型检查、Worker dry-run 构建、打包配置及 `git diff --check`。带 x86_64/aarch64 NumPy wheel 的正式 ZIP 为 30.6 MiB，SHA-256 为 `e36a35b6f8397c61b8d1b1b6b012b813277e9bce13943bcd5ee381331e723059`。正式模型和可观测性配置已通过完整真实场景验证；Worker 的流响应截止时间修复通过本地测试，部署后才会生效。
+自动检查覆盖 75 个 Python 单元测试、12 个 Worker 测试、ruff、TypeScript 类型检查、Worker dry-run 构建、打包配置及 `git diff --check`。带 x86_64/aarch64 NumPy wheel 的正式 ZIP 为 30.6 MiB，SHA-256 为 `d5c4ac35df746f3586d7eac23a5c6f2f9b66a216323e28ee93ba24e774282fa9`；上游项目 ZIP 校验器接受其中 14 个文件及 `jsonl-v2` manifest。正式模型和可观测性配置已通过完整真实场景验证；Worker 的流响应截止时间修复通过本地测试，部署后才会生效。上游新增的 v3 `finish` 收尾消息已由进程级回归测试覆盖，不会产生多余的协议响应；这项兼容补丁尚未做新的整场实测。
 
 剩余风险是上游流式字段大小和延迟仍会波动，平台实际注入的超时、网络策略和两个智能体环节的资格判定也需要在提交前按真实环境确认。当前保护措施是固定前缀、每阶段/总调用上限、连续失败熔断、响应/上下文字节上限、截止时间、严格 JSON 解析、候选资格校验和确定性回退。

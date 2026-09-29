@@ -26,6 +26,7 @@
 
 ## 平台与提交
 
+- [`2026-09-29-upstream-v4.md`](2026-09-29-upstream-v4.md)：上游 v4 任务、阶段切换准备、v3 收尾消息及对当前参赛项目的影响。
 - [`2026-09-29-observability-agent-native.md`](2026-09-29-observability-agent-native.md)：统一可观测性、两个模型决策环节和真实端点稳定性核验。
 - [`2026-09-28-end-to-end-stability.md`](2026-09-28-end-to-end-stability.md)：真实模型、共享 Worker 遥测、故障回退和打包的完整核验。
 - [`2026-09-26-platform-result-analysis.md`](2026-09-26-platform-result-analysis.md)：平台评测结果和遥测核验。

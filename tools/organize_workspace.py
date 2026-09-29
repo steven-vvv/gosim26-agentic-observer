@@ -143,6 +143,7 @@ TMP_ADDITIONAL_DIRS = (
     "gosim26-packcheck-dev-fortnight", "gosim26-packcheck-dev-reference",
     "gosim26-platform-source-1117973", "gosim26-platform-src.K3iJAt",
     "gosim26-platform.bYMz4i", "gosim26-result2.Ehb3tF", "proto-check-ref",
+    "gosim26-v4-demo-upstream-20260929",
 )
 TMP_FILES = (
     "observer-package-smoke-20260927.zip", "score_dev-reference.json", "score_dev-fortnight.json",

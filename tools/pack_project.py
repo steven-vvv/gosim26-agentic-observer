@@ -330,7 +330,7 @@ def build(
                 "events": {name: bool(value) for name, value in events.items() if name in {
                     "runtime", "telemetry_config", "initialize", "policy_config", "weekly_plan", "planning", "planning_state", "model_request",
                     "decision_trace", "checkpoint", "protocol_error", "policy_error", "warning", "feedback_read", "final",
-                    "final_delivery", "telemetry_final"}},
+                    "finish_received", "final_delivery", "telemetry_final"}},
             }
             (staging / "observability.config.json").write_text(
                 json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

@@ -409,15 +409,19 @@ def test_observability_final_event_switch_prevents_delivery(tmp_path, monkeypatc
 
 
 def test_agent_process_round_trip():
-    """整个 agent 进程：一条 initialize + 一条 decision_request，输出一条合法的 decision_response。"""
+    """Agent answers the decision, consumes finish, and emits no extra response."""
     envelope = {"protocol_version": "participant-agent-protocol-v2"}
     lines = [dict(envelope, message_type="initialize", payload=initial()),
              dict(envelope, message_type="decision_request", decision_sequence=1,
-                  payload=snapshot([candidate("T00001", "R01", 1.2)]))]
+                  payload=snapshot([candidate("T00001", "R01", 1.2)])),
+             dict(envelope, message_type="finish", payload={"termination_reason": "survey_complete",
+                                                            "last_decision_sequence": 1, "grace_seconds": 30})]
     proc = subprocess.run([sys.executable, str(ROOT / "agents" / "observer" / "main.py")],
                           input="".join(json.dumps(line) + "\n" for line in lines),
                           capture_output=True, text=True, timeout=60, check=True)
-    response = json.loads(proc.stdout.strip().splitlines()[-1])
+    responses = proc.stdout.strip().splitlines()
+    assert len(responses) == 1
+    response = json.loads(responses[0])
     assert response["message_type"] == "decision_response"
     assert response["decision_sequence"] == 1
     assert response["action"] == "observe" and response["tile_id"] == "T00001"
@@ -425,8 +429,11 @@ def test_agent_process_round_trip():
     assert 'observer: telemetry ' in proc.stderr and '"event":"runtime"' in proc.stderr
     assert '"event":"telemetry_config"' in proc.stderr
     assert '"event":"decision_trace"' in proc.stderr and '"policy_ms"' in proc.stderr
+    assert '"event":"finish_received"' in proc.stderr
+    assert '"event":"protocol_error"' not in proc.stderr
     assert '"event":"final"' in proc.stderr
     assert '"event":"telemetry_final"' in proc.stderr
+    assert '"termination_reason":"survey_complete"' in proc.stderr
 
 
 @pytest.mark.parametrize("agent", ["observer", "public_once"])
