@@ -96,3 +96,7 @@ stdin 正常 EOF 而未收到 `finish` 时仍生成本地分析与最终投递�
 ```text
 38b6c8d69b87c56f8a31a78cc5a7e05fb75eb36f19734750bcaa4f95eea3bf52
 ```
+
+### 再次复核
+
+按组织方源码重新执行 `git fetch --prune origin` 后，上游 `main` 仍为 `2400cc0`，克隆工作区干净。再次逐文件核对，本地 `kit/challenge/{scoring_core,challenge_workflow,run_challenge}.py` 与上游正式引擎及 starter-kit 对应文件 SHA-256 一致；`kit/local_runner.py` 和 `kit/agent/protocol.py` 也分别与上游 starter-kit 一致。上游 `test_graceful_finish.py` 和 `test_participant_protocol.py` 共 11 项通过，本地全套 98 项通过。没有发现需要同步的 v3 引擎或运行时差异，因此此次复核不改 v3 实现或正式包。
