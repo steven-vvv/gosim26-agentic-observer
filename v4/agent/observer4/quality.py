@@ -20,6 +20,7 @@ class QualityModel:
         self.terrain = set()
         self.notices = set()
         self.forecast = None
+        self.forecast_weather_nights = set()
         self.instrument = self.settings["instrument_prior"]
         self.reports = 0
         self.last_report = float("-inf")
@@ -41,6 +42,9 @@ class QualityModel:
             if row.get("event_kind") != "terrain_obstruction"
         }
         self.forecast = snapshot.get("latest_forecast")
+        for notice in (self.forecast or {}).get("notices", []):
+            if notice.get("event_kind") in {"rain", "storm", "overcast", "haze"}:
+                self.forecast_weather_nights.update(notice.get("nights", []))
         if any(kind == "earthquake" for kind, _ in self.notices):
             self.quake_until = max(self.quake_until, now + 4 * 86400.0)
 
@@ -132,6 +136,8 @@ class QualityModel:
             return None
         recent = history[-minimum:]
         if len({night for _, night, _ in recent}) < settings["confirm_nights"]:
+            return None
+        if any(self.task.nights[night].date in self.forecast_weather_nights for _, night, _ in recent):
             return None
         earlier = history[:-minimum]
         baseline = float(np.median([value for _, _, value in earlier]))

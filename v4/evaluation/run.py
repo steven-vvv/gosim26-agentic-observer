@@ -16,6 +16,18 @@ from v4.agent.observer4.policy import Observer
 from .upstream import ROOT, resolve
 
 
+def source_sha256() -> str:
+    digest = hashlib.sha256()
+    for path in sorted((ROOT / "v4" / "agent").rglob("*.py")):
+        digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
+        digest.update(path.read_bytes())
+    for name in ("telemetry", "model_advisor"):
+        path = ROOT / "agents" / "observer" / f"{name}.py"
+        digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def baseline_factory(clone: Path):
     path = clone / "starter_kit_v4" / "agent"
     sys.path.insert(0, str(path))
@@ -33,7 +45,12 @@ def evaluate(card: Path, output: Path, config: dict, *, baseline=False, fast=Fal
     holder = {}
     policy_seconds = 0.0
     actions = []
-    factory = baseline_factory(clone) if baseline else lambda publication: Observer(publication, config)
+    events = []
+
+    def record(event, payload):
+        events.append({"event": event, "payload": payload})
+
+    factory = baseline_factory(clone) if baseline else lambda publication: Observer(publication, config, record)
 
     def initialize(publication):
         holder["agent"] = factory(publication)
@@ -41,12 +58,15 @@ def evaluate(card: Path, output: Path, config: dict, *, baseline=False, fast=Fal
     def decide(message, _deadline):
         nonlocal policy_seconds
         started = time.perf_counter()
+        if not baseline:
+            holder["agent"].sequence = message["decision_sequence"]
         action = holder["agent"].respond(message["payload"])
         policy_seconds += time.perf_counter() - started
         response = {
             "protocol_version": "participant-agent-protocol-v4",
             "message_type": "decision_response",
             "decision_sequence": message["decision_sequence"],
+            "decision_source": holder["agent"].decision_source if not baseline else "official-baseline",
             **action,
         }
         actions.append(response)
@@ -77,10 +97,15 @@ def evaluate(card: Path, output: Path, config: dict, *, baseline=False, fast=Fal
         "engine_seconds": round(elapsed - policy_seconds, 6),
         "decision_requests": result["decision_requests"],
         "config_sha256": hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest(),
+        "source_sha256": source_sha256(),
         "action_sha256": hashlib.sha256(json.dumps(actions, sort_keys=True).encode()).hexdigest(),
         "agent_state": trace,
     }
     (output / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if not baseline:
+        (output / "agent_events.jsonl").write_text(
+            "".join(json.dumps(event, sort_keys=True) + "\n" for event in events), encoding="utf-8"
+        )
     return summary
 
 

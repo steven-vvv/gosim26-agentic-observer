@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
+from .advice import ModelGuidance
 from .domain import Task
 from .geometry import format_utc, parse_utc
 from .planning import Planner
@@ -22,12 +23,15 @@ class Observer:
         self.quality = QualityModel(self.task, config)
         self.pointing = PointingModel(self.task)
         self.planner = Planner(self.task, self.state, self.quality, self.pointing, config)
+        self.guidance = ModelGuidance(self.task, self.state, self.quality, self.pointing, config, self.emit)
         self.pending = None
         self.last_trace = {}
         self.last_night = -1
         self.decisions = 0
         self.last_now = self.task.start
         self.decision_seconds = 0.0
+        self.sequence = 0
+        self.decision_source = "deterministic-v4"
         self.emit(
             "initialize",
             {
@@ -41,6 +45,7 @@ class Observer:
 
     def respond(self, snapshot: dict) -> dict:
         started = time.perf_counter()
+        self.decision_source = "deterministic-v4"
         now = parse_utc(snapshot["now_utc"]).timestamp()
         if now < self.last_now:
             raise ValueError("decision time moved backwards")
@@ -61,6 +66,10 @@ class Observer:
         elif self.quality.closed():
             action = self.wait_for_bulletin(now, night)
         else:
+            budget = float(snapshot.get("wallclock", {}).get("remaining_seconds", self.task.wallclock))
+            strategy = self.guidance.weekly(snapshot, night, budget, self.sequence)
+            if strategy is not None:
+                self.planner.set_strategy(strategy)
             if night != self.last_night:
                 self.last_night = night
                 self.emit(
@@ -74,20 +83,26 @@ class Observer:
                 )
             evidence = self.quality.report_evidence(now)
             if evidence:
-                self.emit("fault_report", evidence)
+                self.emit("fault_report", {"now_utc": snapshot["now_utc"], **evidence})
                 self.quality.reported(now)
                 action = {"action": "report"}
             elif self.quality.zero_observes >= 2:
                 self.quality.zero_observes = 0
                 action = self.wait_for_bulletin(now, night)
             else:
-                budget = float(snapshot.get("wallclock", {}).get("remaining_seconds", self.task.wallclock))
                 action = self.planner.plan(now, night, budget)
                 self.last_trace = dict(self.planner.last_trace)
                 if action is None:
                     action = self.wait_for_bulletin(now, night)
                 elif action["action"] == "observe":
                     self.pending = self.planner.pending
+                    choice = self.guidance.action(snapshot, night, budget, self.sequence, self.planner.alternatives)
+                    if choice is not None:
+                        selected = self.planner.alternatives[choice]
+                        action = selected["action"]
+                        self.pending = selected["pending"]
+                        self.decision_source = "model-v4"
+                        self.last_trace["model_action_candidate"] = choice
         self.decisions += 1
         self.decision_seconds += time.perf_counter() - started
         return action
@@ -119,4 +134,5 @@ class Observer:
             "policy_seconds": round(self.decision_seconds, 6),
             "quality": self.quality.status(),
             "pointing": self.pointing.status(),
+            "model": self.guidance.status(),
         }

@@ -18,6 +18,7 @@ class Night:
     start: float
     end: float
     name: str
+    date: str
 
 
 class Task:
@@ -33,7 +34,10 @@ class Task:
         self.slot_seconds = int(publication["survey"]["slot_seconds"])
         self.nights = [
             Night(
-                parse_utc(n["observing_start_utc"]).timestamp(), parse_utc(n["observing_end_utc"]).timestamp(), str(n["night_id"])
+                parse_utc(n["observing_start_utc"]).timestamp(),
+                parse_utc(n["observing_end_utc"]).timestamp(),
+                str(n["night_id"]),
+                str(n["night_date"]),
             )
             for n in publication["survey"]["nights"]
         ]

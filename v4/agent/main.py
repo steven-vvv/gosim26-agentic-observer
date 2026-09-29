@@ -81,6 +81,7 @@ def main():
             try:
                 if policy is None:
                     raise ValueError("decision before initialization")
+                policy.sequence = sequence
                 action = policy.respond(payload)
             except Exception as error:  # noqa: BLE001 - one failed decision must not end the survey
                 diagnostics.error("policy_error", error, sequence)
@@ -91,7 +92,7 @@ def main():
                 "protocol_version": PROTOCOL,
                 "message_type": "decision_response",
                 "decision_sequence": sequence,
-                "decision_source": "deterministic-v4",
+                "decision_source": policy.decision_source if policy else "deterministic-v4",
                 **action,
             }
             encoded = json.dumps(response, separators=(",", ":"), allow_nan=False) + "\n"

@@ -69,6 +69,9 @@ def validate(config: dict) -> None:
             "max_stage_calls": (0, 10),
             "max_tokens": (16, 8192),
             "minimum_budget_seconds": (0, 900),
+            "max_consecutive_failures": (1, 20),
+            "min_alternative_probability": (0, 1),
+            "action_merit_tolerance": (0, 0.25),
         },
         "observability": {"decision_every": (1, 10000), "checkpoint_every": (1, 10000)},
     }
@@ -85,7 +88,7 @@ def validate(config: dict) -> None:
     for section, fields in {
         "policy": ("anchors", "anchor_pool"),
         "fault": ("minimum_samples", "confirm_nights", "maximum_reports"),
-        "model": ("max_total_calls", "max_stage_calls", "max_tokens"),
+        "model": ("max_total_calls", "max_stage_calls", "max_tokens", "max_consecutive_failures"),
         "observability": ("decision_every", "checkpoint_every"),
     }.items():
         if any(type(config[section][name]) is not int for name in fields):

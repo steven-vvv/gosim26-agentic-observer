@@ -30,8 +30,18 @@ class Planner:
         task.prepare_neighbors(self.settings["neighbor_radius_deg"])
         self.last_trace = {}
         self.pending = None
+        self.alternatives = []
+
+    def set_strategy(self, strategy: str) -> None:
+        self.settings = dict(self.config["policy"])
+        if strategy == "coverage_focus":
+            self.settings["required_bonus"] = max(120.0, self.settings["required_bonus"])
+            self.settings["required_safe_factor"] = min(0.55, self.settings["required_safe_factor"])
+        elif strategy != "balanced":
+            raise ValueError("unknown weekly strategy")
 
     def plan(self, now: float, night_index: int, remaining_wallclock: float = 900.0) -> dict | None:
+        self.alternatives = []
         task, state, settings = self.task, self.state, self.settings
         night = task.nights[night_index]
         left = min(night.end, task.end) - now
@@ -78,7 +88,7 @@ class Planner:
         mismatch = task.scoring["program"]["mismatch_multiplier"]
         expected_mult = mismatch + (mult[:, None] - mismatch) * probabilities
         uniformity = state.uniformity_gain() * settings["uniformity_weight"]
-        best = None
+        finalists = []
         used = []
         fields_checked = 0
         for anchor in pool:
@@ -130,7 +140,7 @@ class Planner:
             flat = int(np.argmax(merit))
             center_i, duration_i = np.unravel_index(flat, merit.shape)
             value = float(merit[center_i, duration_i])
-            if value <= 0 or (best is not None and value <= best["merit"]):
+            if value <= 0 or (len(finalists) >= 6 and value <= finalists[-1]["merit"]):
                 continue
             selected = []
             gain = gains[duration_i] * geometry_weight[center_i]
@@ -138,59 +148,73 @@ class Planner:
                 ids = np.flatnonzero((fibers[center_i] == fiber) & (gain > 0))
                 if len(ids):
                     selected.append((fiber, int(near[ids[int(np.argmax(gain[ids]))]])))
-            best = {
+            candidate = {
                 "merit": value,
                 "alt": float(ca[center_i]),
                 "az": float(cz[center_i]),
                 "duration": int(durations[duration_i]),
                 "selected": selected,
             }
-        if best is None:
+            finalists.append(candidate)
+            finalists.sort(key=lambda entry: entry["merit"], reverse=True)
+            del finalists[6:]
+        if not finalists:
             self.last_trace = {"reason": "no_profitable_field", "anchors": len(used), "fields": fields_checked}
             return None
-        selected = np.array([i for _, i in best["selected"]], dtype=np.int32)
-        exposure_factors = np.minimum(1, rate[selected] * best["duration"])
-        votes = np.sum((task.weight[selected] * exposure_factors)[None, :] * expected_mult[:, selected], axis=1)
-        program_i = int(np.argmax(votes))
-        program = PROGRAMS[program_i]
-        command_alt = best["alt"] - self.pointing.alt_offset
-        command_az = (best["az"] - self.pointing.az_offset) % 360.0
-        if not 0 <= command_alt <= 90:
+        for item in finalists:
+            selected = np.array([i for _, i in item["selected"]], dtype=np.int32)
+            exposure_factors = np.minimum(1, rate[selected] * item["duration"])
+            votes = np.sum((task.weight[selected] * exposure_factors)[None, :] * expected_mult[:, selected], axis=1)
+            program_i = int(np.argmax(votes))
+            program = PROGRAMS[program_i]
+            command_alt = item["alt"] - self.pointing.alt_offset
+            command_az = (item["az"] - self.pointing.az_offset) % 360.0
+            if not 0 <= command_alt <= 90:
+                continue
+            action = {
+                "action": "observe",
+                "pointing": {"alt_deg": round(command_alt, 6), "az_deg": round(command_az, 6)},
+                "assignments": {str(fiber): task.ids[i] for fiber, i in item["selected"]},
+                "duration_seconds": item["duration"],
+                "program": program,
+            }
+            if any(candidate["action"] == action for candidate in self.alternatives):
+                continue
+            pending = {
+                "start": now,
+                "duration": item["duration"],
+                "program": program,
+                "night": night_index,
+                "pointing": dict(action["pointing"]),
+                "targets": [
+                    {
+                        "index": i,
+                        "fiber": fiber,
+                        "base_quality": float(base_quality[i]),
+                        "clean": bool(clean[i]),
+                        "matched_probability": float(probabilities[program_i, i]),
+                        "predicted_factor": float(min(1, rate[i] * item["duration"])),
+                    }
+                    for fiber, i in item["selected"]
+                ],
+            }
+            self.alternatives.append({"action": action, "pending": pending, "merit": item["merit"]})
+            if len(self.alternatives) == 2:
+                break
+        if not self.alternatives:
             return None
-        action = {
-            "action": "observe",
-            "pointing": {"alt_deg": round(command_alt, 6), "az_deg": round(command_az, 6)},
-            "assignments": {str(fiber): task.ids[i] for fiber, i in best["selected"]},
-            "duration_seconds": best["duration"],
-            "program": program,
-        }
-        self.pending = {
-            "start": now,
-            "duration": best["duration"],
-            "program": program,
-            "night": night_index,
-            "pointing": dict(action["pointing"]),
-            "targets": [
-                {
-                    "index": i,
-                    "fiber": fiber,
-                    "base_quality": float(base_quality[i]),
-                    "clean": bool(clean[i]),
-                    "matched_probability": float(probabilities[program_i, i]),
-                    "predicted_factor": float(min(1, rate[i] * best["duration"])),
-                }
-                for fiber, i in best["selected"]
-            ],
-        }
+        action = self.alternatives[0]["action"]
+        self.pending = self.alternatives[0]["pending"]
+        selected = np.array([row["index"] for row in self.pending["targets"]], dtype=np.int32)
         self.last_trace = {
             "anchors": len(used),
             "fields": fields_checked,
             "assignments": len(selected),
-            "merit_per_second": round(best["merit"], 6),
+            "merit_per_second": round(self.alternatives[0]["merit"], 6),
             "quality_scale": round(scale, 5),
             "required_assigned": int(np.count_nonzero(incomplete[selected])),
-            "program": program,
-            "duration_seconds": best["duration"],
+            "program": action["program"],
+            "duration_seconds": action["duration_seconds"],
             "visible_targets": int(np.count_nonzero(visible)),
         }
         return action

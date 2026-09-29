@@ -59,6 +59,9 @@
     "max_total_calls": 4,
     "max_stage_calls": 2,
     "max_tokens": 2048,
-    "minimum_budget_seconds": 60.0
+    "minimum_budget_seconds": 60.0,
+    "max_consecutive_failures": 2,
+    "min_alternative_probability": 0.90,
+    "action_merit_tolerance": 0.03
   }
 }
