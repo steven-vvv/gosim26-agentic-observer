@@ -4,7 +4,7 @@
 
 | 目录 | 约定 |
 | --- | --- |
-| `agents/observer/` | 当前参赛入口和确定性策略；`llm.config.json` 只放非机密模型顾问限制。 |
+| `agents/observer/` | 当前参赛入口和确定性策略；`llm.config.json` 和 `observability.config.json` 只放非机密模型、事件与遥测限制。 |
 | `agents/obs*`、`agents/exp-*` | 冻结实验代码和参数快照。保留原路径，避免旧评测命令失效；新增实验优先写入 `notes/` 并在此处登记。 |
 | `result_temp/evaluations/` | 按日期保存评测 JSON，保留实验/场景相对路径；源 `results/` 目录可随时重建，不进入 Git。 |
 | `runs/` | 运行脚本、分析代码、报告仍可跟踪；JSON、TXT、日志、stderr 和完成标记视为可再生输出，不进入 Git。 |

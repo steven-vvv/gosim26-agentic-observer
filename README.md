@@ -44,7 +44,7 @@ git，默认分支 `main`。当前实验在 `codex` 分支；前一轮 `claude` 
 （平台用 Python 3.12 运行，`ruff` 按 `target-version = "py39"` 检查）。规划器可选 numpy：完整项目包把 wheel 安装到
 可写的 `.deps/` 后走向量化路径，安装失败（或本地 PyPy）就用纯 Python；两条路径的结果逐位相同
 （`tests/test_observer.py` 与整场 decisions.csv 比对）。完整项目打包默认附带不含密钥的遥测配置和逐步性能追踪。
-平台注入的 `OPENAI_BASE_URL` / `OPENAI_API_KEY` 供可选、有界模型顾问使用；顾问每次独立发送固定前缀加实时快照，确定性策略先给出首选，响应只接受合法候选和概率分布，非确定性候选默认须达到 0.85 概率才会改变动作，超时、格式错误或连续失败会熔断并回退。遥测默认复用同一 OpenAI-compatible Worker 和凭据，也可另设 `TELEMETRY_URL` / `TELEMETRY_TOKEN` 使用独立入口；带 `tool_call_id=gosim26.telemetry` 的标记消息由 Worker 入库，不会消耗上游推理 token。两条网络路径失败时均回退到确定性决策。
+平台注入的 `OPENAI_BASE_URL` / `OPENAI_API_KEY` 供可选、有界模型顾问使用；顾问每次独立发送固定前缀加实时快照，在周方案和每夜行动两个环节作选择。确定性策略先给出首选，响应只接受合法候选和概率分布，非确定性候选默认须达到 0.85 概率才会改变动作，超时、格式错误或连续失败会熔断并回退。遥测默认复用同一 OpenAI-compatible Worker 和凭据，也可另设 `TELEMETRY_URL` / `TELEMETRY_TOKEN` 使用独立入口；带 `tool_call_id=gosim26.telemetry` 的标记消息由 Worker 入库，不会消耗上游推理 token。遥测故障不影响决策。
 `tools/pack_project.py` 还会在本地模拟平台的 manifest、敏感路径、符号链接、文件数量、展开体积和 50 MiB ZIP 上限检查，并在临时目录验证成功后替换旧产物；运行环境固定 `PYTHONDONTWRITEBYTECODE=1`，避免评测过程中生成无用的 `__pycache__`。
 
 本机模型和遥测密钥的存放与真实链路测试步骤见 [docs/local-api-testing.md](docs/local-api-testing.md)；密钥文件位于仓库外，不能直接读取其值到对话或打包产物中。
@@ -70,6 +70,9 @@ uv run python tools/evaluate.py --agent base=kit/agent/minimal_agent.py --agent 
 
 # kit 更新、改 fast_runner 补丁或换解释器之后：再用官方 runner + CPython 跑一遍，逐字节比对
 uv run python tools/evaluate.py --agent chk=agents/observer/main.py --scenario scenarios/comp-b-s202 --verify
+
+# 正式完整项目包；/tmp/wheels 中放 Python 3.12 的 x86_64/aarch64 NumPy wheel
+uv run python tools/pack_project.py --agent agents/observer --wheels /tmp/wheels
 
 # 保留一次完整运行做诊断
 uv run python tools/evaluate.py --agent diag=agents/observer/main.py --scenario scenarios/comp-a-s101 --keep
