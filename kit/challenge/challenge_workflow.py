@@ -346,6 +346,9 @@ class ChallengeWorkflow:
         budget = float(wallclock_seconds if wallclock_seconds is not None else self.config["global_wallclock_seconds"])
         if budget <= 0:
             raise ValueError("wallclock_seconds must be positive")
+        # The agent must be told the clock that actually applies to this run
+        # (the platform may set a longer limit than the scenario default).
+        initial["global_wallclock_seconds"] = budget
         publisher = getattr(provider, "publish_initial", None)
         if callable(publisher):
             try:

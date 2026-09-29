@@ -65,6 +65,8 @@ GOSIM 2026 巡天智能体参赛项目。确定性规划器生成安全候选；
 
 构建：离线安装 `wheels/` 里的 numpy 到可写的 `.deps/`；失败时退回纯 Python，结果不变，只是更慢。
 观测默认开启：`observability.config.json` 统一管理本地日志、远程投递、事件开关和 checkpoint 频率。
+`termination.mode=upstream_finish` 默认在收到 v3 的 `finish` 后生成分析报告、排空遥测并退出，不回复收尾消息。
+旧运行器可改为 `last_slot`，在最后时隙响应前完成收尾；无 `finish` 而正常关闭 stdin 时仍在 EOF 生成报告。
 包内只有 Worker 地址等非机密配置。`OPENAI_BASE_URL` /
 `OPENAI_API_KEY` 可以同时供模型顾问和带标记的遥测请求使用；显式 `TELEMETRY_URL` /
 `TELEMETRY_TOKEN` 仍可覆盖遥测路由。无遥测密钥时逐步追踪仍写入 `agent.log`。网络失败会丢弃事件且不影响策略；密钥不会写入日志。
@@ -317,6 +319,7 @@ def build(
             source_config = json.loads((agent / "observability.config.json").read_text(encoding="utf-8"))
             local = source_config.get("local") or {}
             remote = source_config.get("remote") or {}
+            termination = source_config.get("termination") or {}
             events = source_config.get("events") or {}
             config = {
                 "schema": "gosim26.observability.v1",
@@ -327,6 +330,8 @@ def build(
                            **{name: remote[name] for name in (
                                "timeout_seconds", "queue_size", "batch_size", "retries", "backoff_seconds",
                                "drain_timeout_seconds", "final_timeout_seconds") if name in remote}},
+                "termination": {"mode": termination.get("mode", "upstream_finish"),
+                                "grace_drain_timeout_seconds": termination.get("grace_drain_timeout_seconds", 20.0)},
                 "events": {name: bool(value) for name, value in events.items() if name in {
                     "runtime", "telemetry_config", "initialize", "policy_config", "weekly_plan", "planning", "planning_state", "model_request",
                     "decision_trace", "checkpoint", "protocol_error", "policy_error", "warning", "feedback_read", "final",

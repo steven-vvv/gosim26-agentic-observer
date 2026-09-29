@@ -19,6 +19,16 @@ from .challenge_workflow import ChallengeWorkflow, GlobalDeadlineExpired
 from .contracts import LEGACY_PARTICIPANT_PROTOCOL_VERSION, PARTICIPANT_PROTOCOL_VERSION
 from .project_paths import EXAMPLE3_ROOT
 
+# Graceful shutdown allowance after the final "finish" message: the score is
+# already fixed, so these seconds never count against the scenario clock.
+FINISH_GRACE_SECONDS = 30
+
+NORMAL_TERMINATION_REASONS = ("survey_complete", "global_wallclock_expired")
+
+
+def _last_committed_sequence(result: dict) -> int:
+    return max((entry["sequence"] for entry in result["commit_log"] if entry.get("committed")), default=0)
+
 
 class ReferenceAgent:
     def __init__(self, seed: int) -> None:
@@ -206,6 +216,46 @@ class JsonLineAgentProcess:
             process.stdout.close()
         self.process = None
 
+    def finish(self, termination_reason: str, last_decision_sequence: int, *,
+               grace_seconds: float = FINISH_GRACE_SECONDS) -> None:
+        """End a normally finished run gracefully: one final "finish" line,
+        then stdin EOF, then up to grace_seconds for the agent to exit on its
+        own before the usual terminate/kill. Best-effort and never raises: an
+        agent that crashes on the message, ignores it or hangs must not turn an
+        already-scored run into a failure."""
+        process = self.process
+        if process is None:
+            return
+        grace_deadline = time.monotonic() + grace_seconds
+        if process.poll() is None:
+            try:
+                self._write_message(
+                    {
+                        "protocol_version": self.protocol_version,
+                        "message_type": "finish",
+                        "payload": {
+                            "termination_reason": termination_reason,
+                            "last_decision_sequence": int(last_decision_sequence),
+                            "grace_seconds": grace_seconds,
+                        },
+                    },
+                    grace_deadline,
+                )
+            except Exception:
+                pass  # an exited agent or an unreadable pipe is handled by the kill below
+        if self.process is None:
+            return  # a failed write already force-closed the process
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=max(0.0, grace_deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            pass
+        self.close()
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -220,11 +270,15 @@ def main() -> None:
     args = parser.parse_args()
     workflow = ChallengeWorkflow()
     provider = JsonLineAgentProcess(args.agent_command) if args.agent_command else ReferenceAgent(args.seed)
+    result = None
     try:
         result = workflow.run(provider, args.wallclock_seconds)
     finally:
         if isinstance(provider, JsonLineAgentProcess):
-            provider.close()
+            if result is not None and result["termination_reason"] in NORMAL_TERMINATION_REASONS:
+                provider.finish(result["termination_reason"], _last_committed_sequence(result))
+            else:
+                provider.close()
     workflow.write_outputs(args.output_dir, result)
     print(json.dumps({key: result[key] for key in ("termination_reason", "committed_action_count", "accounted_wallclock_seconds")}, indent=2, sort_keys=True))
 

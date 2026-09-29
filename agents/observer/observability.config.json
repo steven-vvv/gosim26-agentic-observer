@@ -4,6 +4,10 @@
     "enabled": true,
     "checkpoint_every": 100
   },
+  "termination": {
+    "mode": "upstream_finish",
+    "grace_drain_timeout_seconds": 20.0
+  },
   "remote": {
     "enabled": true,
     "transport": "openai",

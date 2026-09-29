@@ -41,6 +41,7 @@ def test_complete_project_is_deterministic_and_platform_shaped(tmp_path):
         assert config["local"]["enabled"] is False
         assert config["remote"]["enabled"] is False
         assert config["events"]["model_request"] is True
+        assert config["termination"] == {"mode": "upstream_finish", "grace_drain_timeout_seconds": 20.0}
         assert not any(name.startswith((".env", ".git/", "__pycache__/")) for name in names)
         manifest = json.loads(package.read("observer.project.json"))
         assert manifest["schema_version"] == "observer-project-v1"

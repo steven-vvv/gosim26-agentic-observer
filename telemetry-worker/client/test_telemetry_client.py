@@ -57,6 +57,22 @@ class TelemetryClientTests(unittest.TestCase):
         self.assertEqual(reporter.stats()["queued"], 4)
         self.assertEqual(reporter.stats()["sent"], 4)
 
+    def test_closed_reporter_rejects_new_queued_events(self):
+        reporter = TelemetryReporter("https://example.test/v1", "token")
+        reporter.close(timeout=1.0)
+        self.assertFalse(reporter.emit("decision_trace", {"sequence": 1}))
+        self.assertEqual(reporter.status()["queue_depth"], 0)
+        self.assertEqual(reporter.stats()["dropped"], 1)
+
+    def test_zero_final_budget_does_not_start_an_upload(self):
+        reporter = TelemetryReporter(None, None)
+        reporter.url = "https://example.test/v1/telemetry"
+        reporter.token = "token"
+        with patch("telemetry.urllib.request.urlopen") as urlopen:
+            self.assertFalse(reporter.send_final({"decisions": 1}, wait_seconds=0))
+            urlopen.assert_not_called()
+        self.assertEqual(reporter.stats()["dropped"], 1)
+
     def test_openai_environment_is_a_telemetry_transport(self):
         with patch.dict(
             "os.environ",

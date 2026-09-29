@@ -7,7 +7,9 @@ The agent is started as a persistent JSON-Lines subprocess (the platform's `Json
 one `initialize` envelope, then one `decision_request` per decision opportunity, one `decision_response` back.
 As on the platform the process runs with cwd = the agent's folder, a scrubbed environment plus the KEY=VALUE
 pairs from `<agent folder>/.env`, and its stderr captured in `<out>/agent.log`. The one global wall clock starts
-after the initial publication; the process is killed at the cutoff.
+after the initial publication. When the run ends normally (survey complete or the cutoff reached) the agent gets
+one final `finish` message (no reply expected), its stdin is closed and it has 30 grace seconds to write a summary
+and exit before it is stopped; those seconds never count against the wall clock and never change the score.
 
 Outputs in --out: decisions.csv, workflow_result.json, score_report.json (authoritative replay of decisions.csv)
 and decision_replay.html (interactive replay, when the replay renderer is available). The last stdout line is a
@@ -42,7 +44,11 @@ if str(KIT_ROOT) not in sys.path:
 
 from challenge.challenge_workflow import ChallengeWorkflow  # noqa: E402
 from challenge.contracts import PARTICIPANT_PROTOCOL_VERSION  # noqa: E402
-from challenge.run_challenge import JsonLineAgentProcess  # noqa: E402
+from challenge.run_challenge import (  # noqa: E402
+    NORMAL_TERMINATION_REASONS,
+    JsonLineAgentProcess,
+    _last_committed_sequence,
+)
 from challenge.scoring_core import score_files  # noqa: E402
 
 ENTRY_CANDIDATES = ("minimal_agent.py", "agent.py", "main.py")
@@ -195,10 +201,17 @@ def main(argv=None) -> int:
         env["PARTICIPANT_PROTOCOL"] = protocol_version
         provider = LocalAgentProcess(command, agent_dir=agent_dir, env=env, stderr=None if args.show_agent_stderr else agent_log,
                                      initialization_timeout_seconds=args.init_timeout, protocol_version=protocol_version)
+        result = None
         try:
             result = workflow.run(provider, wallclock_seconds=wallclock)
         finally:
-            provider.close(force=True)
+            if result is not None and result["termination_reason"] in NORMAL_TERMINATION_REASONS:
+                # Same courtesy as the platform: one finish message, stdin EOF,
+                # 30 s to wrap up, then the process is stopped. The score is
+                # already fixed; grace-period stderr still lands in agent.log.
+                provider.finish(result["termination_reason"], _last_committed_sequence(result))
+            else:
+                provider.close(force=True)
     elapsed = time.monotonic() - started
     workflow.write_outputs(out_dir, result)
     if not args.keep_initial_publication:

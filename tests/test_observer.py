@@ -4,9 +4,13 @@ from __future__ import annotations
 import io
 import json
 import os
+import select
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -61,6 +65,21 @@ def snapshot(candidates: list, completed: list | None = None) -> dict:
             "current_site_weather": {"is_observable": True, "duration_seconds": 900, "active_event_ids": []},
             "candidate_tiles": candidates, "active_requests": [], "tile_last_finished": None,
             "progress": {"completed_tile_ids": completed or [], "flexible_completed_by_region": {"R00": 4, "R01": 4}}}
+
+
+def final_snapshot() -> dict:
+    result = snapshot([])
+    result["cursor"] = {
+        "slot_id": "N20261007-S001", "night_id": "N20261007",
+        "timestamp_utc": "2026-10-08T10:45:00Z", "slot_offset_seconds": 0,
+    }
+    result["night_start"] = {"night": {"observing_end_utc": "2026-10-08T11:00:00Z"}}
+    return result
+
+
+def telemetry_records(stderr: str) -> list[dict]:
+    return [json.loads(line.split("observer: telemetry ", 1)[1]) for line in stderr.splitlines()
+            if line.startswith("observer: telemetry ")]
 
 
 def test_jain_extremes():
@@ -391,6 +410,25 @@ def test_observability_config_controls_both_sinks(tmp_path, monkeypatch, capsys)
     assert observer.reporter.enabled is False
 
 
+def test_observability_termination_mode_config_and_override(tmp_path, monkeypatch):
+    from telemetry import Observability
+
+    config = tmp_path / "observability.config.json"
+    config.write_text(json.dumps({"remote": {"enabled": False},
+                                  "termination": {"mode": "last_slot", "grace_drain_timeout_seconds": 12}}),
+                      encoding="utf-8")
+    monkeypatch.delenv("OBSERVABILITY_TERMINATION_MODE", raising=False)
+    monkeypatch.delenv("OBSERVABILITY_GRACE_DRAIN_TIMEOUT_SECONDS", raising=False)
+    observer = Observability.from_env(config)
+    assert observer.termination_mode == "last_slot"
+    assert observer.grace_drain_timeout == 12
+    monkeypatch.setenv("OBSERVABILITY_TERMINATION_MODE", "upstream_finish")
+    monkeypatch.setenv("OBSERVABILITY_GRACE_DRAIN_TIMEOUT_SECONDS", "8")
+    overridden = Observability.from_env(config)
+    assert overridden.termination_mode == "upstream_finish"
+    assert overridden.grace_drain_timeout == 8
+
+
 def test_observability_final_event_switch_prevents_delivery(tmp_path, monkeypatch, capsys):
     from telemetry import Observability
 
@@ -408,17 +446,19 @@ def test_observability_final_event_switch_prevents_delivery(tmp_path, monkeypatc
     assert '"event":"final"' not in capsys.readouterr().err
 
 
-def test_agent_process_round_trip():
+@pytest.mark.parametrize("reason", ["survey_complete", "global_wallclock_expired"])
+def test_agent_process_round_trip(reason):
     """Agent answers the decision, consumes finish, and emits no extra response."""
     envelope = {"protocol_version": "participant-agent-protocol-v2"}
     lines = [dict(envelope, message_type="initialize", payload=initial()),
              dict(envelope, message_type="decision_request", decision_sequence=1,
                   payload=snapshot([candidate("T00001", "R01", 1.2)])),
-             dict(envelope, message_type="finish", payload={"termination_reason": "survey_complete",
+             dict(envelope, message_type="finish", payload={"termination_reason": reason,
                                                             "last_decision_sequence": 1, "grace_seconds": 30})]
     proc = subprocess.run([sys.executable, str(ROOT / "agents" / "observer" / "main.py")],
                           input="".join(json.dumps(line) + "\n" for line in lines),
-                          capture_output=True, text=True, timeout=60, check=True)
+                          capture_output=True, text=True, timeout=60, check=True,
+                          env={**os.environ, "TELEMETRY_DISABLE": "1"})
     responses = proc.stdout.strip().splitlines()
     assert len(responses) == 1
     response = json.loads(responses[0])
@@ -433,18 +473,196 @@ def test_agent_process_round_trip():
     assert '"event":"protocol_error"' not in proc.stderr
     assert '"event":"final"' in proc.stderr
     assert '"event":"telemetry_final"' in proc.stderr
-    assert '"termination_reason":"survey_complete"' in proc.stderr
+    assert f'"termination_reason":"{reason}"' in proc.stderr
+    final = next(record for record in telemetry_records(proc.stderr) if record["event"] == "final")
+    assert final["termination_source"] == "upstream_finish"
+    assert final["termination_reason"] == reason
+    assert final["final_response_pending"] is False
+
+
+def test_upstream_finish_waits_until_after_terminal_response():
+    envelope = {"protocol_version": "participant-agent-protocol-v2"}
+    prefix = [dict(envelope, message_type="initialize", payload=initial()),
+              dict(envelope, message_type="decision_request", decision_sequence=1, payload=final_snapshot())]
+    finish = dict(envelope, message_type="finish", payload={"termination_reason": "survey_complete",
+                                                            "last_decision_sequence": 1, "grace_seconds": 30})
+    proc = subprocess.Popen([sys.executable, "-u", str(ROOT / "agents" / "observer" / "main.py")],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, env={**os.environ, "TELEMETRY_DISABLE": "1",
+                                            "OBSERVABILITY_TERMINATION_MODE": "upstream_finish"})
+    try:
+        assert proc.stdin is not None and proc.stdout is not None
+        proc.stdin.write("".join(json.dumps(line) + "\n" for line in prefix))
+        proc.stdin.flush()
+        assert select.select([proc.stdout], [], [], 30)[0]
+        response = json.loads(proc.stdout.readline())
+        assert response["message_type"] == "decision_response"
+        assert proc.poll() is None
+        proc.stdin.write(json.dumps(finish) + "\n")
+        output, stderr = proc.communicate(timeout=60)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    assert proc.returncode == 0
+    assert output == ""
+    records = telemetry_records(stderr)
+    assert [record["event"] for record in records].count("final") == 1
+    assert next(i for i, record in enumerate(records) if record["event"] == "finish_received") < next(
+        i for i, record in enumerate(records) if record["event"] == "final")
+    final = next(record for record in records if record["event"] == "final")
+    assert final["termination_source"] == "upstream_finish"
+    assert final["termination_reason"] == "survey_complete"
+    assert final["terminal_inferred"] is True
+    assert final["final_response_pending"] is False
+    assert final["summary"]["actions"] == {"wait": 1}
+
+
+def test_upstream_finish_mode_reports_on_eof_without_finish():
+    envelope = {"protocol_version": "participant-agent-protocol-v2"}
+    lines = [dict(envelope, message_type="initialize", payload=initial()),
+             dict(envelope, message_type="decision_request", decision_sequence=1, payload=final_snapshot())]
+    proc = subprocess.run([sys.executable, str(ROOT / "agents" / "observer" / "main.py")],
+                          input="".join(json.dumps(line) + "\n" for line in lines),
+                          capture_output=True, text=True, timeout=60, check=True,
+                          env={**os.environ, "TELEMETRY_DISABLE": "1",
+                               "OBSERVABILITY_TERMINATION_MODE": "upstream_finish"})
+    assert len(proc.stdout.strip().splitlines()) == 1
+    records = telemetry_records(proc.stderr)
+    final = next(record for record in records if record["event"] == "final")
+    assert final["termination_source"] == "eof_fallback"
+    assert final["termination_reason"] is None
+    assert final["inferred_termination_reason"] == "survey_complete"
+    assert final["final_response_pending"] is False
+
+
+def test_local_workflow_publishes_applied_wallclock_budget():
+    sys.path.insert(0, str(ROOT / "kit"))
+    from challenge.challenge_workflow import ChallengeWorkflow, GlobalDeadlineExpired
+
+    published_budgets = []
+
+    class Agent:
+        def publish_initial(self, publication):
+            published_budgets.append(publication["global_wallclock_seconds"])
+
+        def __call__(self, *_args):
+            raise GlobalDeadlineExpired()
+
+    workflow = ChallengeWorkflow(root=ROOT / "kit" / "scenarios" / "demo-week")
+    result = workflow.run(Agent(), wallclock_seconds=17.5)
+    assert published_budgets == [17.5]
+    assert result["global_wallclock_seconds"] == 17.5
+    assert result["termination_reason"] == "global_wallclock_expired"
+
+
+@pytest.mark.parametrize("reason", ["survey_complete", "global_wallclock_expired"])
+def test_local_transport_gracefully_closes_observer(reason, tmp_path):
+    from kit.local_runner import LocalAgentProcess
+
+    agent_dir = ROOT / "agents" / "observer"
+    log_path = tmp_path / "agent.log"
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "TELEMETRY_DISABLE": "1",
+           "OBSERVER_MODEL_ENABLED": "0", "OBSERVABILITY_TERMINATION_MODE": "upstream_finish",
+           "PYTHONDONTWRITEBYTECODE": "1"}
+    with log_path.open("w", encoding="utf-8") as log:
+        provider = LocalAgentProcess([sys.executable, "-B", str(agent_dir / "main.py")],
+                                     agent_dir=agent_dir, env=env, stderr=log)
+        try:
+            provider.publish_initial(initial())
+            response = provider(snapshot([]), time.monotonic() + 30)
+            assert response["decision_sequence"] == 1
+            process = provider.process
+            assert process is not None
+            provider.finish(reason, 1, grace_seconds=10)
+            assert process.returncode == 0
+            assert provider.process is None
+        finally:
+            provider.close(force=True)
+    records = telemetry_records(log_path.read_text(encoding="utf-8"))
+    assert [record["event"] for record in records].count("final") == 1
+    final = next(record for record in records if record["event"] == "final")
+    assert final["termination_source"] == "upstream_finish"
+    assert final["termination_reason"] == reason
+    assert final["responses"] == 1
+    assert final["final_response_pending"] is False
+
+
+@pytest.mark.parametrize("mode, remote_ok", [("last_slot", True), ("upstream_finish", True), ("upstream_finish", False)])
+def test_shutdown_drains_remote_telemetry_at_configured_boundary(mode, remote_ok):
+    events = []
+    final_received = threading.Event()
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            envelope = json.loads(body["messages"][0]["content"])
+            batch = envelope.get("events") or [envelope["event"]]
+            time.sleep(0.05)
+            events.extend(batch)
+            if any(event["event_type"] == "final" for event in batch):
+                final_received.set()
+            self.send_response(200 if remote_ok else 503)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    envelope = {"protocol_version": "participant-agent-protocol-v2"}
+    lines = [dict(envelope, message_type="initialize", payload=initial()),
+             dict(envelope, message_type="decision_request", decision_sequence=1, payload=final_snapshot())]
+    env = {**os.environ, "TELEMETRY_DISABLE": "0", "TELEMETRY_DISABLE_OPENAI": "1",
+           "TELEMETRY_URL": f"http://127.0.0.1:{server.server_port}/v1",
+           "TELEMETRY_TOKEN": "local-test-token", "TELEMETRY_TRANSPORT": "openai",
+           "TELEMETRY_DRAIN_TIMEOUT_SECONDS": "2", "TELEMETRY_FINAL_TIMEOUT_SECONDS": "2",
+           "OBSERVABILITY_TERMINATION_MODE": mode, "OBSERVER_MODEL_ENABLED": "0"}
+    proc = subprocess.Popen([sys.executable, "-u", str(ROOT / "agents" / "observer" / "main.py")],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, env=env)
+    try:
+        assert proc.stdin is not None and proc.stdout is not None
+        proc.stdin.write("".join(json.dumps(line) + "\n" for line in lines))
+        proc.stdin.flush()
+        assert select.select([proc.stdout], [], [], 30)[0]
+        assert json.loads(proc.stdout.readline())["message_type"] == "decision_response"
+        assert final_received.is_set() == (mode == "last_slot")
+        proc.stdin.write(json.dumps(dict(envelope, message_type="finish", payload={
+            "termination_reason": "survey_complete", "last_decision_sequence": 1, "grace_seconds": 30})) + "\n")
+        output, stderr = proc.communicate(timeout=30)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+    assert proc.returncode == 0
+    assert output == ""
+    assert final_received.is_set()
+    assert len({event["id"] for event in events if event["event_type"] == "final"}) == 1
+    final = next(event["payload"] for event in events if event["event_type"] == "final")
+    assert final["telemetry_status"]["queue_depth"] == 0
+    assert final["telemetry_status"]["thread_alive"] is False
+    stats = final["telemetry_status"]["stats"]
+    assert stats["sent"] + stats["dropped"] == stats["queued"]
+    records = telemetry_records(stderr)
+    assert next(record for record in records if record["event"] == "final_delivery")["remote_delivered"] is remote_ok
+    status = next(record for record in records if record["event"] == "telemetry_final")
+    if remote_ok:
+        assert status["stats"]["failed"] == status["stats"]["dropped"] == 0
+    else:
+        assert status["stats"]["failed"] > 0
+        assert status["stats"]["dropped"] > 0
 
 
 @pytest.mark.parametrize("agent", ["observer", "public_once"])
 def test_final_report_is_ready_before_the_last_response(agent, tmp_path):
     publication = initial()
-    final_snapshot = snapshot([])
-    final_snapshot["cursor"] = {
-        "slot_id": "N20261007-S001", "night_id": "N20261007",
-        "timestamp_utc": "2026-10-08T10:45:00Z", "slot_offset_seconds": 0,
-    }
-    final_snapshot["night_start"] = {"night": {"observing_end_utc": "2026-10-08T11:00:00Z"}}
+    last_snapshot = final_snapshot()
     entry = ROOT / "agents" / "observer" / "main.py"
     if agent == "public_once":
         from tools.pack_project import build
@@ -456,17 +674,20 @@ def test_final_report_is_ready_before_the_last_response(agent, tmp_path):
         entry = project / "main.py"
     envelope = {"protocol_version": "participant-agent-protocol-v2"}
     lines = [dict(envelope, message_type="initialize", payload=publication),
-             dict(envelope, message_type="decision_request", decision_sequence=1, payload=final_snapshot)]
+             dict(envelope, message_type="decision_request", decision_sequence=1, payload=last_snapshot)]
     proc = subprocess.run([sys.executable, str(entry)],
                           input="".join(json.dumps(line) + "\n" for line in lines),
                           capture_output=True, text=True, timeout=60, check=True,
-                          env={**os.environ, "TELEMETRY_DISABLE": "1"})
+                          env={**os.environ, "TELEMETRY_DISABLE": "1", "OBSERVABILITY_TERMINATION_MODE": "last_slot"})
     response = json.loads(proc.stdout.strip())
     assert response["message_type"] == "decision_response"
-    records = [json.loads(line.split("observer: telemetry ", 1)[1]) for line in proc.stderr.splitlines()
-               if line.startswith("observer: telemetry ")]
+    records = telemetry_records(proc.stderr)
     final = next(record for record in records if record["event"] == "final")
     assert final["final_response_pending"] is True
+    if agent == "observer":
+        assert final["termination_source"] == "last_slot"
+        assert final["termination_reason"] is None
+        assert final["inferred_termination_reason"] == "survey_complete"
     assert final["summary"]["actions"] == {"wait": 1}
     assert next(record for record in records if record["event"] == "final_delivery")["remote_delivered"] is False
 

@@ -128,17 +128,26 @@ def main() -> None:
                 "parse_errors": 0, "unknown_messages": 0}
     summary = RunSummary()
     terminal = TerminalStep()
+    terminal_inferred = False
     finished = False
     runtime = _runtime_fields()
     observability.emit("runtime", runtime)
     observability.emit("telemetry_config", observability.status())
 
-    def finish(response_pending: bool = False, termination_reason: str | None = None) -> None:
+    def finish(response_pending: bool = False, termination_reason: str | None = None,
+               termination_source: str = "stdin_eof", grace_seconds: float | None = None) -> None:
         nonlocal finished
         if finished:
             return
         finished = True
-        reporter.close(timeout=reporter.drain_timeout)
+        grace_deadline = None
+        if termination_source == "upstream_finish" and grace_seconds is not None:
+            grace_deadline = time.monotonic() + min(grace_seconds, 30.0)
+        drain_timeout = reporter.drain_timeout
+        if grace_deadline is not None:
+            drain_budget = max(0.0, grace_deadline - time.monotonic() - reporter.final_timeout - 3.0)
+            drain_timeout = min(observability.grace_drain_timeout, drain_budget)
+        reporter.close(timeout=drain_timeout)
         planner = getattr(policy, "planner", None)
         report = {
             **counters,
@@ -153,8 +162,15 @@ def main() -> None:
             "model_status": policy.advisor.status() if policy is not None else None,
             "final_response_pending": response_pending,
             "termination_reason": termination_reason,
+            "termination_mode": observability.termination_mode,
+            "termination_source": termination_source,
+            "terminal_inferred": terminal_inferred,
+            "inferred_termination_reason": "survey_complete" if terminal_inferred else None,
         }
-        delivered = observability.send_final(report, sequence=counters["decisions"])
+        final_timeout = reporter.final_timeout
+        if grace_deadline is not None:
+            final_timeout = min(final_timeout, max(0.0, grace_deadline - time.monotonic() - 1.0))
+        delivered = observability.send_final(report, sequence=counters["decisions"], wait_seconds=final_timeout)
         observability.emit("final_delivery", {"remote_delivered": delivered, **reporter.status()}, remote=False)
 
     for line in sys.stdin:
@@ -223,11 +239,15 @@ def main() -> None:
             reason = details.get("termination_reason")
             reason = reason[:64] if isinstance(reason, str) else None
             last_sequence = details.get("last_decision_sequence")
+            grace_seconds = details.get("grace_seconds")
+            grace_seconds = (float(grace_seconds) if type(grace_seconds) in (int, float)
+                             and 0 <= grace_seconds <= 3600 else None)
             observability.emit("finish_received", {
                 "termination_reason": reason,
                 "last_decision_sequence": last_sequence if type(last_sequence) is int else None,
+                "grace_seconds": grace_seconds,
             }, remote=not finished)
-            finish(termination_reason=reason)
+            finish(termination_reason=reason, termination_source="upstream_finish", grace_seconds=grace_seconds)
             break
         if kind != "decision_request":
             counters["unknown_messages"] += 1
@@ -257,8 +277,6 @@ def main() -> None:
                 return
             counters["responses"] += 1
             continue
-        if finished:
-            finished = False
         counters["decisions"] += 1
         decision_started = time.perf_counter()
         previous_model_calls = getattr(getattr(policy, "advisor", None), "calls", 0)
@@ -328,20 +346,23 @@ def main() -> None:
         }
         is_terminal = isinstance(payload, dict) and terminal.is_final(payload, decision)
         if is_terminal:
+            terminal_inferred = True
+        close_before_response = is_terminal and observability.termination_mode == "last_slot"
+        if close_before_response:
             summary.add(trace)
             observability.emit("decision_trace", trace, sequence=sequence)
-            finish(response_pending=True)
+            finish(response_pending=True, termination_source="last_slot")
         stdout_started = time.perf_counter()
         emitted = emit(sent[sequence])
         trace["stdout_ms"] = round((time.perf_counter() - stdout_started) * 1000.0, 3)
         counters["responses"] += 1
-        if not is_terminal:
+        if not close_before_response:
             summary.add(trace)
             observability.emit("decision_trace", trace, sequence=sequence)
         last_io_at = time.perf_counter()
         if not emitted:
             return
-        if not is_terminal and counters["decisions"] % observability.checkpoint_every == 0:
+        if not close_before_response and counters["decisions"] % observability.checkpoint_every == 0:
             observability.emit("checkpoint", {
                 **counters,
                 "wall_s": round(time.monotonic() - started, 3),
@@ -350,7 +371,7 @@ def main() -> None:
                 "plans": getattr(planner, "plans", 0),
                 "plan_s": round(getattr(planner, "plan_seconds", 0.0), 3),
             }, sequence=counters["decisions"])
-    finish()
+    finish(termination_source="eof_fallback" if terminal_inferred else "stdin_eof")
     reporter.close(timeout=0.2)
     observability.emit("telemetry_final", reporter.status(), remote=False)
 

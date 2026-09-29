@@ -50,7 +50,7 @@ def _safe_int(value: str | int | None, default: int, low: int, high: int) -> int
 def _safe_float(value: str | float | None, default: float, low: float, high: float) -> float:
     try:
         parsed = float(value if value is not None else "")
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     if not math.isfinite(parsed):
         return default
@@ -535,6 +535,9 @@ class TelemetryReporter:
     def emit(self, event_type: str, payload: dict[str, Any] | None = None, *, sequence: int | None = None) -> bool:
         if not self.enabled:
             return False
+        if self._stop.is_set():
+            self._inc("dropped")
+            return False
         event = self._event(event_type, payload, sequence)
         try:
             self._queue.put_nowait(event)
@@ -557,11 +560,14 @@ class TelemetryReporter:
         return event
 
     def send_final(self, payload: dict[str, Any], *, sequence: int | None = None, wait_seconds: float = 5.0) -> bool:
-        """Send the final report ahead of queued traces, with a hard wait limit."""
+        """Send the final report with a hard wait limit."""
         if not self.enabled:
             return False
         event = self._event("final", payload, sequence)
         deadline = time.monotonic() + max(0.0, min(float(wait_seconds), 10.0))
+        if deadline <= time.monotonic():
+            self._inc("dropped")
+            return False
         completed = threading.Event()
         outcome = {"delivered": False}
 
@@ -705,6 +711,13 @@ class Observability:
         self.events = {str(k): _enabled(v) for k, v in events.items()} if isinstance(events, dict) else {}
         self.checkpoint_every = _safe_int(os.environ.get("OBSERVABILITY_CHECKPOINT_EVERY") or
                                           local.get("checkpoint_every"), 100, 1, 10_000)
+        termination = config.get("termination") if isinstance(config.get("termination"), dict) else {}
+        mode = str(os.environ.get("OBSERVABILITY_TERMINATION_MODE") or
+                   termination.get("mode") or "upstream_finish").strip().lower()
+        self.termination_mode = mode if mode in {"last_slot", "upstream_finish"} else "upstream_finish"
+        self.grace_drain_timeout = _safe_float(
+            os.environ.get("OBSERVABILITY_GRACE_DRAIN_TIMEOUT_SECONDS") or
+            termination.get("grace_drain_timeout_seconds"), 20.0, 0.0, 20.0)
 
     @classmethod
     def from_env(cls, config_path: str | os.PathLike[str] | None = None) -> Observability:
@@ -724,13 +737,18 @@ class Observability:
 
     def status(self) -> dict[str, Any]:
         return {"local_enabled": self.local_enabled, "checkpoint_every": self.checkpoint_every,
-                "events": dict(self.events), "remote": self.reporter.status()}
+                "termination_mode": self.termination_mode,
+                "grace_drain_timeout_s": self.grace_drain_timeout, "events": dict(self.events),
+                "remote": self.reporter.status()}
 
-    def send_final(self, payload: dict[str, Any], *, sequence: int | None = None) -> bool:
+    def send_final(self, payload: dict[str, Any], *, sequence: int | None = None,
+                   wait_seconds: float | None = None) -> bool:
         if not self.events.get("final", True):
             return False
         self.emit("final", payload, remote=False)
-        return self.reporter.send_final(payload, sequence=sequence, wait_seconds=self.reporter.final_timeout)
+        return self.reporter.send_final(
+            payload, sequence=sequence,
+            wait_seconds=self.reporter.final_timeout if wait_seconds is None else wait_seconds)
 
 
 __all__ = ["Observability", "RunSummary", "TelemetryReporter", "TerminalStep", "runtime_payload"]
