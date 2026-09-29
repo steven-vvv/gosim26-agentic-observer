@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import queue
@@ -38,9 +39,9 @@ _BLOCKED_KEYS = {
 }
 
 
-def _safe_int(value: str | None, default: int, low: int, high: int) -> int:
+def _safe_int(value: str | int | None, default: int, low: int, high: int) -> int:
     try:
-        parsed = int(value or "")
+        parsed = int(value if value is not None else "")
     except (TypeError, ValueError):
         return default
     return max(low, min(high, parsed))
@@ -48,10 +49,27 @@ def _safe_int(value: str | None, default: int, low: int, high: int) -> int:
 
 def _safe_float(value: str | float | None, default: float, low: float, high: float) -> float:
     try:
-        parsed = float(value or "")
+        parsed = float(value if value is not None else "")
     except (TypeError, ValueError):
         return default
+    if not math.isfinite(parsed):
+        return default
     return max(low, min(high, parsed))
+
+
+def _enabled(value: Any, default: bool = True) -> bool:
+    return default if value is None else str(value).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _load_config(path: str | os.PathLike[str] | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+        return value if isinstance(value, dict) else {}
+    except (OSError, TypeError, ValueError):
+        return {}
 
 
 def _blocked_key(key: str) -> bool:
@@ -399,6 +417,8 @@ class TelemetryReporter:
         retries: int = 2,
         backoff: float = 0.1,
         batch_size: int = 16,
+        drain_timeout: float = 2.0,
+        final_timeout: float = 5.0,
     ) -> None:
         normalized_transport = str(transport or "events").strip().lower()
         self.transport = normalized_transport if normalized_transport in {"events", "openai"} else "events"
@@ -411,6 +431,8 @@ class TelemetryReporter:
         self.retries = max(0, min(int(retries), 3))
         self.backoff = max(0.0, min(float(backoff), 1.0))
         self.batch_size = max(1, min(int(batch_size), 32))
+        self.drain_timeout = _safe_float(drain_timeout, 2.0, 0.0, 10.0)
+        self.final_timeout = _safe_float(final_timeout, 5.0, 0.0, 10.0)
         self._queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=max(1, min(int(queue_size), 4096)))
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -426,18 +448,9 @@ class TelemetryReporter:
         # want separate ingestion. Otherwise the OpenAI-compatible variables
         # select the shared Worker, whose marker-aware router consumes events
         # before ordinary model traffic reaches the upstream provider.
-        defaults: dict[str, Any] = {}
-        if defaults_path:
-            try:
-                with open(defaults_path, encoding="utf-8") as handle:
-                    loaded = json.load(handle)
-                if isinstance(loaded, dict):
-                    defaults = loaded
-            except (OSError, TypeError, ValueError):
-                # A malformed optional package config must never stop the
-                # protocol process.  Environment variables remain usable.
-                defaults = {}
-        if str(defaults.get("enabled", True)).lower() in {"0", "false", "no", "off"}:
+        loaded = _load_config(defaults_path)
+        defaults = loaded.get("remote") if isinstance(loaded.get("remote"), dict) else loaded
+        if not _enabled(defaults.get("enabled")):
             return cls(None, None)
         if os.environ.get("TELEMETRY_DISABLE", "").lower() in {"1", "true", "yes", "on"}:
             return cls(None, None)
@@ -482,8 +495,13 @@ class TelemetryReporter:
             model=model,
             queue_size=_safe_int(os.environ.get("TELEMETRY_QUEUE_SIZE") or defaults.get("queue_size"), 1024, 1, 4096),
             timeout=_safe_float(os.environ.get("TELEMETRY_TIMEOUT_SECONDS") or defaults.get("timeout_seconds"), 3.0, 0.1, 10.0),
-            retries=_safe_int(os.environ.get("TELEMETRY_RETRIES"), 2, 0, 3),
+            retries=_safe_int(os.environ.get("TELEMETRY_RETRIES") or defaults.get("retries"), 2, 0, 3),
+            backoff=_safe_float(os.environ.get("TELEMETRY_BACKOFF_SECONDS") or defaults.get("backoff_seconds"), 0.1, 0.0, 1.0),
             batch_size=_safe_int(os.environ.get("TELEMETRY_BATCH_SIZE") or defaults.get("batch_size"), 16, 1, 32),
+            drain_timeout=_safe_float(os.environ.get("TELEMETRY_DRAIN_TIMEOUT_SECONDS") or
+                                      defaults.get("drain_timeout_seconds"), 2.0, 0.0, 10.0),
+            final_timeout=_safe_float(os.environ.get("TELEMETRY_FINAL_TIMEOUT_SECONDS") or
+                                      defaults.get("final_timeout_seconds"), 5.0, 0.0, 10.0),
         )
 
     @staticmethod
@@ -599,6 +617,9 @@ class TelemetryReporter:
             "batch_size": self.batch_size,
             "timeout_s": self.timeout,
             "retries": self.retries,
+            "backoff_s": self.backoff,
+            "drain_timeout_s": self.drain_timeout,
+            "final_timeout_s": self.final_timeout,
             "thread_alive": bool(self._thread and self._thread.is_alive()),
             "stats": self.stats(),
         }
@@ -671,4 +692,45 @@ class TelemetryReporter:
             self._thread.join(timeout=max(0.0, timeout))
 
 
-__all__ = ["RunSummary", "TelemetryReporter", "TerminalStep", "runtime_payload"]
+class Observability:
+    """One non-secret policy for local diagnostics and best-effort remote events."""
+
+    def __init__(self, reporter: TelemetryReporter, config: dict[str, Any] | None = None) -> None:
+        self.reporter = reporter
+        config = config or {}
+        local = config.get("local") if isinstance(config.get("local"), dict) else {}
+        self.local_enabled = _enabled(os.environ.get("OBSERVABILITY_LOCAL_ENABLED"),
+                                      _enabled(local.get("enabled")))
+        events = config.get("events")
+        self.events = {str(k): _enabled(v) for k, v in events.items()} if isinstance(events, dict) else {}
+        self.checkpoint_every = _safe_int(os.environ.get("OBSERVABILITY_CHECKPOINT_EVERY") or
+                                          local.get("checkpoint_every"), 100, 1, 10_000)
+
+    @classmethod
+    def from_env(cls, config_path: str | os.PathLike[str] | None = None) -> Observability:
+        config = _load_config(config_path)
+        return cls(TelemetryReporter.from_env(config_path), config)
+
+    def emit(self, event: str, payload: dict[str, Any] | None = None, *, sequence: int | None = None,
+             remote: bool = True) -> bool:
+        if not self.events.get(event, True):
+            return False
+        clean = _sanitize(payload or {})
+        if self.local_enabled:
+            line = {"event": event, **clean}
+            print(f"observer: telemetry {json.dumps(line, sort_keys=True, separators=(',', ':'))}",
+                  file=sys.stderr, flush=True)
+        return self.reporter.emit(event, clean, sequence=sequence) if remote else False
+
+    def status(self) -> dict[str, Any]:
+        return {"local_enabled": self.local_enabled, "checkpoint_every": self.checkpoint_every,
+                "events": dict(self.events), "remote": self.reporter.status()}
+
+    def send_final(self, payload: dict[str, Any], *, sequence: int | None = None) -> bool:
+        if not self.events.get("final", True):
+            return False
+        self.emit("final", payload, remote=False)
+        return self.reporter.send_final(payload, sequence=sequence, wait_seconds=self.reporter.final_timeout)
+
+
+__all__ = ["Observability", "RunSummary", "TelemetryReporter", "TerminalStep", "runtime_payload"]

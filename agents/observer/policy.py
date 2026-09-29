@@ -18,7 +18,6 @@ import math
 import os
 import sys
 import time
-import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -144,10 +143,18 @@ class ObserverPolicy:
         self.planned_night = None
         self.planned_at = -1e18
         self.advisor = ModelAdvisor.from_env(Path(__file__).with_name("llm.config.json"))
-        self.advised_night = None
-        self.advised_every = None
+        self.advised_week = None
+        self.base_plan_horizon = int(params["plan_horizon_nights"])
+        self.base_plan_every = float(params["plan_every_seconds"])
+        self.advised_every = self.base_plan_every
+        self.weekly_plan = None
+        self.weekly_plan_source = "deterministic"
+        self.on_plan = None
+        self.on_event = None
         self.action_advised_night = None
         self._model_candidates = []
+        self._model_weekly = {}
+        self._model_night_start = {}
         clocks = [float(v) for v in (initial.get("global_wallclock_seconds"), os.environ.get("SAC_WALLCLOCK_SECONDS")) if v]
         self.wallclock = min(clocks) if clocks else 3600.0  # 本地 runner 的 --wallclock 只体现在环境变量里
         self.clock_started = None
@@ -247,14 +254,24 @@ class ObserverPolicy:
             tonight.setdefault(str(w["tile_id"]), []).append(entry)
         self.tonight = tonight
 
+    def _diagnostic(self, event: str, payload: dict) -> None:
+        if self.on_event is not None:
+            try:
+                self.on_event(event, payload)
+            except Exception as exc:  # noqa: BLE001
+                print(f"observer: diagnostic callback failed: {type(exc).__name__}", file=sys.stderr, flush=True)
+        else:
+            print(f"observer: telemetry {json.dumps({'event': event, **payload}, separators=(',', ':'))}",
+                  file=sys.stderr, flush=True)
+
     def _forecast_events(self) -> list:
         """每周预报 → 规划用的事件；格式不对的条目跳过（只记一次）。"""
         events = []
         for item in self.forecasts:
             try:
                 event = events_mod.from_forecast(item)
-            except Exception:  # noqa: BLE001
-                print(f"observer: warning: skipping unreadable forecast {str(item)[:200]}", file=sys.stderr, flush=True)
+            except Exception as exc:  # noqa: BLE001
+                self._diagnostic("warning", {"stage": "forecast", "reason": type(exc).__name__})
                 continue
             if event is not None:
                 events.append(event)
@@ -348,8 +365,8 @@ class ObserverPolicy:
                         p = 1.0 - (1.0 - background) * min(1.0, after / before)
                 risks.append(p)
             return risks
-        except Exception:  # noqa: BLE001  风险估计出错就不折算
-            traceback.print_exc(file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001  风险估计出错就不折算
+            self._diagnostic("policy_error", {"stage": "boundary_risk", "reason": type(exc).__name__})
             return None
 
     def _forecast_risks(self, start: float, durations):
@@ -384,13 +401,14 @@ class ObserverPolicy:
             cold = sorted(set(pending.get("site_event_ids") or [])
                           | {str(e) for e in (snapshot.get("current_site_weather") or {}).get("active_event_ids") or []})
             cold_expected = self._posterior_expected(pending, snapshot, now, allow_site_events=True) if cold else None
-            print(f"observer: read t={now:.0f} tile={tile} region={region} ratio={realized / pending['expected']:.4f} "
-                  f"simple={realized / pending['simple']:.4f} clean={int(clean)} dip={int(self._dip_active(region))} "
-                  f"suspect={int(region in self.suspect)} faultreg={int(region in self.fault_regions)} "
-                  f"n={len(self.tile_reads.get(tile, []))} segs={len(pending['geometry'] or ())} "
-                  f"exact={realized / posterior if posterior else 0.0:.4f} "
-                  f"cw={'+'.join(cold) or '-'} cwexact={realized / cold_expected if cold and cold_expected else 0.0:.4f}",
-                  file=sys.stderr, flush=True)
+            self._diagnostic("feedback_read", {
+                "timestamp": now, "tile_id": tile, "region": region,
+                "ratio": realized / pending["expected"], "simple": realized / pending["simple"],
+                "clean": clean, "dip": self._dip_active(region), "suspect": region in self.suspect,
+                "fault_region": region in self.fault_regions, "reads": len(self.tile_reads.get(tile, [])),
+                "segments": len(pending["geometry"] or ()), "exact": realized / posterior if posterior else None,
+                "cold_event_ids": cold, "cold_exact": realized / cold_expected if cold_expected else None,
+            })
         if self.p["cold_tags"] and realized > 0 and not posterior:
             reports.extend(self._cold_evidence(pending, snapshot, now, realized))
         exact = realized / posterior if posterior and realized > 0 and self.p["exact_reads"] else None
@@ -560,17 +578,17 @@ class ObserverPolicy:
             if not (self.planning and projected > self.p["budget_disable_at"] * self.wallclock):
                 return
         if self.planning and projected > self.p["budget_disable_at"] * self.wallclock:
-            print(f"observer: projected {projected:.0f}s > {self.p['budget_disable_at']:.0%} of clock; planning off",
-                  file=sys.stderr, flush=True)
+            self._diagnostic("planning_state", {"enabled": False, "reason": "wallclock_budget",
+                                                "projected_seconds": projected, "mode": "off"})
             self.planning = False
         elif (self.frequent and float(self.p["plan_every_seconds"]) < 3600.0
               and projected > self.p["budget_frequent_at"] * self.wallclock):
-            print(f"observer: projected {projected:.0f}s > {self.p['budget_frequent_at']:.0%} of clock; replanning at most hourly",
-                  file=sys.stderr, flush=True)
+            self._diagnostic("planning_state", {"enabled": True, "reason": "wallclock_budget",
+                                                "projected_seconds": projected, "mode": "hourly"})
             self.frequent = False
         elif self.hourly and projected > self.p["budget_reduce_at"] * self.wallclock:
-            print(f"observer: projected {projected:.0f}s > {self.p['budget_reduce_at']:.0%} of clock; nightly planning only",
-                  file=sys.stderr, flush=True)
+            self._diagnostic("planning_state", {"enabled": True, "reason": "wallclock_budget",
+                                                "projected_seconds": projected, "mode": "nightly"})
             self.hourly = False
         else:
             return
@@ -584,6 +602,7 @@ class ObserverPolicy:
             if self.planner is None:
                 from planner import Planner
                 self.planner = Planner(self.initial, self.p)
+                self.planner.on_event = self._diagnostic
                 if self.p["plan_events"] == "truth":
                     self._pending_events = (self._truth_events(), "truth", math.inf)
             if self._pending_events is not None:
@@ -601,15 +620,16 @@ class ObserverPolicy:
                 self.planned_night, self.planned_at = night, now
                 try:
                     self._replan(snapshot, now)
-                except Exception:  # 天气事件出错时只丢掉事件，规划照常
+                except Exception as exc:  # 天气事件出错时只丢掉事件，规划照常
                     if self.planner.events is None:
                         raise
-                    traceback.print_exc(file=sys.stderr)
-                    print("observer: warning: weather events disabled after a planning error", file=sys.stderr, flush=True)
+                    self._diagnostic("policy_error", {"stage": "planning_events", "reason": type(exc).__name__,
+                                                      "fallback": "planning_without_events"})
                     self.planner.events = None
                     self._replan(snapshot, now)
-        except Exception:  # noqa: BLE001  规划失败不能拖垮决策：退回当晚时机因子
-            traceback.print_exc(file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001  规划失败不能拖垮决策：退回当晚时机因子
+            self._diagnostic("policy_error", {"stage": "planning", "reason": type(exc).__name__,
+                                              "fallback": "night_timing"})
             self.planning = False
             self.planner = None
 
@@ -639,7 +659,7 @@ class ObserverPolicy:
         for config in sorted(Path(str(self.p["plan_events_truth_root"])).glob("*/config/scenario_config.json")):
             if json.loads(config.read_text(encoding="utf-8")).get("scenario_id") == wanted:
                 return events_mod.load_truth(config.parent.parent / "outputs" / "reference" / "weather_events.csv")
-        print(f"observer: warning: no scenario {wanted!r} under plan_events_truth_root", file=sys.stderr, flush=True)
+        self._diagnostic("warning", {"stage": "truth_experiment", "reason": "scenario_missing", "scenario": wanted})
         return []
 
     def _fault_map(self, now: float) -> dict:
@@ -903,8 +923,16 @@ class ObserverPolicy:
         progress = snapshot.get("progress") or {}
         tiles = list(snapshot.get("candidate_tiles") or [])
         requests = list(snapshot.get("active_requests") or [])
-        night_start = snapshot.get("night_start") or {}
-        weekly = snapshot.get("weekly") or {}
+        night_start = snapshot.get("night_start") or self._model_night_start
+        weekly = snapshot.get("weekly") or self._model_weekly
+        selected_tiles = {str(item["tile_id"]) for item in candidates or [] if item.get("tile_id")}
+
+        def relevant_sample(items: list, limit: int) -> list:
+            relevant = [item for item in items if isinstance(item, dict) and
+                        str(item.get("tile_id")) in selected_tiles]
+            others = [item for item in items if not isinstance(item, dict) or
+                      str(item.get("tile_id")) not in selected_tiles]
+            return (relevant + others)[:limit]
 
         def bounded_publication(value: object, limits: dict[str, int]) -> dict:
             if not isinstance(value, dict):
@@ -913,64 +941,103 @@ class ObserverPolicy:
             for key, limit in limits.items():
                 items = value.get(key)
                 if isinstance(items, list):
-                    result[key] = items[:limit]
+                    result[key] = relevant_sample(items, limit) if key == "tile_windows" else items[:limit]
                     result[f"{key}_omitted"] = max(0, len(items) - limit)
+                    if key == "tile_windows":
+                        by_night_region: dict[str, dict[str, int]] = {}
+                        for item in items:
+                            if isinstance(item, dict):
+                                night = str(item.get("night_id", "unknown"))
+                                region = str(item.get("region_id", "unknown"))
+                                group = by_night_region.setdefault(night, {})
+                                group[region] = group.get(region, 0) + 1
+                        result["tile_window_counts_by_night_region"] = by_night_region
             return result
 
+        catalog = self.initial.get("tile_catalog") or {}
         context = {
             "schema": "gosim26.observer.live_state.v1",
+            "scoring_contract": self.initial.get("scoring_contract") or {},
+            "site": self.initial.get("site") or {},
+            "calendar": self.initial.get("calendar") or {},
+            "catalog_summary": {"tile_count": len(catalog.get("tiles") or []),
+                                "region_ids": catalog.get("region_ids") or [],
+                                "required_tile_ids": catalog.get("required_tile_ids") or []},
             "snapshot_schema": snapshot.get("schema_version"),
-            "decision_sequence": snapshot.get("decision_sequence"),
-            "slot_id": cursor.get("slot_id"),
-            "night_id": cursor.get("night_id"),
-            "timestamp_utc": cursor.get("timestamp_utc"),
-            "slot_offset_seconds": cursor.get("slot_offset_seconds"),
-            "current_site_weather": snapshot.get("current_site_weather") or {},
-            "progress": progress,
-            "active_requests": requests[:32],
-            "active_requests_omitted": max(0, len(requests) - 32),
-            "candidate_tiles": tiles[:64],
-            "candidate_tiles_omitted": max(0, len(tiles) - 64),
-            "tile_last_finished": snapshot.get("tile_last_finished"),
-            "fault_status": snapshot.get("fault_status"),
-            "night_start": bounded_publication(night_start, {"tile_windows": 64}),
             "weekly": bounded_publication(weekly, {
                 "weather_forecast": 64,
                 "tile_windows": 64,
                 "observation_requests": 32,
             }),
+            "night_start": bounded_publication(night_start, {"tile_windows": 64}),
+            "progress": progress,
+            "active_requests": requests[:32],
+            "active_requests_omitted": max(0, len(requests) - 32),
+            "candidate_tiles": relevant_sample(tiles, 64),
+            "candidate_tiles_omitted": max(0, len(tiles) - 64),
+            "tile_last_finished": snapshot.get("tile_last_finished"),
+            "fault_status": snapshot.get("fault_status"),
+            "current_site_weather": snapshot.get("current_site_weather") or {},
+            "night_id": cursor.get("night_id"),
+            "slot_id": cursor.get("slot_id"),
+            "timestamp_utc": cursor.get("timestamp_utc"),
+            "slot_offset_seconds": cursor.get("slot_offset_seconds"),
+            "decision_sequence": snapshot.get("decision_sequence"),
             "deterministic_choice": deterministic_choice,
             "deterministic_candidates": candidates or [],
         }
         return context
 
-    def _adapt_plan_with_model(self, snapshot: dict, now: float) -> None:
-        night = (snapshot.get("cursor") or {}).get("night_id")
-        if night == self.advised_night:
+    def _choose_weekly_plan(self, snapshot: dict) -> None:
+        weekly = snapshot.get("weekly")
+        if not isinstance(weekly, dict) or weekly.get("weather_forecast") is None:
             return
-        self.advised_night = night
-        self.advised_every = float(self.p["plan_every_seconds"])
-        if not self.advisor.enabled or not self.planning or self.advised_every >= 3600.0:
+        publication = weekly.get("issued_at_utc") or (snapshot.get("cursor") or {}).get("night_id")
+        if publication == self.advised_week:
             return
+        self.advised_week = publication
+        self.p["plan_horizon_nights"] = self.base_plan_horizon
+        self.advised_every = self.base_plan_every
+        self.weekly_plan_source = "deterministic"
+        alternatives = [
+            {"id": "full_horizon", "horizon_nights": self.base_plan_horizon,
+             "replan_interval_seconds": self.base_plan_every},
+            {"id": "week_focus", "horizon_nights": min(7, self.base_plan_horizon),
+             "replan_interval_seconds": max(3600.0, self.base_plan_every)},
+        ]
+        selected = alternatives[0]
         elapsed = max(0.0, time.monotonic() - self.clock_started) if self.clock_started is not None else 0.0
         pressure = elapsed / max(1.0, self.wallclock)
         preferred = max(0.90, min(0.995, 0.995 - pressure * 0.08))
-        context = self._model_context(snapshot, deterministic_choice="frequent", candidates=[
-            {"id": "frequent", "replan_interval_seconds": self.advised_every},
-            {"id": "economy", "replan_interval_seconds": 3600},
-        ])
-        context.update({"elapsed_wall_seconds": round(elapsed, 1),
-                        "wallclock_budget_seconds": self.wallclock,
-                        "completed_tiles": len(self.completed),
-                        "forecast_events": len(self.forecasts)})
-        choice = self.advisor.choose("plan_adaptation", [
-            {"id": "frequent", "replan_interval_seconds": self.advised_every,
-             "prior_probability": round(preferred, 4), "benefit": "higher expected score"},
-            {"id": "economy", "replan_interval_seconds": 3600,
-             "prior_probability": round(1.0 - preferred, 4), "benefit": "lower CPU cost"},
-        ], context)
-        if choice == "economy":
-            self.advised_every = 3600.0
+        if self.planning and alternatives[0] != alternatives[1]:
+            options = [
+                {**alternatives[0], "prior_probability": round(preferred, 4),
+                 "tradeoff": "more future nights considered; more replanning CPU"},
+                {**alternatives[1], "prior_probability": round(1.0 - preferred, 4),
+                 "tradeoff": "fewer future nights considered; less replanning CPU"},
+            ]
+            context = self._model_context(snapshot, deterministic_choice="full_horizon", candidates=options)
+            context.update({"elapsed_wall_seconds": round(elapsed, 1),
+                            "wallclock_budget_seconds": self.wallclock,
+                            "completed_tiles": len(self.completed),
+                            "forecast_events": len(self.forecasts),
+                            "prior_basis": "bounded heuristic from observed wallclock pressure, not calibrated win rates"})
+            choice = self.advisor.choose("weekly_planning", options, context)
+            if choice == "week_focus":
+                selected = alternatives[1]
+                self.weekly_plan_source = "model"
+            elif choice == "full_horizon":
+                self.weekly_plan_source = "model"
+        self.p["plan_horizon_nights"] = selected["horizon_nights"]
+        self.advised_every = selected["replan_interval_seconds"]
+        self.weekly_plan = {**selected, "publication_utc": publication,
+                            "forecast_events": len(self.forecasts)}
+        if self.on_plan is not None:
+            try:
+                self.on_plan({**self.weekly_plan, "source": self.weekly_plan_source,
+                              "decision_sequence": snapshot.get("decision_sequence")})
+            except Exception as exc:  # noqa: BLE001
+                self._diagnostic("warning", {"stage": "weekly_plan_diagnostics", "reason": type(exc).__name__})
 
     def _select_action_with_model(self, snapshot: dict, best):
         night = (snapshot.get("cursor") or {}).get("night_id")
@@ -981,8 +1048,6 @@ class ObserverPolicy:
             return best, "deterministic"
         first, second = candidates[:2]
         margin = abs(first[0][0] - second[0][0]) / max(abs(first[0][0]), abs(second[0][0]), 1e-9)
-        if margin > 0.05:
-            return best, "deterministic"
         self.action_advised_night = night
         preferred = min(0.999, 0.99 + 0.009 * margin)
         options = []
@@ -992,12 +1057,17 @@ class ObserverPolicy:
                             "request_id": key[3], "expected_gain": round(key[1], 2),
                             "priority_per_hour": round(key[0] * 3600.0, 2),
                             "prior_probability": round(preferred if index == 0 else 1.0 - preferred, 4),
+                            "eligible": index == 0 or margin <= 0.05,
                             "seconds": tile["nominal_exptime_seconds"]})
         context = self._model_context(snapshot, deterministic_choice="C0", candidates=options)
         context.update({"completed_tiles": len(self.completed),
                         "active_request_count": len(snapshot.get("active_requests") or []),
-                        "deterministic_choice_reason": "highest computed marginal gain"})
+                        "deterministic_choice_reason": "highest computed marginal gain",
+                        "relative_priority_gap": round(margin, 6),
+                        "eligible_choices": ["C0", "C1"] if margin <= 0.05 else ["C0"]})
         choice = self.advisor.choose("action_decision", options, context)
+        if choice == "C1" and margin > 0.05:
+            return best, "deterministic"
         if choice in {"C0", "C1"}:
             return candidates[int(choice[1])], "model"
         return best, "deterministic"
@@ -1100,12 +1170,12 @@ class ObserverPolicy:
         schema = snapshot.get("schema_version")
         v3 = schema == "decision-snapshot-v3" if schema in ("decision-snapshot-v2", "decision-snapshot-v3") else self.mechanics
         self.decisions += 1
-        if self.decisions % 100 == 0 and self.clock_started is not None:  # 平台 agent.log 里据此读出机器速度
-            plan = self.planner.plan_seconds if self.planner is not None else 0.0
-            print(f"observer: decisions={self.decisions} wall={time.monotonic() - self.clock_started:.1f}s plan={plan:.1f}s",
-                  file=sys.stderr, flush=True)
         self._sync_progress(snapshot)
         self._snapshot = snapshot
+        if isinstance(snapshot.get("weekly"), dict):
+            self._model_weekly = snapshot["weekly"]
+        if isinstance(snapshot.get("night_start"), dict):
+            self._model_night_start = snapshot["night_start"]
         if self.p["closure_risk"] or self.p["closure_risk_forecast"]:
             self._track_closures(snapshot)
         self._load_windows(snapshot, now)
@@ -1120,7 +1190,7 @@ class ObserverPolicy:
                 issued = epoch(weekly.get("issued_at_utc") or snapshot["cursor"]["timestamp_utc"])
                 until = issued + 7 * 86400.0
                 self._pending_events = ([e for e in self._truth_events() if e.end > issued and e.start < until], "truth", until)
-        self._adapt_plan_with_model(snapshot, now)
+        self._choose_weekly_plan(snapshot)
         self._plan(snapshot, now)
         reports = []
         if v3:

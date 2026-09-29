@@ -1,0 +1,39 @@
+{
+  "schema": "gosim26.observability.v1",
+  "local": {
+    "enabled": true,
+    "checkpoint_every": 100
+  },
+  "remote": {
+    "enabled": true,
+    "transport": "openai",
+    "url": "https://gosim26-telemetry.wxlsteven.workers.dev/v1",
+    "model": "telemetry-ack",
+    "timeout_seconds": 3.0,
+    "retries": 2,
+    "backoff_seconds": 0.1,
+    "drain_timeout_seconds": 2.0,
+    "final_timeout_seconds": 5.0,
+    "queue_size": 1024,
+    "batch_size": 16
+  },
+  "events": {
+    "runtime": true,
+    "telemetry_config": true,
+    "initialize": true,
+    "policy_config": true,
+    "weekly_plan": true,
+    "planning": true,
+    "planning_state": true,
+    "model_request": true,
+    "decision_trace": true,
+    "checkpoint": true,
+    "protocol_error": true,
+    "policy_error": true,
+    "warning": true,
+    "feedback_read": true,
+    "final": true,
+    "final_delivery": true,
+    "telemetry_final": true
+  }
+}

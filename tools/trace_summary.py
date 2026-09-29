@@ -84,6 +84,26 @@ def summarize(events: list[dict], malformed: int = 0) -> dict:
         for field in TIMING_FIELDS
     }
     actions = Counter(str(event["action"]) for event in decisions if event.get("action") is not None)
+    model_requests = [event for event in events if event.get("event") == "model_request"]
+    model_usage = {key: sum(int(usage[key]) for event in model_requests
+                                if isinstance((usage := event.get("usage")), dict) and
+                                isinstance(usage.get(key), int) and not isinstance(usage[key], bool))
+                   for key in ("prompt_tokens", "completion_tokens", "total_tokens")}
+    model = {
+        "requests": len(model_requests),
+        "by_stage": dict(Counter(str(event.get("stage")) for event in model_requests)),
+        "fallbacks": dict(Counter(str(event.get("reason", "unknown")) for event in model_requests
+                                  if event.get("fallback"))),
+        "usage": model_usage,
+        "duration_ms": _stats([value for event in model_requests
+                               if (value := _number(event.get("duration_ms"))) is not None]),
+        "ttft_ms": _stats([value for event in model_requests
+                           if (value := _number(event.get("ttft_ms"))) is not None]),
+        "generation_ttft_ms": _stats([value for event in model_requests
+                                      if (value := _number(event.get("generation_ttft_ms"))) is not None]),
+        "output_tokens_per_second": _stats([value for event in model_requests
+                                             if (value := _number(event.get("output_tokens_per_second"))) is not None]),
+    }
     plans = [value for event in events if (value := _number(event.get("plans"))) is not None]
     runtime = next((event for event in events if event.get("event") == "runtime"), None)
     config = next((event for event in events if event.get("event") == "telemetry_config"), None)
@@ -93,6 +113,7 @@ def summarize(events: list[dict], malformed: int = 0) -> dict:
         "malformed_records": malformed,
         "decision_count": len(decisions),
         "actions": dict(sorted(actions.items())),
+        "model": model,
         "timing_ms": timings,
         "plans_max": max(plans) if plans else 0,
         "first_sequence": min(sequences) if sequences else None,
@@ -123,6 +144,10 @@ def _print_text(summary: dict) -> None:
     print(f"events: {sum(summary['event_counts'].values())}  malformed: {summary['malformed_records']}")
     print(f"decisions: {summary['decision_count']}  sequences: {summary['first_sequence']}..{summary['last_sequence']}  gaps: {len(summary['sequence_gaps'])}")
     print(f"actions: {summary['actions']}")
+    model = summary["model"]
+    if model["requests"]:
+        print(f"model: requests={model['requests']} stages={model['by_stage']} "
+              f"fallbacks={model['fallbacks']} tokens={model['usage']}")
     for field in TIMING_FIELDS:
         stats = timing[field]
         if stats["count"]:

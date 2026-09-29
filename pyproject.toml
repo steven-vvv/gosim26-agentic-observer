@@ -22,3 +22,7 @@ target-version = "py39"
 line-length = 130
 # 原样复制自官方入门包的文件不改动，便于与 kit 更新比对
 extend-exclude = ["agents/*/protocol.py"]
+
+[tool.pytest.ini_options]
+# runs/ 下保留有需要位置参数的实验脚本，不应被默认测试收集。
+testpaths = ["tests", "telemetry-worker/client"]

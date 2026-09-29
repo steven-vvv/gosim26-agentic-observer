@@ -20,9 +20,11 @@ def main() -> int:
         return 2
 
     cases = [
-        ("plan_adaptation", "frequent", [
-            {"id": "frequent", "replan_interval_seconds": 900, "prior_probability": 0.99},
-            {"id": "economy", "replan_interval_seconds": 3600, "prior_probability": 0.01},
+        ("weekly_planning", "full_horizon", [
+            {"id": "full_horizon", "horizon_nights": 14, "replan_interval_seconds": 1800,
+             "prior_probability": 0.99},
+            {"id": "week_focus", "horizon_nights": 7, "replan_interval_seconds": 3600,
+             "prior_probability": 0.01},
         ]),
         ("action_decision", "C0", [
             {"id": "C0", "tile_id": "T00001", "program": "DARK", "expected_gain": 203.1,
@@ -60,6 +62,10 @@ def main() -> int:
             "chosen": outcome.get("choice"),
             "accepted_choice": outcome.get("accepted_choice"),
             "probabilities": outcome.get("probabilities"),
+            "ttft_ms": outcome.get("ttft_ms"),
+            "generation_ttft_ms": outcome.get("generation_ttft_ms"),
+            "output_tokens_per_second": outcome.get("output_tokens_per_second"),
+            "usage": outcome.get("usage"),
             "elapsed_ms": round((time.monotonic() - started) * 1000),
         }, sort_keys=True))
     return 0 if ok else 1

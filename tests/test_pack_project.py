@@ -36,7 +36,11 @@ def test_complete_project_is_deterministic_and_platform_shaped(tmp_path):
         names = package.namelist()
         assert names == sorted(names)
         assert "observer.project.json" in names
-        assert "telemetry.config.json" in names
+        assert "observability.config.json" in names
+        config = json.loads(package.read("observability.config.json"))
+        assert config["local"]["enabled"] is False
+        assert config["remote"]["enabled"] is False
+        assert config["events"]["model_request"] is True
         assert not any(name.startswith((".env", ".git/", "__pycache__/")) for name in names)
         manifest = json.loads(package.read("observer.project.json"))
         assert manifest["schema_version"] == "observer-project-v1"

@@ -50,3 +50,20 @@ def test_summary_uses_last_runtime_counters() -> None:
     assert result["last_cpu_s"] == 0.4
     assert result["last_rss_kib"] == 1234
     assert result["final"]["event"] == "telemetry_final"
+
+
+def test_summary_aggregates_model_service_events() -> None:
+    events = [
+        {"event": "model_request", "stage": "weekly_planning", "fallback": False,
+         "duration_ms": 200, "ttft_ms": 80, "generation_ttft_ms": 50, "output_tokens_per_second": 60,
+         "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}},
+        {"event": "model_request", "stage": "action_decision", "fallback": True,
+         "reason": "http_503", "duration_ms": 300, "ttft_ms": None, "usage": None},
+    ]
+    model = summarize(events)["model"]
+    assert model["requests"] == 2
+    assert model["by_stage"] == {"weekly_planning": 1, "action_decision": 1}
+    assert model["fallbacks"] == {"http_503": 1}
+    assert model["usage"] == {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
+    assert model["ttft_ms"]["count"] == 1
+    assert model["generation_ttft_ms"]["mean"] == 50

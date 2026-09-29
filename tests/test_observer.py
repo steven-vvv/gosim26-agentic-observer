@@ -1,6 +1,7 @@
 """agents/observer 的单元测试：与官方 kit 口径一致性、覆盖边际方向、协议往返。"""
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -98,11 +99,12 @@ def test_model_choices_drive_planning_interval_and_action():
             self.calls += 1
             assert len(options) == 2
             assert context["night_id"] == "N20261005"
-            return {"plan_adaptation": "economy", "action_decision": "C1"}[stage]
+            return {"weekly_planning": "week_focus", "action_decision": "C1"}[stage]
 
     initial_data = initial()
     initial_data["tile_catalog"]["tiles"][1]["ra_deg"] = initial_data["tile_catalog"]["tiles"][0]["ra_deg"]
     snap = snapshot([candidate("T00001", "R01", 1.2), candidate("T00002", "R00", 1.2)])
+    snap["weekly"] = {"issued_at_utc": "2026-10-06T02:00:00Z", "weather_forecast": []}
     params = dict(DEFAULTS, plan_beta=0)
     baseline = ObserverPolicy(initial_data, params)
     expected = baseline.decide(snap)
@@ -110,6 +112,8 @@ def test_model_choices_drive_planning_interval_and_action():
     policy.advisor = Advisor()
     decision = policy.decide(snap)
     assert policy.advised_every == 3600
+    assert policy.p["plan_horizon_nights"] == 7
+    assert policy.weekly_plan_source == "model"
     assert policy.advisor.calls == 2
     assert decision["action"] == "observe"
     assert decision["tile_id"] != expected["tile_id"]
@@ -287,6 +291,121 @@ def test_model_advisor_request_construction_failure_falls_back():
     assert advisor.choose("action_decision", [{"id": "C0"}, {"id": "C1"}],
                           {"deterministic_choice": "C0"}) is None
     assert advisor.last_outcome["fallback"] is True
+
+
+def test_oversized_context_falls_back_without_sending_partial_state():
+    from model_advisor import AdvisorConfig, ModelAdvisor
+
+    def unexpected_request(*_args, **_kwargs):
+        pytest.fail("oversized context must not reach the model")
+
+    advisor = ModelAdvisor("https://model.example/v1", "secret", config=AdvisorConfig(max_context_bytes=256),
+                           transport=unexpected_request)
+    assert advisor.choose("weekly_planning", [{"id": "C0"}, {"id": "C1"}],
+                          {"deterministic_choice": "C0", "actual_weather": "x" * 512}) is None
+    assert advisor.last_outcome["reason"] == "context_too_large"
+    assert advisor.last_outcome["request_bytes"] == 0
+    assert advisor.last_outcome["context_truncated"] is False
+
+
+def test_model_context_preserves_selected_tiles_and_published_state():
+    policy = ObserverPolicy(initial(), dict(DEFAULTS))
+    tiles = [candidate(f"T{i:05d}", "R00", 1.2) for i in range(65)]
+    policy._model_weekly = {"issued_at_utc": "2026-10-06T02:00:00Z", "weather_forecast": [{"condition": "cloudy"}],
+                            "tile_windows": [{"tile_id": c["tile_id"], "night_id": "N20261005",
+                                              "region_id": "R00"} for c in tiles]}
+    state = policy._model_context(snapshot(tiles), deterministic_choice="C0", candidates=[{"id": "C0", "tile_id": "T00064"}])
+    assert state["candidate_tiles"][0]["tile_id"] == "T00064"
+    assert state["candidate_tiles_omitted"] == 1
+    assert state["weekly"]["tile_windows"][0]["tile_id"] == "T00064"
+    assert state["weekly"]["tile_windows_omitted"] == 1
+    assert state["weekly"]["tile_window_counts_by_night_region"] == {"N20261005": {"R00": 65}}
+    assert state["weekly"]["weather_forecast"] == [{"condition": "cloudy"}]
+    assert state["scoring_contract"] == CONTRACT
+
+
+def test_streaming_model_metrics_and_incomplete_stream_fallback():
+    from model_advisor import AdvisorConfig, ModelAdvisor
+
+    events = []
+    answer_text = json.dumps({"choice": "C0", "probabilities": {"C0": 0.9, "C1": 0.1}})
+    chunks = [
+        {"choices": [{"delta": {"reasoning_content": "internal reasoning must not be stored"}}]},
+        {"choices": [{"delta": {"content": answer_text[:12]}, "finish_reason": None}]},
+        {"choices": [{"delta": {"content": answer_text[12:]}, "finish_reason": "stop"}]},
+        {"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 8, "total_tokens": 18}},
+    ]
+    streamed = b"".join(b"data: " + json.dumps(chunk).encode() + b"\n\n" for chunk in chunks) + b"data: [DONE]\n\n"
+
+    class Response(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+
+    captured = {}
+
+    def answer(request, timeout):
+        captured["body"] = json.loads(request.data)
+        return Response(streamed)
+
+    advisor = ModelAdvisor("https://model.example/v1", "secret", config=AdvisorConfig(stream=True),
+                           transport=answer, on_event=events.append)
+    assert advisor.choose("weekly_planning", [{"id": "C0"}, {"id": "C1"}],
+                          {"deterministic_choice": "C0", "decision_sequence": 7}) == "C0"
+    assert captured["body"]["stream"] is True
+    assert captured["body"]["stream_options"] == {"include_usage": True}
+    assert advisor.last_outcome["ttft_ms"] is not None
+    assert advisor.last_outcome["generation_ttft_ms"] <= advisor.last_outcome["ttft_ms"]
+    assert advisor.last_outcome["output_tokens_per_second"] is not None
+    assert advisor.usage_totals == {"prompt_tokens": 10, "completion_tokens": 8, "total_tokens": 18}
+    assert events[0]["decision_sequence"] == 7
+    assert "secret" not in json.dumps(events)
+    assert "internal reasoning" not in json.dumps(events)
+
+    advisor._transport = lambda *_args, **_kwargs: Response(streamed.replace(b'data: [DONE]\n\n', b''))
+    assert advisor.choose("weekly_planning", [{"id": "C0"}, {"id": "C1"}],
+                          {"deterministic_choice": "C0"}) is None
+    assert events[-1]["reason"] == "incomplete_stream"
+    assert events[-1]["fallback"] is True
+    assert events[-1]["response_bytes"] > 0
+    assert events[-1]["ttft_ms"] is not None
+    assert events[-1]["usage"]["total_tokens"] == 18
+    assert advisor.usage_totals == {"prompt_tokens": 20, "completion_tokens": 16, "total_tokens": 36}
+
+
+def test_observability_config_controls_both_sinks(tmp_path, monkeypatch, capsys):
+    from telemetry import Observability
+
+    config = tmp_path / "observability.config.json"
+    config.write_text(json.dumps({"local": {"enabled": True, "checkpoint_every": 7},
+                                  "remote": {"enabled": False},
+                                  "events": {"decision_trace": False, "model_request": True}}), encoding="utf-8")
+    monkeypatch.delenv("OBSERVABILITY_LOCAL_ENABLED", raising=False)
+    observer = Observability.from_env(config)
+    assert observer.checkpoint_every == 7
+    observer.emit("decision_trace", {"action": "wait"})
+    observer.emit("model_request", {"api_key": "secret", "duration_ms": 4})
+    output = capsys.readouterr().err
+    assert '"event":"model_request"' in output
+    assert "decision_trace" not in output
+    assert "secret" not in output
+    assert observer.reporter.enabled is False
+
+
+def test_observability_final_event_switch_prevents_delivery(tmp_path, monkeypatch, capsys):
+    from telemetry import Observability
+
+    config = tmp_path / "observability.config.json"
+    config.write_text(json.dumps({"local": {"enabled": True}, "events": {"final": False},
+                                  "remote": {"enabled": False}}), encoding="utf-8")
+    monkeypatch.delenv("OBSERVABILITY_LOCAL_ENABLED", raising=False)
+    observer = Observability.from_env(config)
+
+    def unexpected_delivery(*_args, **_kwargs):
+        pytest.fail("disabled final event must not be delivered")
+
+    monkeypatch.setattr(observer.reporter, "send_final", unexpected_delivery)
+    assert observer.send_final({"summary": {"actions": {}}}) is False
+    assert '"event":"final"' not in capsys.readouterr().err
 
 
 def test_agent_process_round_trip():
@@ -749,7 +868,8 @@ def test_unreadable_request_is_answered_with_wait():
     broken = json.dumps(request(2))[:300]
     responses, stderr = run_agent([INIT, request(1), broken, "not json at all", request(3)])
     assert [(r["decision_sequence"], r["action"]) for r in responses] == [(1, "observe"), (2, "wait"), (3, "observe")]
-    assert "unreadable message" in stderr
+    assert '"event":"protocol_error"' in stderr
+    assert '"key":"invalid_json"' in stderr
 
 
 def test_request_before_initialize_uses_the_fallback():

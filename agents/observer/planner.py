@@ -107,6 +107,7 @@ class Planner:
         self.seen_slots: set = set()
         self.plans = 0
         self.plan_seconds = 0.0
+        self.on_event = None
 
     # ------------------------------------------------------------------ 天气统计
 
@@ -464,8 +465,13 @@ class Planner:
         self.plans += 1
         elapsed = _time.monotonic() - started
         self.plan_seconds += elapsed
-        print(f"observer: plan #{self.plans} [{solve.__name__[12:]}] bins={len(bins)} tiles={len(rows)} priced={len(mu)} "
-              f"open_rate={open_rate:.3f} took={elapsed:.1f}s total={self.plan_seconds:.1f}s", file=sys.stderr, flush=True)
+        if self.on_event is not None:
+            self.on_event("planning", {"plans": self.plans, "solver": solve.__name__, "bins": len(bins),
+                                       "tiles": len(rows), "priced_tiles": len(mu), "open_rate": open_rate,
+                                       "plan_ms": round(elapsed * 1000, 3), "plan_s": round(self.plan_seconds, 3)})
+        else:
+            print(f"observer: plan #{self.plans} [{solve.__name__[12:]}] bins={len(bins)} tiles={len(rows)} priced={len(mu)} "
+                  f"open_rate={open_rate:.3f} took={elapsed:.1f}s total={self.plan_seconds:.1f}s", file=sys.stderr, flush=True)
 
 
 def subgradient_python(rows, capacity, v_max, cap_max, iterations, average=0):

@@ -187,6 +187,39 @@ describe("telemetry worker", () => {
     }
   });
 
+  it("keeps the upstream deadline active until a streamed body finishes", async () => {
+    const oldUrl = runtimeEnv.LLM_UPSTREAM_URL;
+    const oldTimeout = runtimeEnv.LLM_UPSTREAM_TIMEOUT_MS;
+    runtimeEnv.LLM_UPSTREAM_URL = "https://provider.test/v1";
+    runtimeEnv.LLM_UPSTREAM_TIMEOUT_MS = "500";
+    let aborted = false;
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(stream) {
+          stream.enqueue(new TextEncoder().encode("data: first\n\n"));
+          init?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            stream.error(new Error("upstream aborted"));
+          });
+        },
+      });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }));
+    try {
+      const response = await call("/v1/chat/completions", {
+        method: "POST",
+        headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+        body: JSON.stringify({ model: "team-model", messages: [{ role: "user", content: "hello" }], stream: true }),
+      });
+      await expect(response.text()).rejects.toThrow();
+      expect(aborted).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      runtimeEnv.LLM_UPSTREAM_URL = oldUrl;
+      runtimeEnv.LLM_UPSTREAM_TIMEOUT_MS = oldTimeout;
+    }
+  });
+
   it("rejects an unadvertised oversized chat body before completing the stream", async () => {
     const request = new Request("https://telemetry.test/v1/chat/completions", {
       method: "POST",

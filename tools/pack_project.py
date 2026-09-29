@@ -9,7 +9,8 @@
 - 代码：源目录里的 *.py 与 params.json（若有），原样复制；
 - numpy：给了 --wheels 时把其中的 *.whl 放进 wheels/，构建阶段安装到可写的 .deps/；装不上再尝试联网安装，仍失败也不中止，
   agent 自动退回纯 Python 规划器（两条路径逐位相同，只是更慢）；
-- telemetry.config.json：默认写入不含密钥的遥测配置。模型顾问和遥测可以共用一个 OpenAI-compatible
+- observability.config.json：observer 的本地追踪、远程遥测、事件开关统一配置；public_once 继续使用 telemetry.config.json。
+  模型顾问和遥测可以共用一个 OpenAI-compatible
   Worker；Worker 按 `gosim26.telemetry` tool 标记消费遥测，其余请求代理到真实模型端点。
 - ZIP 内文件按名字排序、时间戳固定，同样的输入得到同样的 sha256。
 - 生成前会按平台规则检查 manifest、相对路径、敏感文件、符号链接、文件数量和展开体积；先在临时目录完成并验证，
@@ -48,7 +49,7 @@ ENV_TEMPLATES = {".env.example", ".env.sample", ".env.template"}
 
 README = """# Agentic Observer：{name}
 
-GOSIM 2026 巡天智能体参赛项目。确定性规划器生成安全候选；可用模型代理时，模型在计划自适应和
+GOSIM 2026 巡天智能体参赛项目。确定性规划器生成安全候选；可用模型代理时，模型在周方案规划和
 行动决策两个运行时环节选择候选。调用失败或输出非法时回退到确定性首选。
 
 - 入口 `main.py`：JSON-Lines 协议循环（participant-agent-protocol-v2）。协议层容忍未知的消息类型和版本，同一序号的请求重发时原样重放响应。
@@ -57,12 +58,14 @@ GOSIM 2026 巡天智能体参赛项目。确定性规划器生成安全候选；
 - `planner.py`：天区 → 未来 1 小时时段分配问题的对偶价格（次梯度法），得到每块天区的机会价值。
   规划时计入每周天气预报（`events.py`）。有 numpy 时走向量化路径，与纯 Python 路径逐位相同。
 - `model_advisor.py`：通过平台的 `OPENAI_BASE_URL`、`OPENAI_API_KEY` 调用模型代理；每环节最多四次，
-  单次默认最多十八秒、生成上限 4096 token，连续三次失败后停用。行动次选的优先级差距上限为 5%；非确定性候选还要达到
-  0.85 的概率门槛才会被接受，顾问选择和概率分布写入逐步追踪。
+  单次默认超时十八秒；正式打包配置将生成上限设为 2048 token，连续三次失败后停用。每次周发布时从两个真实规划方案中选择，
+  每夜行动从正收益候选中选择。行动次选的优先级差距上限为 5%；非确定性候选还要达到 0.85 的概率门槛。
+  模型调用、Token 用量、首 token 延迟、输出速率、回退和概率分布分别记为服务事件。
 - `geometry.py`：与官方公式一致的几何与日历。
 
 构建：离线安装 `wheels/` 里的 numpy 到可写的 `.deps/`；失败时退回纯 Python，结果不变，只是更慢。
-遥测默认开启：包内只有 Worker 地址、传输方式和逐步追踪开关等非机密配置。`OPENAI_BASE_URL` /
+观测默认开启：`observability.config.json` 统一管理本地日志、远程投递、事件开关和 checkpoint 频率。
+包内只有 Worker 地址等非机密配置。`OPENAI_BASE_URL` /
 `OPENAI_API_KEY` 可以同时供模型顾问和带标记的遥测请求使用；显式 `TELEMETRY_URL` /
 `TELEMETRY_TOKEN` 仍可覆盖遥测路由。无遥测密钥时逐步追踪仍写入 `agent.log`。网络失败会丢弃事件且不影响策略；密钥不会写入日志。
 「参赛」页的模型端点可指向已配置真实推理上游的共享 Worker；隐藏评测前还须选择加密保存 Worker 访问令牌。
@@ -227,7 +230,7 @@ def build(
         raise SystemExit(f"ZIP 输出路径不是普通文件: {zip_path}")
 
     sources = sorted(agent.glob("*.py"), key=lambda path: path.name)
-    for optional in (agent / "params.json", agent / "llm.config.json"):
+    for optional in (agent / "params.json", agent / "llm.config.json", agent / "observability.config.json"):
         if optional.exists():
             sources.append(optional)
     if telemetry_source is not None and not any(path.name == "telemetry.py" for path in sources):
@@ -310,16 +313,33 @@ def build(
             wheel_dir.mkdir()
             for wheel in found_wheels:
                 shutil.copy2(wheel, wheel_dir / wheel.name)
-        (staging / "telemetry.config.json").write_text(json.dumps({
-            "enabled": bool(telemetry_enabled),
-            "transport": "openai",
-            "url": telemetry_url,
-            "model": "telemetry-ack",
-            "trace": agent.name != "public_once",
-            "timeout_seconds": 5.0 if agent.name == "public_once" else 3.0,
-            "queue_size": 1024,
-            "batch_size": 16,
-        }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if agent.name == "observer":
+            source_config = json.loads((agent / "observability.config.json").read_text(encoding="utf-8"))
+            local = source_config.get("local") or {}
+            remote = source_config.get("remote") or {}
+            events = source_config.get("events") or {}
+            config = {
+                "schema": "gosim26.observability.v1",
+                "local": {"enabled": bool(telemetry_enabled and local.get("enabled", True)),
+                          "checkpoint_every": int(local.get("checkpoint_every", 100))},
+                "remote": {"enabled": bool(telemetry_enabled and remote.get("enabled", True)),
+                           "transport": "openai", "url": telemetry_url, "model": "telemetry-ack",
+                           **{name: remote[name] for name in (
+                               "timeout_seconds", "queue_size", "batch_size", "retries", "backoff_seconds",
+                               "drain_timeout_seconds", "final_timeout_seconds") if name in remote}},
+                "events": {name: bool(value) for name, value in events.items() if name in {
+                    "runtime", "telemetry_config", "initialize", "policy_config", "weekly_plan", "planning", "planning_state", "model_request",
+                    "decision_trace", "checkpoint", "protocol_error", "policy_error", "warning", "feedback_read", "final",
+                    "final_delivery", "telemetry_final"}},
+            }
+            (staging / "observability.config.json").write_text(
+                json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        else:
+            (staging / "telemetry.config.json").write_text(json.dumps({
+                "enabled": bool(telemetry_enabled), "transport": "openai", "url": telemetry_url,
+                "model": "telemetry-ack", "timeout_seconds": 5.0,
+                "queue_size": 1024, "batch_size": 16,
+            }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         (staging / MANIFEST_NAME).write_bytes(manifest_bytes)
         (staging / "README.md").write_text(PUBLIC_README if agent.name == "public_once" else README.format(name=agent.name),
                                             encoding="utf-8")

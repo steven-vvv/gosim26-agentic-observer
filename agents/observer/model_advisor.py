@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import os
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -43,6 +44,7 @@ class AdvisorConfig:
     top_p: float = 1.0
     selection_mode: str = "guided"
     min_alternative_probability: float = 0.85
+    stream: bool = False
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -110,6 +112,7 @@ class ModelAdvisor:
         *,
         config: AdvisorConfig | None = None,
         transport: Any | None = None,
+        on_event: Any | None = None,
     ) -> None:
         supplied = config or AdvisorConfig(model=model, timeout=timeout)
         self.config = supplied
@@ -126,6 +129,8 @@ class ModelAdvisor:
         self.failures = 0
         self.consecutive_failures = 0
         self.stage_calls: dict[str, int] = {}
+        self.usage_totals = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        self.on_event = on_event
         self.last_outcome: dict[str, Any] = {
             "available": bool(self.url and self.key and supplied.enabled),
             "choice": None,
@@ -179,6 +184,7 @@ class ModelAdvisor:
             min_alternative_probability=_as_float(
                 pick("OBSERVER_MODEL_MIN_ALTERNATIVE_PROBABILITY", 0.85), 0.85, 0.0, 1.0
             ),
+            stream=_as_bool(pick("OBSERVER_MODEL_STREAM", False), False),
         )
         return cls(url, key, config.model, config.timeout, config=config)
 
@@ -204,6 +210,7 @@ class ModelAdvisor:
             "selection_mode": self.config.selection_mode,
             "min_alternative_probability": self.config.min_alternative_probability,
             "last_outcome": dict(self.last_outcome),
+            "usage_totals": dict(self.usage_totals),
         }
 
     @staticmethod
@@ -251,34 +258,114 @@ class ModelAdvisor:
         dynamic = {
             "schema": "gosim26.observer.advice.v2",
             "stage": stage,
+            "live_state": dict(context),
             "deterministic_choice": deterministic,
             "candidates": list(options),
-            "live_state": dict(context),
         }
         encoded = json.dumps(dynamic, ensure_ascii=True, separators=(",", ":"))
         self.context_bytes = len(encoded.encode("utf-8"))
-        self.context_truncated = self.context_bytes > self.config.max_context_bytes
-        if self.context_truncated:
-            # Preserve the decision-critical fields when a provider or proxy
-            # imposes a smaller body limit. The omission is explicit.
-            dynamic["live_state"] = {
-                "schema": context.get("schema"),
-                "night_id": context.get("night_id"),
-                "decision_sequence": context.get("decision_sequence"),
-                "deterministic_choice": deterministic,
-                "context_truncated": True,
-            }
+        if self.context_bytes > self.config.max_context_bytes:
+            raise AdviceError("context_too_large")
         return {
             "model": self.model,
             "temperature": self.config.temperature,
             "top_p": self.config.top_p,
             "max_tokens": self.config.max_tokens,
-            "stream": False,
+            "stream": self.config.stream,
             "messages": [
                 {"role": "system", "content": self._SYSTEM_PROMPT},
                 {"role": "user", "content": json.dumps(dynamic, ensure_ascii=True, separators=(",", ":"))},
             ],
-        }
+        } | ({"stream_options": {"include_usage": True}} if self.config.stream else {})
+
+    @staticmethod
+    def _usage(value: Any) -> dict[str, int] | None:
+        if not isinstance(value, Mapping):
+            return None
+        result = {}
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            item = value.get(key)
+            if isinstance(item, int) and not isinstance(item, bool) and item >= 0:
+                result[key] = item
+        return result or None
+
+    def _read_stream(self, response: Any, started: float, metrics: dict[str, Any]) -> dict[str, Any]:
+        content: list[str] = []
+        finish_reason = None
+        completed = False
+        data_lines: list[str] = []
+
+        def process_event() -> None:
+            nonlocal finish_reason, completed
+            if not data_lines:
+                return
+            data = "\n".join(data_lines)
+            data_lines.clear()
+            if data == "[DONE]":
+                completed = True
+                return
+            try:
+                chunk = json.loads(data)
+            except ValueError as exc:
+                raise AdviceError("invalid_stream_json") from exc
+            if not isinstance(chunk, dict):
+                raise AdviceError("invalid_stream_chunk")
+            metrics["usage"] = self._usage(chunk.get("usage")) or metrics["usage"]
+            choices = chunk.get("choices")
+            if not isinstance(choices, list) or not choices:
+                return
+            first = choices[0]
+            if not isinstance(first, dict):
+                raise AdviceError("invalid_stream_chunk")
+            delta = first.get("delta")
+            text = delta.get("content") if isinstance(delta, dict) else None
+            reasoning = delta.get("reasoning_content") if isinstance(delta, dict) else None
+            if isinstance(delta, dict) and not reasoning:
+                reasoning = delta.get("reasoning")
+            if (((isinstance(text, str) and text) or (isinstance(reasoning, str) and reasoning)) and
+                    metrics["generation_ttft_ms"] is None):
+                metrics["generation_ttft_ms"] = round((time.perf_counter() - started) * 1000, 3)
+            if isinstance(text, str) and text:
+                if metrics["ttft_ms"] is None:
+                    metrics["ttft_ms"] = round((time.perf_counter() - started) * 1000, 3)
+                content.append(text)
+            finish_reason = first.get("finish_reason") or finish_reason
+
+        while True:
+            raw_line = response.readline(self.config.max_response_bytes - metrics["response_bytes"] + 1)
+            if not raw_line:
+                break
+            if not isinstance(raw_line, bytes):
+                raise AdviceError("invalid_stream_line")
+            metrics["response_bytes"] += len(raw_line)
+            if metrics["response_bytes"] > self.config.max_response_bytes:
+                raise AdviceError("response_too_large")
+            if (time.perf_counter() - started) > self.timeout:
+                raise AdviceError("request_deadline_exceeded")
+            if metrics["first_byte_ms"] is None:
+                metrics["first_byte_ms"] = round((time.perf_counter() - started) * 1000, 3)
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line:
+                process_event()
+                if completed:
+                    break
+            elif line.startswith("data:"):
+                data_lines.append(line[5:].lstrip())
+        if data_lines:
+            process_event()
+        if not completed:
+            raise AdviceError("incomplete_stream")
+        return {"choices": [{"finish_reason": finish_reason, "message": {"content": "".join(content)}}],
+                "usage": metrics["usage"]}
+
+    def _notify(self, outcome: dict[str, Any], sequence: Any) -> None:
+        if self.on_event is None:
+            return
+        event = {**outcome, "decision_sequence": sequence, "model": self.model}
+        try:
+            self.on_event(event)
+        except Exception as exc:  # noqa: BLE001  # diagnostics may never affect the policy
+            LOG.debug("model diagnostics callback failed: %s", type(exc).__name__)
 
     def _fallback(self, stage: str, deterministic: str | None, reason: str) -> None:
         self.last_outcome = {
@@ -313,15 +400,23 @@ class ModelAdvisor:
 
         self.stage_calls[stage] = used + 1
         self.calls += 1
+        started = time.perf_counter()
+        request_bytes = 0
+        metrics = {"response_bytes": 0, "first_byte_ms": None, "ttft_ms": None,
+                   "generation_ttft_ms": None, "usage": None}
+        usage = None
+        usage_accounted = False
         try:
             body = self._request_body(stage, options, context)
+            encoded = json.dumps(body, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+            request_bytes = len(encoded)
             request = urllib.request.Request(
                 self.url or "",
-                data=json.dumps(body, ensure_ascii=True, separators=(",", ":")).encode("utf-8"),
+                data=encoded,
                 headers={
                     "Authorization": f"Bearer {self.key}",
                     "Content-Type": "application/json",
-                    "Accept": "application/json",
+                    "Accept": "text/event-stream" if self.config.stream else "application/json",
                     "User-Agent": "gosim26-observer/1",
                     "X-GOSIM26-Request-ID": uuid.uuid4().hex,
                 },
@@ -329,10 +424,19 @@ class ModelAdvisor:
             )
             transport = self._transport or urllib.request.urlopen
             with transport(request, timeout=self.timeout) as response:
-                raw = response.read(self.config.max_response_bytes + 1)
-            if len(raw) > self.config.max_response_bytes:
-                raise AdviceError("response_too_large")
-            payload = json.loads(raw.decode("utf-8"))
+                if self.config.stream and hasattr(response, "readline"):
+                    payload = self._read_stream(response, started, metrics)
+                else:
+                    raw = response.read(self.config.max_response_bytes + 1)
+                    metrics["response_bytes"] = len(raw)
+                    if metrics["response_bytes"] > self.config.max_response_bytes:
+                        raise AdviceError("response_too_large")
+                    payload = json.loads(raw.decode("utf-8"))
+            usage = self._usage(payload.get("usage") if isinstance(payload, dict) else None)
+            if usage:
+                for key, value in usage.items():
+                    self.usage_totals[key] += value
+                usage_accounted = True
             choices = payload.get("choices") if isinstance(payload, dict) else None
             if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
                 raise AdviceError("missing_choice")
@@ -350,6 +454,9 @@ class ModelAdvisor:
                 raise AdviceError("invalid_probabilities")
             self.successes += 1
             self.consecutive_failures = 0
+            duration_ms = round((time.perf_counter() - started) * 1000, 3)
+            completion_tokens = usage.get("completion_tokens") if usage else None
+            generation_ttft_ms = metrics["generation_ttft_ms"]
             self.last_outcome = {
                 "stage": stage,
                 "available": True,
@@ -357,11 +464,28 @@ class ModelAdvisor:
                 "deterministic_choice": deterministic,
                 "probabilities": probabilities,
                 "fallback": False,
-                "latency_ms": None,
+                "duration_ms": duration_ms,
+                "first_byte_ms": metrics["first_byte_ms"],
+                "ttft_ms": metrics["ttft_ms"],
+                "generation_ttft_ms": generation_ttft_ms,
+                "output_tokens_per_second": (round(completion_tokens * 1000 / max(duration_ms - generation_ttft_ms, 1), 3)
+                                             if completion_tokens is not None and generation_ttft_ms is not None else None),
+                "usage": usage,
+                "request_bytes": request_bytes,
+                "response_bytes": metrics["response_bytes"],
+                "stream": self.config.stream,
                 "context_bytes": self.context_bytes,
                 "context_truncated": self.context_truncated,
             }
             if self.config.selection_mode == "deterministic":
+                self.last_outcome["accepted_choice"] = None
+                self._notify(self.last_outcome, context.get("decision_sequence"))
+                return None
+            eligible = context.get("eligible_choices")
+            if isinstance(eligible, list) and choice not in eligible:
+                self.last_outcome["safety_override"] = True
+                self.last_outcome["accepted_choice"] = None
+                self._notify(self.last_outcome, context.get("decision_sequence"))
                 return None
             if (
                 self.config.selection_mode == "guided"
@@ -371,16 +495,34 @@ class ModelAdvisor:
             ):
                 self.last_outcome["guided_override"] = True
                 self.last_outcome["accepted_choice"] = None
+                self._notify(self.last_outcome, context.get("decision_sequence"))
                 return None
             self.last_outcome["accepted_choice"] = choice
+            self._notify(self.last_outcome, context.get("decision_sequence"))
             return choice
         except Exception as exc:  # noqa: BLE001  # network, provider, and schema failures all fail closed
             self.failures += 1
             self.consecutive_failures += 1
+            usage = usage or metrics["usage"]
+            if usage and not usage_accounted:
+                for key, value in usage.items():
+                    self.usage_totals[key] += value
             reason = (str(exc) if isinstance(exc, AdviceError) else
                       f"http_{exc.code}" if isinstance(exc, urllib.error.HTTPError) else type(exc).__name__)
             self._fallback(stage, deterministic, reason)
-            LOG.warning("model advice failed at %s: %s", stage, reason)
+            self.last_outcome.update({
+                "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+                "first_byte_ms": metrics["first_byte_ms"],
+                "ttft_ms": metrics["ttft_ms"],
+                "generation_ttft_ms": metrics["generation_ttft_ms"],
+                "usage": usage,
+                "request_bytes": request_bytes,
+                "response_bytes": metrics["response_bytes"],
+                "stream": self.config.stream,
+            })
+            self._notify(self.last_outcome, context.get("decision_sequence"))
+            if self.on_event is None:
+                LOG.warning("model advice failed at %s: %s", stage, reason)
             return None
 
 

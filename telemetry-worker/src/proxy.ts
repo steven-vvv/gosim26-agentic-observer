@@ -46,17 +46,42 @@ export async function proxyChatCompletion(
       if (value) responseHeaders.set(name, value);
     }
     responseHeaders.set("x-gosim26-route", "llm-proxy");
-    return new Response(upstream.body, {
+    if (!upstream.body) {
+      clearTimeout(timer);
+      return new Response(null, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
+    }
+    const reader = upstream.body.getReader();
+    const boundedBody = new ReadableStream<Uint8Array>({
+      async pull(stream) {
+        try {
+          const chunk = await reader.read();
+          if (chunk.done) {
+            clearTimeout(timer);
+            stream.close();
+          } else {
+            stream.enqueue(chunk.value);
+          }
+        } catch (error) {
+          clearTimeout(timer);
+          stream.error(error);
+        }
+      },
+      async cancel(reason) {
+        clearTimeout(timer);
+        controller.abort();
+        await reader.cancel(reason);
+      },
+    });
+    return new Response(boundedBody, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers: responseHeaders,
     });
   } catch (error) {
+    clearTimeout(timer);
     if (error instanceof Error && error.name === "AbortError") {
       throw new RequestError(504, "llm_upstream_timeout", "LLM upstream request timed out");
     }
     throw new RequestError(502, "llm_upstream_error", "LLM upstream request failed");
-  } finally {
-    clearTimeout(timer);
   }
 }

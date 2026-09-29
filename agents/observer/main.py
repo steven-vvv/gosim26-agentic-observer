@@ -13,7 +13,6 @@ import json
 import re
 import sys
 import time
-import traceback
 from pathlib import Path
 
 try:
@@ -38,7 +37,7 @@ if str(AGENT_DIR) not in sys.path:
 
 from policy import ObserverPolicy, epoch, load_params
 from protocol import ACCEPTED_PROTOCOL_VERSIONS, ACCEPTED_SNAPSHOT_VERSIONS, INITIAL_PUBLICATION_VERSION, decision_response
-from telemetry import RunSummary, TelemetryReporter, TerminalStep, runtime_payload
+from telemetry import Observability, RunSummary, TerminalStep, runtime_payload
 
 WAIT = {"action": "wait", "tile_id": "", "program": "", "request_id": "", "decision_source": "deterministic"}
 SEQUENCE = re.compile(r'"decision_sequence"\s*:\s*(\d+)')
@@ -73,18 +72,17 @@ def _runtime_fields() -> dict:
     return runtime_payload()
 
 
-def telemetry(event: str, **fields) -> None:
-    """Emit one compact, machine-readable diagnostic line to stderr only."""
-    payload = {"event": event, **fields}
-    print(f"observer: telemetry {json.dumps(payload, sort_keys=True, separators=(',', ':'))}",
-          file=sys.stderr, flush=True)
+_observability: Observability | None = None
 
 
 def warn(key: str, text: str) -> None:
     """同一类警告只写一次，免得每轮都刷一行。"""
     if key not in _warned:
         _warned.add(key)
-        print(f"observer: warning: {text}", file=sys.stderr, flush=True)
+        if _observability is not None:
+            _observability.emit("warning", {"key": key, "message": text})
+        else:
+            print(f"observer: warning: {text}", file=sys.stderr, flush=True)
 
 
 def fallback(snapshot: dict, policy: ObserverPolicy | None) -> dict:
@@ -100,8 +98,9 @@ def fallback(snapshot: dict, policy: ObserverPolicy | None) -> dict:
             band = policy._band(policy._quality(weather, c["geometry"])) if policy else "BACKUP"
             return {"action": "observe", "tile_id": str(c["tile_id"]), "program": band, "request_id": "",
                     "reason": "fallback after policy error", "decision_source": "deterministic"}
-    except Exception:  # noqa: BLE001
-        traceback.print_exc(file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        if _observability is not None:
+            _observability.emit("policy_error", {"stage": "fallback", "reason": type(exc).__name__})
     return {**WAIT, "reason": "fallback after policy error"}
 
 
@@ -114,8 +113,12 @@ def respond(sequence: int, decision: dict, version) -> str:
 
 
 def main() -> None:
+    global _observability
     params = load_params(AGENT_DIR)
-    reporter = TelemetryReporter.from_env(AGENT_DIR / "telemetry.config.json")
+    config_path = AGENT_DIR / "observability.config.json"
+    observability = Observability.from_env(config_path if config_path.exists() else AGENT_DIR / "telemetry.config.json")
+    _observability = observability
+    reporter = observability.reporter
     atexit.register(reporter.close)
     policy = None
     sent: dict = {}  # decision_sequence -> 已发出的响应行；一场约 1,500 条，全部保留
@@ -127,18 +130,15 @@ def main() -> None:
     terminal = TerminalStep()
     finished = False
     runtime = _runtime_fields()
-    telemetry("runtime", **runtime)
-    telemetry("telemetry_config", **reporter.status())
-    if reporter.enabled:
-        reporter.emit("telemetry_config", reporter.status())
-        reporter.emit("runtime", runtime)
+    observability.emit("runtime", runtime)
+    observability.emit("telemetry_config", observability.status())
 
     def finish(response_pending: bool = False) -> None:
         nonlocal finished
         if finished:
             return
         finished = True
-        reporter.close(timeout=2.0)
+        reporter.close(timeout=reporter.drain_timeout)
         planner = getattr(policy, "planner", None)
         report = {
             **counters,
@@ -150,11 +150,11 @@ def main() -> None:
             "summary": summary.report(),
             "runtime": runtime,
             "telemetry_status": reporter.status(),
+            "model_status": policy.advisor.status() if policy is not None else None,
             "final_response_pending": response_pending,
         }
-        telemetry("final", **report)
-        delivered = reporter.send_final(report, sequence=counters["decisions"], wait_seconds=5.0)
-        telemetry("final_delivery", remote_delivered=delivered, **reporter.status())
+        delivered = observability.send_final(report, sequence=counters["decisions"])
+        observability.emit("final_delivery", {"remote_delivered": delivered, **reporter.status()}, remote=False)
 
     for line in sys.stdin:
         if not line.strip():
@@ -168,10 +168,11 @@ def main() -> None:
                 raise TypeError("message is not a JSON object")
         except Exception as exc:  # noqa: BLE001
             counters["parse_errors"] += 1
+            observability.emit("protocol_error", {"kind": "invalid_json", "reason": type(exc).__name__})
             # 坏掉的请求也要回：否则平台一直等到时钟耗尽。能从原文认出序号就回等待
             match = SEQUENCE.search(line) if '"decision_request"' in line else None
-            print(f"observer: warning: unreadable message ({exc}); "
-                  f"{'answering wait' if match else 'ignored'}", file=sys.stderr, flush=True)
+            observability.emit("warning", {"key": "invalid_json", "reason": type(exc).__name__,
+                                            "action": "answer_wait" if match else "ignored"})
             if match and int(match.group(1)) not in sent:
                 sequence = int(match.group(1))
                 sent[sequence] = respond(sequence, {**WAIT, "reason": "unreadable request"}, None)
@@ -188,11 +189,7 @@ def main() -> None:
                 warn("init-payload", "initialize without an object payload; ignored")
                 continue
             catalog = payload.get("tile_catalog") or {}
-            telemetry("initialize", protocol=version, schema=payload.get("schema_version"),
-                      tiles=len(catalog.get("tiles") or []), regions=len(catalog.get("region_ids") or []),
-                      required=len(catalog.get("required_tile_ids") or []),
-                      calendar_nights=(payload.get("calendar") or {}).get("night_count"))
-            reporter.emit("initialize", {
+            observability.emit("initialize", {
                 "protocol": version,
                 "schema_version": payload.get("schema_version"),
                 "tiles": len(catalog.get("tiles") or []),
@@ -206,15 +203,23 @@ def main() -> None:
             payload.pop("target_catalog", None)  # 约 40 万行、占内存约 250 MB，策略用不到
             try:
                 policy = ObserverPolicy(payload, params)
-            except Exception:  # noqa: BLE001
-                traceback.print_exc(file=sys.stderr)
+                policy.advisor.on_event = lambda event: observability.emit(
+                    "model_request", event, sequence=event.get("decision_sequence")
+                    if isinstance(event.get("decision_sequence"), int) else None)
+                policy.on_plan = lambda event: observability.emit(
+                    "weekly_plan", event, sequence=event.get("decision_sequence")
+                    if isinstance(event.get("decision_sequence"), int) else None)
+                policy.on_event = lambda event, payload: observability.emit(event, payload)
+            except Exception as exc:  # noqa: BLE001
+                observability.emit("policy_error", {"stage": "initialize", "reason": type(exc).__name__})
                 policy = None
+            observability.emit("policy_config", params)
             sent.clear()
-            print(f"observer: params={json.dumps(params, sort_keys=True)}", file=sys.stderr, flush=True)
             last_io_at = time.perf_counter()
             continue
         if kind != "decision_request":
             counters["unknown_messages"] += 1
+            observability.emit("protocol_error", {"kind": "unknown_message", "message_type": str(kind)[:96]})
             warn(f"kind:{kind}", f"ignoring unknown message_type {kind!r}")
             continue
         try:
@@ -234,8 +239,7 @@ def main() -> None:
                 "stdout_ms": round((time.perf_counter() - replay_started) * 1000.0, 3),
                 "response_bytes": len(sent[sequence].encode("utf-8")),
             }
-            telemetry("decision_trace", **replay_trace)
-            reporter.emit("decision_trace", replay_trace, sequence=sequence)
+            observability.emit("decision_trace", replay_trace, sequence=sequence)
             last_io_at = time.perf_counter()
             if not emitted:
                 return
@@ -245,6 +249,11 @@ def main() -> None:
             finished = False
         counters["decisions"] += 1
         decision_started = time.perf_counter()
+        previous_model_calls = getattr(getattr(policy, "advisor", None), "calls", 0)
+        previous_planner = getattr(policy, "planner", None)
+        previous_plans = getattr(previous_planner, "plans", 0)
+        previous_plan_s = getattr(previous_planner, "plan_seconds", 0.0)
+        previous_planning = getattr(policy, "planning", None)
         if not isinstance(payload, dict):
             decision = {**WAIT, "reason": "decision_request without an object payload"}
         else:
@@ -252,14 +261,27 @@ def main() -> None:
                 warn(f"snapshot:{payload.get('schema_version')}", f"unknown snapshot schema {payload.get('schema_version')!r}")
             try:
                 decision = policy.decide(payload) if policy else fallback(payload, None)
-            except Exception:  # noqa: BLE001
-                traceback.print_exc(file=sys.stderr)
+            except Exception as exc:  # noqa: BLE001
+                observability.emit("policy_error", {"stage": "decision", "sequence": sequence,
+                                                    "reason": type(exc).__name__}, sequence=sequence)
                 decision = fallback(payload, policy)
         policy_ms = (time.perf_counter() - decision_started) * 1000.0
         response_started = time.perf_counter()
         sent[sequence] = respond(sequence, decision, version)
         response_ms = (time.perf_counter() - response_started) * 1000.0
         planner = getattr(policy, "planner", None)
+        new_plans = getattr(planner, "plans", 0) - previous_plans
+        if new_plans > 0:
+            observability.emit("planning", {
+                "decision_sequence": sequence,
+                "plans_delta": new_plans,
+                "plan_ms_delta": round((getattr(planner, "plan_seconds", 0.0) - previous_plan_s) * 1000, 3),
+                "horizon_nights": getattr(policy, "p", {}).get("plan_horizon_nights"),
+                "replan_interval_seconds": getattr(policy, "advised_every", None),
+                "weekly_plan": getattr(policy, "weekly_plan", None),
+            }, sequence=sequence)
+        if previous_planning is True and getattr(policy, "planning", None) is False:
+            observability.emit("planning_state", {"decision_sequence": sequence, "enabled": False}, sequence=sequence)
         advisor = getattr(policy, "advisor", None)
         advisor_status = advisor.status() if advisor is not None and hasattr(advisor, "status") else {}
         trace = {
@@ -275,10 +297,17 @@ def main() -> None:
             "candidate_count": len(payload.get("candidate_tiles") or []) if isinstance(payload, dict) else 0,
             "active_request_count": len(payload.get("active_requests") or []) if isinstance(payload, dict) else 0,
             "action": decision.get("action"),
+            "reports_count": len(decision.get("reports") or []),
+            "report_kinds": [report.get("kind") for report in decision.get("reports") or []
+                             if isinstance(report, dict)],
             "decision_source": decision.get("decision_source"),
             "model_calls": getattr(getattr(policy, "advisor", None), "calls", 0),
             "model_failures": getattr(getattr(policy, "advisor", None), "failures", 0),
-            "model_advice": advisor_status.get("last_outcome", {}),
+            "model_calls_delta": getattr(getattr(policy, "advisor", None), "calls", 0) - previous_model_calls,
+            "model_advice": advisor_status.get("last_outcome", {}) if
+                            getattr(getattr(policy, "advisor", None), "calls", 0) > previous_model_calls else {},
+            "weekly_plan": getattr(policy, "weekly_plan", None),
+            "weekly_plan_source": getattr(policy, "weekly_plan_source", None),
             "planning": getattr(policy, "planning", None),
             "plans": getattr(planner, "plans", 0),
             "plan_s": round(getattr(planner, "plan_seconds", 0.0), 3),
@@ -288,8 +317,7 @@ def main() -> None:
         is_terminal = isinstance(payload, dict) and terminal.is_final(payload, decision)
         if is_terminal:
             summary.add(trace)
-            telemetry("decision_trace", **trace)
-            reporter.emit("decision_trace", trace, sequence=sequence)
+            observability.emit("decision_trace", trace, sequence=sequence)
             finish(response_pending=True)
         stdout_started = time.perf_counter()
         emitted = emit(sent[sequence])
@@ -297,16 +325,12 @@ def main() -> None:
         counters["responses"] += 1
         if not is_terminal:
             summary.add(trace)
-            telemetry("decision_trace", **trace)
-            reporter.emit("decision_trace", trace, sequence=sequence)
+            observability.emit("decision_trace", trace, sequence=sequence)
         last_io_at = time.perf_counter()
         if not emitted:
             return
-        if not is_terminal and counters["decisions"] % 100 == 0:
-            telemetry("checkpoint", **counters, wall_s=round(time.monotonic() - started, 3),
-                      cpu_s=_cpu_seconds(), rss_kib=_rss_kib(),
-                      plans=getattr(planner, "plans", 0), plan_s=round(getattr(planner, "plan_seconds", 0.0), 3))
-            reporter.emit("checkpoint", {
+        if not is_terminal and counters["decisions"] % observability.checkpoint_every == 0:
+            observability.emit("checkpoint", {
                 **counters,
                 "wall_s": round(time.monotonic() - started, 3),
                 "cpu_s": _cpu_seconds(),
@@ -316,7 +340,7 @@ def main() -> None:
             }, sequence=counters["decisions"])
     finish()
     reporter.close(timeout=0.2)
-    telemetry("telemetry_final", **reporter.status())
+    observability.emit("telemetry_final", reporter.status(), remote=False)
 
 
 def emit(text: str) -> bool:
