@@ -48,6 +48,16 @@ dist/
 result_temp/*
 !result_temp/README.md
 
+# Version-isolated v4 inputs and reproducible artifacts.
+/v4/cards/*
+!/v4/cards/README.md
+!/v4/results/
+/v4/results/*
+!/v4/results/README.md
+!/v4/dist/
+/v4/dist/*
+!/v4/dist/README.md
+
 # Cloudflare telemetry worker local state and credentials
 telemetry-worker/node_modules/
 telemetry-worker/.wrangler/

@@ -7,6 +7,7 @@
 | `docs/` | 平台五个说明页面的 Markdown 存档（中英文），见 `docs/README.md` |
 | `data/` | 平台公开数据快照：排行榜、决赛场景公开文件、入门包原件，见 `data/README.md` |
 | `kit/` | 官方入门包解压副本（只读参考；本地评测用它的 `local_runner.py` 与评分器） |
+| `v4/` | 独立的 v4 实现、评测工具、分阶段实验规格和生成产物；见 `v4/README.md`。现有 v3 目录在正式停用前保持原路径 |
 | `agents/observer/` | 我们的确定性策略（工作副本）：`main.py` 入口，`policy.py` 决策，`planner.py` 对偶价格规划，`geometry.py` 几何与日历，`protocol.py` 原样取自官方 kit |
 | `agents/obs*/` | 冻结的实验快照；`params.json` 只覆盖与默认值不同的参数。`obs17` 是最近一次已冻结的策略快照（寒潮期在线效率修正，见 `notes/2026-09-25-obs17.md`）；`obs16` 是 obs15 加上规划器计入每周天气预报（见 `notes/2026-09-25-obs16.md`）。它们不含当前的遥测与逐步追踪代码 |
 | `dist/` | 本地生成的提交包、择优组合和 Playground CSV；均不进入版本库，可分别用 `tools/pack_project.py`、`tools/build_portfolio.py`、`tools/zero_score.py` 重建 |

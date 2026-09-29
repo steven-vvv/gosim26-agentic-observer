@@ -25,4 +25,5 @@ extend-exclude = ["agents/*/protocol.py"]
 
 [tool.pytest.ini_options]
 # runs/ 下保留有需要位置参数的实验脚本，不应被默认测试收集。
-testpaths = ["tests", "telemetry-worker/client"]
+testpaths = ["tests", "telemetry-worker/client", "v4/tests"]
+pythonpath = ["."]
