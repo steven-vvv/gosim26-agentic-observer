@@ -103,12 +103,12 @@ def variant_config(name: str) -> tuple[dict, tuple | None]:
     return load(ROOT / "v4" / "agent" / "config.json", patch or None), oracle
 
 
-def _run(card: Path, output: Path, name: str, source: str) -> dict:
-    # Workers are forked after the agent modules were imported, so later edits on disk
-    # cannot leak into a running experiment; the parent's source hash is recorded.
+def _run(card: Path, output: Path, name: str, source: str, prepared: tuple) -> dict:
+    # Workers are forked after the agent modules were imported and receive configurations
+    # read at start-up, so later edits on disk cannot leak into a running experiment.
     if (output / "summary.json").is_file():
         return json.loads((output / "summary.json").read_text(encoding="utf-8"))
-    config, oracle = variant_config(name)
+    config, oracle = prepared
     factory = None
     if oracle is not None and oracle[0] == "fault":
         starts = fault_starts(card)
@@ -148,12 +148,13 @@ def main():
     cards = [ROOT / "v4" / "cards" / spec["name"] for spec in specs]
     base = ROOT / "v4" / "results" / "research" / args.tag
     source = source_sha256()
-    jobs = [(card, base / name / card.name, name, source) for card in cards for name in args.variants]
+    prepared = {name: variant_config(name) for name in args.variants}
+    jobs = [(card, base / name / card.name, name, source, prepared[name]) for card in cards for name in args.variants]
     context = multiprocessing.get_context("fork")
     with concurrent.futures.ProcessPoolExecutor(max_workers=args.jobs, mp_context=context) as pool:
         futures = {pool.submit(_run, *job): job for job in jobs}
         for future in concurrent.futures.as_completed(futures):
-            card, _, name, _ = futures[future]
+            card, _, name, _, _ = futures[future]
             summary = future.result()
             print(json.dumps({"card": card.name, "variant": name, "total": summary["total"],
                               "required_missing": summary["counts"]["required_missing"],

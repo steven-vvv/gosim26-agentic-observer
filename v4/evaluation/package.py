@@ -30,7 +30,9 @@ def sources(wheels: Path) -> dict[str, bytes]:
         path = ROOT / "agents" / "observer" / f"{name}.py"
         if path.is_symlink() or not path.is_file():
             raise ValueError(f"missing shared service: {path}")
-        result[f"observer4/vendor/{name}.py"] = path.read_bytes()
+        # Shared clients are part of the agent's own code: the LLM advisor must stay visible
+        # to the organizers' code review, which skips directories named "vendor".
+        result[f"observer4/llm/{name}.py"] = path.read_bytes()
     for arch in ARCHES:
         found = list(wheels.glob(f"numpy-{VERSION}-cp312-cp312-*{arch}.whl"))
         if len(found) != 1 or found[0].is_symlink():
@@ -42,11 +44,7 @@ def sources(wheels: Path) -> dict[str, bytes]:
         f"python3 -m pip install --disable-pip-version-check --no-index --find-links wheels --target .deps 'numpy=={VERSION}'",
     ]]
     result["observer.project.json"] = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
-    result["README.md"] = (
-        b"# Observer v4\n\n"
-        b"JSONL v4 survey agent. Build installs the bundled Python 3.12 NumPy wheel offline. "
-        b"No scenario truth, generated card, or credential is included.\n"
-    )
+    result["README.md"] = (AGENT / "PACKAGE_README.md").read_bytes()
     return result
 
 

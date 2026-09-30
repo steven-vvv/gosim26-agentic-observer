@@ -14,7 +14,8 @@ def load_client(name: str):
     if qualified in sys.modules:
         return sys.modules[qualified]
     here = Path(__file__).resolve().parent
-    candidates = [here / "vendor" / f"{name}.py", here.parents[2] / "agents" / "observer" / f"{name}.py"]
+    candidates = [here / "llm" / f"{name}.py", here / "vendor" / f"{name}.py",
+                  here.parents[2] / "agents" / "observer" / f"{name}.py"]
     path = next((path for path in candidates if path.is_file()), None)
     if path is None:
         return None

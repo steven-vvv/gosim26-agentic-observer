@@ -20,6 +20,9 @@
     "adaptive_durations": true,
     "budget_reserve_seconds": 5.0,
     "free_center": true,
+    "adaptive_margin": false,
+    "opportunity_weight": 0.0,
+    "margin_floor_deg": 0.012,
     "pace_budget": true,
     "level_safety_z": 1.5,
     "program_uncertainty_floor": 0.05

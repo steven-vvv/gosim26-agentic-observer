@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
+import numpy as np
+
 from .advice import ModelGuidance
 from .domain import Task
 from .geometry import format_utc, parse_utc
@@ -29,6 +31,7 @@ class Observer:
         self.revision = engine_revision(publication)
         self.instrument = InstrumentMonitor(self.task, config["fault"], self.revision)
         self.quality.attach(self.instrument)
+        self.planner.instrument = self.instrument
         self.fault_mode = config["fault"].get("mode", "legacy")
         self.instrument_enabled = True
         self.level_errors = []
@@ -76,6 +79,8 @@ class Observer:
             self._guarded(self.instrument.report_result, outcome)
             self.emit("report_result", {"correct": bool(outcome.get("correct")), **self.instrument.status()})
         self.quality.messages(snapshot, now)
+        if self.planner.opportunity is not None:
+            self.planner.opportunity.forecast(snapshot)
         for message in snapshot.get("new_messages", []):
             if message.get("record_type") == "state_resync":
                 self.emit("state_resync", self.state.resync(message))
@@ -143,6 +148,14 @@ class Observer:
         self.decisions += 1
         self.decision_seconds += time.perf_counter() - started
         return action
+
+    def _level_error_summary(self) -> dict:
+        errors = np.array([error for error, _ in self.level_errors], dtype=float)
+        if not len(errors):
+            return {"count": 0}
+        return {"count": len(errors), "mean": round(float(np.mean(errors)), 4),
+                "sd": round(float(np.std(errors)), 4),
+                "p05": round(float(np.percentile(errors, 5)), 4), "p95": round(float(np.percentile(errors, 95)), 4)}
 
     def _guarded(self, function, *args):
         """Run an optional evidence model; a failure falls back to the frozen behaviour."""
@@ -215,6 +228,6 @@ class Observer:
             "quality": self.quality.status(),
             "pointing": self.pointing.status(),
             "instrument": self.instrument.status(),
-            "level_errors": self.level_errors[-2000:],
+            "level_errors": self._level_error_summary(),
             "model": self.guidance.status(),
         }

@@ -276,6 +276,12 @@ class InstrumentMonitor:
     def segment(self) -> list[dict]:
         return [r for r in self.records[self.segment_start:] if r["level"] is not None]
 
+    def sky_levels(self, limit: int = 600) -> np.ndarray:
+        """Recent log(efficiency * sky) levels with the instrument at its nominal state."""
+        prior = math.log(float(self.settings.get("instrument_prior", 0.95)))
+        values = [r["level"] - self.log_eff(r) + prior for r in self.records[-limit:] if r["level"] is not None]
+        return np.array(values)
+
     def sky_level(self) -> float | None:
         """log(site weather) of the latest level: level minus modelled efficiency."""
         levels = [r for r in self.records[-64:] if r["level"] is not None]

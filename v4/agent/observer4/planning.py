@@ -18,6 +18,7 @@ from .geometry import (
     to_equatorial,
     wrap180,
 )
+from .opportunity import OpportunityModel
 
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
 
@@ -84,6 +85,13 @@ class Planner:
         weight = self.settings.get("scarcity_weight", 0)
         self.scarcity = (scarcity_multipliers(task.visibility, task.required, task.minimum_exposure, weight)
                          if weight else None)
+        self.instrument = None
+        self.opportunity = None
+        if self.settings.get("opportunity_weight", 0.0) > 0:
+            try:
+                self.opportunity = OpportunityModel(task, self.settings)
+            except Exception:  # noqa: BLE001 - the deadline urgency remains available
+                self.opportunity = None
         self.last_trace = {}
         self.pending = None
         self.alternatives = []
@@ -179,12 +187,20 @@ class Planner:
         else:
             self._rate_profile = None
         reach = np.minimum(1, rate * np.minimum(np.minimum(task.maximum_exposure, setting_seconds), left))
+        self._last_reach, self._last_directional = reach, directional * terrain_free
         mult = np.array([task.scoring["program"]["multipliers"][name] for name in PROGRAMS])
         mismatch = task.scoring["program"]["mismatch_multiplier"]
         expected_mult = mismatch + (mult[:, None] - mismatch) * probabilities
         threshold = float(task.scoring["required"]["observed_factor_threshold"])
         incomplete = task.required & (state.factor_lower < threshold)
         urgency = 1.0 + settings["deadline_weight"] / np.maximum(1, task.last_night - night_index + 1)
+        if self.opportunity is not None and self.instrument is not None:
+            try:
+                chances = self.opportunity.urgency(night_index, self.instrument.sky_levels(), threshold,
+                                                   float(settings["opportunity_weight"]))
+                urgency = np.where(task.required, chances, urgency)
+            except Exception:  # noqa: BLE001 - keep the deadline urgency
+                self.opportunity = None
         setting_boost = 1.0 + 0.35 * np.maximum(0, ha / np.maximum(1, task.hmax))
         if settings.get("score_marginal", False):
             science = np.max(expected_science_gains(reach[None, :], task.weight, state.best_score,
@@ -200,6 +216,7 @@ class Planner:
         priority = (science + required) * urgency * setting_boost * directional * terrain_free
         priority *= np.maximum(0.25, 0.80 ** np.minimum(state.misses, 6))
         priority = np.where(visible & (task.last_night >= night_index), priority, 0)
+        self._last_priority = priority
         pool = np.flatnonzero(priority > 1e-8)
         if not len(pool):
             self.last_trace = {"reason": "no_positive_visible_target"}
@@ -210,6 +227,11 @@ class Planner:
         # Budget pacing uses measured time in the runtime; this is a predictable fallback.
         count = self._paced_anchors(now, night_index, remaining_wallclock)
         uniformity = state.uniformity_gain() * settings["uniformity_weight"]
+        glass_margin = settings["glass_margin_deg"]
+        if settings.get("adaptive_margin", False):
+            # A target only leaves its cell through pointing error; once hits pin the offset
+            # down, the edge penalty shrinks to the remaining uncertainty.
+            glass_margin = min(glass_margin, self.pointing.uncertainty + settings.get("margin_floor_deg", 0.012))
         finalists = []
         used = []
         fields_checked = 0
@@ -239,7 +261,7 @@ class Planner:
             fibers, margin, _, _ = task.grid.classify(vectors[near], ca, cz)
             fields_checked += len(ca)
             geometry_weight = np.where(fibers >= 0, 1.0, 0.0)
-            geometry_weight *= np.where(margin >= settings["glass_margin_deg"], 1.0, 0.45)
+            geometry_weight *= np.where(margin >= glass_margin, 1.0, 0.45)
             durations = self._durations(rate[near], incomplete[near], left)
             if not len(durations):
                 continue
