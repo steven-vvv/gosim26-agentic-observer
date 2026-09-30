@@ -64,6 +64,52 @@ def oracle_terrain(observer: Observer, sectors) -> None:
     quality.direction_factors = direction_factors
 
 
+def sector_events(card: Path) -> list[tuple]:
+    with (card / "truth" / "v4_events.csv").open(newline="", encoding="utf-8") as stream:
+        rows = [row for row in csv.DictReader(stream) if row["scope_type"] == "HORIZON_SECTOR"
+                and row["event_type"] != "terrain_obstruction"]
+    result = []
+    for r in rows:
+        weather = float(r["transparency_multiplier"]) * float(r["sky_quality_multiplier"]) / float(r["seeing_multiplier"])
+        factor = 0.0 if r["event_type"] == "rocket_launch" else weather
+        result.append((_utc(r["actual_start_utc"]), _utc(r["actual_end_utc"]), float(r["azimuth_start_deg"]),
+                       float(r["azimuth_end_deg"]), float(r["max_altitude_deg"]), factor))
+    return result
+
+
+def oracle_sectors(observer: Observer, events) -> None:
+    """Replace the announced weather-sector envelope (x0.4) by the true sectors and factors."""
+    quality, planner = observer.quality, observer.planner
+    original = quality.direction_factors
+    plan = planner.plan
+    clock = {"now": 0.0}
+
+    def timed_plan(now, *args, **kwargs):
+        clock["now"] = now
+        return plan(now, *args, **kwargs)
+
+    def direction_factors(altitude, azimuth):
+        saved = quality.notices
+        quality.notices = {pair for pair in saved if pair[1] == "ALL"}
+        try:
+            factor, _ = original(altitude, azimuth)
+        finally:
+            quality.notices = saved
+        # The full call keeps the measurement masks (clean, local and notice) unchanged.
+        _, clean = original(altitude, azimuth)
+        alt, az = np.asarray(altitude), np.asarray(azimuth)
+        now = clock["now"]
+        for start, end, a0, a1, top, value in events:
+            if not start <= now + 450.0 < end:
+                continue
+            inside = ((az >= a0) & (az <= a1) if a0 <= a1 else (az >= a0) | (az <= a1)) & (alt <= top)
+            factor = np.where(inside, factor * value, factor)
+        return factor, clean
+
+    quality.direction_factors = direction_factors
+    planner.plan = timed_plan
+
+
 class OracleFault(Observer):
     """Report at the first decision at least ``delay`` seconds after each true fault start."""
 
@@ -91,6 +137,7 @@ VARIANTS = {
     "oracle-fault-1n": ({"fault": {"enabled": False}}, ("fault", 86400.0)),
     "oracle-fault-3n": ({"fault": {"enabled": False}}, ("fault", 3 * 86400.0)),
     "oracle-terrain": ({}, ("terrain", 0.0)),
+    "oracle-sectors": ({}, ("sectors", 0.0)),
 }
 
 
@@ -114,6 +161,13 @@ def _run(card: Path, output: Path, name: str, source: str, prepared: tuple) -> d
         starts = fault_starts(card)
         factory = lambda publication, record: OracleFault(
             publication, config, record, starts=starts, delay=oracle[1])
+    elif oracle is not None and oracle[0] == "sectors":
+        events = sector_events(card)
+
+        def factory(publication, record):
+            observer = Observer(publication, config, record)
+            oracle_sectors(observer, events)
+            return observer
     elif oracle is not None and oracle[0] == "terrain":
         sectors = terrain_sectors(card)
 

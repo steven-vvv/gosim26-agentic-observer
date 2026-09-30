@@ -1,1 +1,1 @@
-{"fault": {"mode": "legacy"}, "quality": {"level_model": false, "terrain_model": false}, "policy": {"free_center": false, "adaptive_margin": false, "opportunity_weight": 0.0}}
+{"fault": {"mode": "legacy"}, "quality": {"level_model": false, "terrain_model": false}, "policy": {"free_center": false, "adaptive_margin": false, "opportunity_weight": 0.0, "cluster_anchors": 0, "refine_top": 0}}
