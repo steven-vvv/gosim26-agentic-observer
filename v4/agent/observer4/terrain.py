@@ -124,8 +124,9 @@ class TerrainModel:
 
     def update(self, tracks, observations) -> int:
         """tracks: (az, alt) samples over each exposure; observations: (kind, value) with kind
-        "fraction" (exact unblocked fraction), "lower" (saturated lower bound) or "interval"
-        ((low, high) when the program multiplier of the target is unknown).
+        "fraction" (exact unblocked fraction), "lower" (saturated lower bound), "interval"
+        ((low, high) when the program multiplier of the target is unknown) or "zero" (every
+        hit of the exposure scored zero, so a dome closure is the alternative explanation).
 
         Each direction's particles are weighted with the other directions held at their
         current posterior coverage (mean field), since blocked light has one combined cause.
@@ -150,7 +151,11 @@ class TerrainModel:
                 predicted = np.mean((1.0 - covered) * others[None, :], axis=1)
                 low, high = value if kind == "interval" else ((value, 1.0) if kind == "lower" else (value, value))
                 miss = np.maximum(0.0, low - predicted) + np.maximum(0.0, predicted - high)
-                sector["log_weight"] += -0.5 * (miss / noise) ** 2
+                if kind == "zero":
+                    closure = float(self.settings.get("terrain_closure_probability", 0.03))
+                    sector["log_weight"] += np.log(closure + (1.0 - closure) * np.exp(-0.5 * (miss / noise) ** 2))
+                else:
+                    sector["log_weight"] += -0.5 * (miss / noise) ** 2
                 sector["log_weight"] -= np.max(sector["log_weight"])
             used += 1
         if used:

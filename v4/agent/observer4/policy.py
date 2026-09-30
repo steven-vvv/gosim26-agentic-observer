@@ -30,6 +30,7 @@ class Observer:
         self.instrument = InstrumentMonitor(self.task, config["fault"], self.revision)
         self.quality.attach(self.instrument)
         self.fault_mode = config["fault"].get("mode", "legacy")
+        self.instrument_enabled = True
         self.level_errors = []
         self.pending = None
         self.last_trace = {}
@@ -65,14 +66,14 @@ class Observer:
             samples = self.state.feedback(result, self.pending)
             self.pointing.feedback(self.pending, result)
             self.quality.update(samples, self.pending, now, self.pending["night"])
-            self._instrument_record(result, bulletins)
+            self._guarded(self._instrument_record, result, bulletins)
         self.pending = None
-        self.instrument.notices(bulletins, now)
+        self._guarded(self.instrument.notices, bulletins, now)
         outcomes = [m for m in messages if m.get("record_type") == "report_result"]
         if not outcomes and result and result.get("action") == "report" and "correct" in result:
             outcomes = [result]
         for outcome in outcomes:
-            self.instrument.report_result(outcome)
+            self._guarded(self.instrument.report_result, outcome)
             self.emit("report_result", {"correct": bool(outcome.get("correct")), **self.instrument.status()})
         self.quality.messages(snapshot, now)
         for message in snapshot.get("new_messages", []):
@@ -105,16 +106,18 @@ class Observer:
                 self.planner.set_strategy(strategy, model_selected=self.guidance.weekly_plan["source"] == "model")
             if self.guidance.weekly_plan["source"] == "model":
                 self.decision_source = "model-v4"
+            evidence = None
             if self.fault_mode == "monitor":
-                evidence = self.instrument.decide(now, night)
+                evidence = self._guarded(self.instrument.decide, now, night)
                 if evidence:
                     self.instrument.reported(evidence, now, night)
                     evidence = {key: value for key, value in evidence.items() if key != "before"}
-            else:
+            if self.fault_mode != "monitor":
                 evidence = self.quality.report_evidence(now)
+                if evidence:
+                    self.quality.reported(now)
             if evidence:
                 self.emit("fault_report", {"now_utc": snapshot["now_utc"], **evidence})
-                self.quality.reported(now)
                 action = {"action": "report"}
             elif self.quality.zero_observes >= 2:
                 self.quality.zero_observes = 0
@@ -141,6 +144,19 @@ class Observer:
         self.decision_seconds += time.perf_counter() - started
         return action
 
+    def _guarded(self, function, *args):
+        """Run an optional evidence model; a failure falls back to the frozen behaviour."""
+        if not self.instrument_enabled:
+            return None
+        try:
+            return function(*args)
+        except Exception as error:  # noqa: BLE001 - optional models must not stop the survey
+            self.instrument_enabled = False
+            self.fault_mode = "legacy"
+            self.quality.monitor = None
+            self.emit("instrument_disabled", {"error_type": type(error).__name__, "detail": str(error)[:200]})
+            return None
+
     def _instrument_record(self, result: dict, bulletins: list[dict]) -> None:
         pending = self.pending
         start = pending["start"]
@@ -162,7 +178,11 @@ class Observer:
         reference = self.instrument.reference_level(pending["night"], signature, start)
         record = build_record(self.task, pending, hits, signature, self.revision >= 2, reference, mixed=mixed)
         self.instrument.add(record)
-        self.quality.terrain_evidence(record, pending, self.task, directions)
+        try:
+            self.quality.terrain_evidence(record, pending, self.task, directions)
+        except Exception as error:  # noqa: BLE001 - fall back to the announced-sector envelope
+            self.quality.terrain_model = None
+            self.emit("terrain_disabled", {"error_type": type(error).__name__, "detail": str(error)[:200]})
         if pending.get("predicted_level") is not None and record["level"] is not None:
             self.level_errors.append((round(record["level"] - pending["predicted_level"][0], 4),
                                       pending["predicted_level"][1]))

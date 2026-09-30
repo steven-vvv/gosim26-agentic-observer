@@ -65,11 +65,15 @@ class QualityModel:
         clean = np.ones_like(alt, dtype=bool)
         self.terrain_free = np.ones_like(alt, dtype=float)
         if self.terrain_model is not None:
-            # A blocked target scores nothing, so the free probability scales expected gains;
-            # fault levels keep the conservative envelope.
-            self.terrain_free = 1.0 - self.terrain_model.blocked_probability(az, alt)
-            clean &= ~self.terrain_model.envelope(az, alt)
-        else:
+            try:
+                # A blocked target scores nothing, so the free probability scales expected
+                # gains; fault levels keep the conservative envelope.
+                self.terrain_free = 1.0 - self.terrain_model.blocked_probability(az, alt)
+                clean &= ~self.terrain_model.envelope(az, alt)
+            except Exception:  # noqa: BLE001 - fall back to the announced-sector envelope
+                self.terrain_model = None
+                self.terrain_free = np.ones_like(alt, dtype=float)
+        if self.terrain_model is None:
             for direction in self.terrain:
                 if direction in DIRECTIONS:
                     near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 58.0
@@ -222,17 +226,18 @@ class QualityModel:
         predicted = pending.get("predicted_level")
         if level is None and predicted is not None and predicted[1] <= float(self.settings.get("terrain_sigma", 0.08)):
             level = predicted[0]
-        if level is None:
-            return 0
-        if record["zero"] and np.any(record["hit"] & record["clean"]):
+        all_zero = bool(record["zero"])
+        if all_zero and np.any(record["hit"] & record["clean"]):
             return 0  # a closed dome zeroes targets outside the envelope as well
+        if level is None and not all_zero:
+            return 0
         excluded = [DIRECTIONS[d] for d in extra_directions if d in DIRECTIONS]
         rows = pending["targets"]
         indices = record["indices"]
         program = task.scoring["program"]
         mismatch = float(program["mismatch_multiplier"])
         multipliers = (*[float(x) for x in program["multipliers"].values()], mismatch)
-        base = float(np.exp(level))
+        base = float(np.exp(level)) if level is not None else None
         steps = max(2, min(9, int(pending["duration"] // 450) + 2))
         times = pending["start"] + pending["duration"] * (np.arange(steps) + 0.5) / steps
         tracks, observations = [], []
@@ -251,7 +256,10 @@ class QualityModel:
                 continue
             score = float(record["scores"][j])
             ratio = score / float(task.weight[i])
-            if score <= 0:
+            if all_zero:
+                # Terrain or an unannounced dome closure; the update mixes both.
+                observation = ("zero", 0.0)
+            elif score <= 0:
                 observation = ("fraction", 0.0)
             elif any(abs(ratio - m) < 2e-5 for m in multipliers):
                 # Saturated: flux*t*base*k*open/(f0*t0) >= 1, and z/ratio = f0*t0/(flux*t*k).

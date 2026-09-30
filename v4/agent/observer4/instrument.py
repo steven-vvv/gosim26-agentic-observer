@@ -197,11 +197,14 @@ class InstrumentMonitor:
         self.quake_notice = False
         self.last_signature = None
         self.vetoes = 0
+        self.window_trusted = True
+        self.repairs = 0
         self.slot_offsets = np.cumsum([0] + [round((n.end - n.start) / task.slot_seconds) for n in task.nights])
         total = int(self.slot_offsets[-1])
         spread = float(settings.get("window_slots", 200))
         self.window = (total // 2 - spread, total // 2 + spread)
-        self.probes = [self.window[0] + (i + 1) * (self.window[1] - self.window[0]) / 3 for i in range(2)]
+        fractions = settings.get("probe_fractions", [0.67])
+        self.probes = [self.window[0] + float(f) * (self.window[1] - self.window[0]) for f in fractions]
 
     # -- clock --------------------------------------------------------------------
     def slot_index(self, now: float, night: int | None) -> float:
@@ -242,7 +245,7 @@ class InstrumentMonitor:
             self.segment_start = 1
         records.append(record)
         self._measure_quakes(record)
-        if self.pending is not None and record["level"] is not None:
+        if self.pending is not None and record["level"] is not None and self.revision < 2:
             self._verify(record)
 
     def _measure_quakes(self, record: dict) -> None:
@@ -389,10 +392,10 @@ class InstrumentMonitor:
                     return True
         return False
 
-    def _step(self) -> dict | None:
+    def _step(self, scale: float = 1.0) -> dict | None:
         levels = self.segment()
         reference_count = int(self.settings.get("reference_exposures", 2))
-        threshold = float(self.settings.get("step_threshold", 0.28))
+        threshold = scale * float(self.settings.get("step_threshold", 0.28))
         window = int(self.settings.get("step_window", 6))
         spread = float(self.settings.get("reference_spread", 0.2))
         for split in range(max(reference_count, len(levels) - window), len(levels) - 1):
@@ -412,7 +415,7 @@ class InstrumentMonitor:
                     return {"kind": "step", "reference": ref, "level": level, "drop": level - ref, "run": run}
         return None
 
-    def _cross_segment(self) -> dict | None:
+    def _cross_segment(self, scale: float = 1.0) -> dict | None:
         """Levels of a new segment against the latest comparable earlier levels."""
         levels = self.segment()
         if not levels or len(levels) > int(self.settings.get("cross_segment_exposures", 6)):
@@ -426,8 +429,8 @@ class InstrumentMonitor:
         previous = [r for r in earlier if r["night"] == earlier[-1]["night"]][-3:]
         sky_before = float(np.median([r["level"] - self.log_eff(r) for r in previous]))
         same_night = previous[-1]["night"] == first["night"]
-        threshold = float(self.settings.get("cross_segment_threshold" if same_night else "cross_night_threshold",
-                                            0.30 if same_night else 0.45))
+        threshold = scale * float(self.settings.get("cross_segment_threshold" if same_night else "cross_night_threshold",
+                                                    0.30 if same_night else 0.45))
         # Compare efficiency-corrected levels; the first record may straddle the change.
         shifted = [dict(r, level=r["level"] - self.log_eff(r)) for r in levels[1:]] if len(levels) > 2 else \
             [dict(r, level=r["level"] - self.log_eff(r)) for r in levels]
@@ -440,38 +443,65 @@ class InstrumentMonitor:
                 "level": float(np.median([r["level"] + self.log_eff(r) for r in run])), "drop": drop,
                 "run": originals}
 
-    def decide(self, now: float, night: int) -> dict | None:
-        """Return report evidence when a report is warranted now."""
-        if self.repaired or self.pending is not None or not self.settings.get("enabled", True):
+    def _detect(self, scale: float) -> dict | None:
+        evidence = self._step(scale) or self._cross_segment(scale)
+        if evidence is None:
             return None
-        paid = [r for r in self.reports if r.get("kind") != "probe"]
-        if len(paid) >= int(self.settings.get("maximum_reports", 4)):
-            return None
-        slot = self.slot_index(now, night)
-        early = slot < self.window[0] - float(self.settings.get("window_margin_slots", 36))
-        evidence = self._step()
-        if evidence is None and not early:
-            evidence = self._cross_segment()
-        if evidence is not None and evidence.get("run"):
-            llr, count = self.band_llr(evidence["run"], evidence["drop"])
+        run = evidence.pop("run", None)
+        if run:
+            llr, count = self.band_llr(run, evidence["drop"])
             evidence["band_llr"], evidence["band_targets"] = round(llr, 3), count
             if llr < -float(self.settings.get("band_veto", 3.0)):
                 self.vetoes += 1
-                evidence = None
-        if evidence is not None:
-            evidence.pop("run", None)
-        if evidence is not None and early and not self.free_left():
-            evidence = None if evidence["drop"] > -float(self.settings.get("early_threshold", 0.6)) else evidence
-        fallback_due = slot >= self.window[1] + float(self.settings.get("fallback_margin_slots", 4))
-        if (evidence is None and fallback_due and self.settings.get("window_fallback", True)
-                and not any(r.get("kind") == "fallback" for r in self.reports)):
-            evidence = {"kind": "fallback", "reference": None, "level": self._last_level(), "drop": 0.0}
-        if evidence is None and self.free_left() and self.settings.get("free_probes", True):
-            due = [p for p in self.probes if slot >= p and not any(r.get("probe") == p for r in self.reports)]
-            if due:
-                evidence = {"kind": "probe", "probe": due[0], "reference": None, "level": self._last_level(),
-                            "drop": 0.0}
+                return None
+        evidence["scale"] = scale
         return evidence
+
+    def decide(self, now: float, night: int) -> dict | None:
+        """Return report evidence when a report is warranted now.
+
+        The generator starts one fault uniformly within window_slots of the survey
+        midpoint, so a report before the window cannot be right and one after it cannot be
+        wrong. Free false reports (engine revision 2) buy weaker evidence and two probes.
+        """
+        if self.pending is not None or not self.settings.get("enabled", True):
+            return None
+        if self.repaired and not (self.revision >= 2 and self.free_left()):
+            return None
+        if len(self.reports) >= int(self.settings.get("maximum_reports", 6)):
+            return None
+        slot = self.slot_index(now, night)
+        trusted = self.window_trusted and not self.repaired
+        if trusted and slot < self.window[0] - float(self.settings.get("window_margin_slots", 2)):
+            return None
+        free = self.free_left()
+        evidence = self._detect(1.0)
+        if evidence is None and free:
+            evidence = self._detect(float(self.settings.get("probe_threshold_scale", 0.6)))
+        if evidence is not None and evidence["drop"] < -float(self.settings.get("maximum_fault_drop", 1.35)):
+            # No fault cuts efficiency this far, an unannounced aftershock can.
+            self._hidden_quake(evidence, now, night)
+            evidence = None
+        if evidence is not None and evidence["scale"] < 1.0 and not free:
+            evidence = None
+        if evidence is None and trusted:
+            fallback_due = slot >= self.window[1] + float(self.settings.get("fallback_margin_slots", 4))
+            if fallback_due and self.settings.get("window_fallback", True) and \
+                    not any(r.get("kind") == "fallback" for r in self.reports):
+                evidence = {"kind": "fallback", "reference": None, "level": self._last_level(), "drop": 0.0}
+            elif free and self.settings.get("free_probes", True):
+                due = [p for p in self.probes if slot >= p and not any(r.get("probe") == p for r in self.reports)]
+                if due:
+                    evidence = {"kind": "probe", "probe": due[0], "reference": None, "level": self._last_level(),
+                                "drop": 0.0}
+        return evidence
+
+    def _hidden_quake(self, evidence: dict, now: float, night: int) -> None:
+        quake = self.efficiency.quake_onset(now, night)
+        quake["d0"] = float(np.clip(1.0 - math.exp(evidence["drop"]), 0.02, 0.97))
+        quake["measured"] = True
+        quake["hidden"] = True
+        self.segment_start = len(self.records)
 
     def free_left(self) -> bool:
         return self.revision >= 2 and self.false_since_correct < self.free_allowance
@@ -497,6 +527,8 @@ class InstrumentMonitor:
             self._confirm(entry)
         else:
             self.false_since_correct += 1
+            if entry["kind"] == "fallback":
+                self.window_trusted = False  # the single-fault window does not hold on this card
             self._reject(entry)
 
     def _verify(self, record: dict) -> None:
@@ -531,18 +563,21 @@ class InstrumentMonitor:
             self._reject(entry)
 
     def _confirm(self, entry: dict) -> None:
-        self.repaired = not self.settings.get("keep_monitoring", False)
+        self.repaired = True
+        self.repairs += 1
         self.false_since_correct = 0
         self.efficiency.fault_log = 0.0
         self.segment_start = len(self.records)
 
     def _reject(self, entry: dict) -> None:
-        if entry["kind"] in ("step", "cross_segment", "cross_night") and entry["drop"] < 0:
-            # An unannounced efficiency cut that a report did not repair behaves like a
-            # hidden aftershock; keep the sky estimate continuous.
+        if entry["kind"] in ("step", "cross_segment", "cross_night") and entry["drop"] < 0 \
+                and entry.get("band_llr", 0.0) > float(self.settings.get("quake_band_llr", 1.0)):
+            # An efficiency cut that a report did not repair behaves like a hidden aftershock;
+            # program bands that kept their levels show the cut was not in the sky.
             quake = self.efficiency.quake_onset(entry["time"], entry["night"])
             quake["d0"] = float(np.clip(1.0 - math.exp(entry["drop"]), 0.02, 0.97))
             quake["measured"] = True
+            quake["hidden"] = True
         self.segment_start = len(self.records)
 
     def status(self) -> dict:
@@ -553,4 +588,5 @@ class InstrumentMonitor:
                 "gains": [round(r["gain"], 3) if r.get("gain") is not None else None for r in self.reports],
                 "quakes": [{"night": q["night"], "d0": round(q["d0"], 3)} for q in self.efficiency.quakes],
                 "window": [round(x, 1) for x in self.window], "revision": self.revision,
-                "free_allowance": self.free_allowance, "vetoes": self.vetoes}
+                "free_allowance": self.free_allowance, "vetoes": self.vetoes,
+                "window_trusted": self.window_trusted, "repairs": self.repairs}

@@ -145,11 +145,19 @@ class Planner:
         terrain_free = self.quality.terrain_free
         local_clean = self.quality.local_clean
         notice_clean = self.quality.notice_clean
-        predicted = self.quality.level_prediction(now, night_index)
+        try:
+            predicted = self.quality.level_prediction(now, night_index)
+        except Exception:  # noqa: BLE001 - the frozen quality scale remains available
+            self.quality.monitor, predicted = None, None
         zero_point = task.scoring["flux_zero_point"] * task.scoring["exposure_zero_point_seconds"]
         terrain = self.quality.terrain_model
         track = self._track(now, altitude, azimuth) if (predicted is not None or terrain is not None) else None
-        self._terrain_profile = self._terrain_track(track, terrain) if terrain is not None else None
+        self._terrain_profile = None
+        if terrain is not None:
+            try:
+                self._terrain_profile = self._terrain_track(track, terrain)
+            except Exception:  # noqa: BLE001 - fall back to the announced-sector envelope next plan
+                self.quality.terrain_model = None
         if predicted is None:
             base_quality = lunar_factors(
                 task.ra, task.dec, now + 450.0, task.latitude, task.longitude, task.scoring.get("lunar_model")
