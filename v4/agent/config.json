@@ -20,7 +20,7 @@
     "adaptive_durations": true,
     "budget_reserve_seconds": 5.0,
     "free_center": true,
-    "adaptive_margin": false,
+    "adaptive_margin": true,
     "opportunity_weight": 0.0,
     "margin_floor_deg": 0.012,
     "pace_budget": true,
@@ -34,8 +34,8 @@
     "instrument_prior": 0.95,
     "directional_notices": true,
     "weather_feedback": true,
-    "level_model": false,
-    "terrain_model": false
+    "level_model": true,
+    "terrain_model": true
   },
   "fault": {
     "enabled": true,
@@ -46,7 +46,7 @@
     "confirm_nights": 2,
     "maximum_reports": 3,
     "cooldown_hours": 24.0,
-    "mode": "legacy"
+    "mode": "monitor"
   },
   "observability": {
     "local_enabled": true,

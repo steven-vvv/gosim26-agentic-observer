@@ -1,1 +1,1 @@
-{"policy": {"free_center": false}}
+{"fault": {"mode": "legacy"}, "quality": {"level_model": false, "terrain_model": false}, "policy": {"free_center": false, "adaptive_margin": false, "opportunity_weight": 0.0}}

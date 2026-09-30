@@ -482,7 +482,7 @@ class InstrumentMonitor:
             return None
         if self.repaired and not (self.revision >= 2 and self.free_left()):
             return None
-        if len(self.reports) >= int(self.settings.get("maximum_reports", 6)):
+        if len(self.reports) >= int(self.settings.get("monitor_maximum_reports", 6)):
             return None
         slot = self.slot_index(now, night)
         trusted = self.window_trusted and not self.repaired
