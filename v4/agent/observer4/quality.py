@@ -12,6 +12,43 @@ from .terrain import TerrainModel
 
 DIRECTIONS = {"N": 0.0, "NE": 45.0, "E": 90.0, "SE": 135.0, "S": 180.0, "SW": 225.0, "W": 270.0, "NW": 315.0}
 
+# Announced sector events (generator): the centre lies uniformly within 22.5 deg of the
+# compass point, the width and top altitude are uniform in the ranges below, and weather
+# multipliers scale with a severity uniform in [0.55, 1].
+SECTOR_SHAPES = {
+    "weather": {"width": (40.0, 120.0), "top": (40.0, 80.0)},
+    "rocket_launch": {"width": (40.0, 80.0), "top": (30.0, 60.0)},
+}
+SECTOR_MULTIPLIERS = {"overcast": (0.55, 0.65, 1.25), "haze": (0.68, 0.72, 1.15)}
+
+
+def _mean_sector_factor(kind: str) -> float:
+    if kind == "rocket_launch":
+        return 0.0
+    transparency, sky, seeing = SECTOR_MULTIPLIERS.get(kind, SECTOR_MULTIPLIERS["overcast"])
+    severity = np.linspace(0.55, 1.0, 46)
+    value = (1 + severity * (transparency - 1)) * (1 + severity * (sky - 1)) / (1 + severity * (seeing - 1))
+    return float(np.mean(value))
+
+
+def _azimuth_inside(width) -> np.ndarray:
+    """P(|offset - centre| <= width/2) for offsets 0..180 deg, centre uniform in +-22.5."""
+    offsets = np.arange(181.0)[:, None, None]
+    centres = np.linspace(-22.5, 22.5, 91)[None, :, None]
+    halves = np.linspace(width[0], width[1], 81)[None, None, :] / 2
+    return np.mean(np.abs(offsets - centres) <= halves, axis=(1, 2))
+
+
+SECTOR_AZIMUTH = {name: _azimuth_inside(shape["width"]) for name, shape in SECTOR_SHAPES.items()}
+
+
+def sector_inside_probability(kind: str, offset, altitude):
+    shape = "rocket_launch" if kind == "rocket_launch" else "weather"
+    low, high = SECTOR_SHAPES[shape]["top"]
+    table = SECTOR_AZIMUTH[shape]
+    index = np.clip(np.rint(np.abs(offset)).astype(np.int64), 0, 180)
+    return table[index] * np.clip((high - np.asarray(altitude)) / (high - low), 0.0, 1.0)
+
 
 class QualityModel:
     def __init__(self, task, config: dict):
@@ -68,11 +105,20 @@ class QualityModel:
         for kind, direction in self.notices:
             if direction not in DIRECTIONS:
                 continue
-            near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 72.0
-            if kind == "rocket_launch":
-                factor[near & (alt < 62.0)] = 0.0
-            elif kind in {"rain", "overcast", "haze", "storm"}:
-                factor[(alt < 80.0) & near] *= 0.40
+            factor *= self._sector_factor(kind, direction, alt, az)
+        return factor
+
+    def _sector_factor(self, kind, direction, alt, az):
+        offset = (az - DIRECTIONS[direction] + 180) % 360 - 180
+        if self.settings.get("sector_prior", False) and kind in {"rain", "overcast", "haze", "storm", "rocket_launch"}:
+            inside = sector_inside_probability(kind, offset, alt)
+            return 1.0 - inside * (1.0 - _mean_sector_factor(kind))
+        factor = np.ones_like(alt, dtype=float)
+        near = np.abs(offset) <= 72.0
+        if kind == "rocket_launch":
+            factor[near & (alt < 62.0)] = 0.0
+        elif kind in {"rain", "overcast", "haze", "storm"}:
+            factor[(alt < 80.0) & near] = 0.40
         return factor
 
     def direction_factors(self, altitude, azimuth):
@@ -115,10 +161,7 @@ class QualityModel:
             affected = (alt < 80.0) & near
             clean[affected] = False
             self.local_clean[affected] = False
-            if kind == "rocket_launch":
-                factor[near & (alt < 62.0)] = 0.0
-            elif kind in {"rain", "overcast", "haze", "storm"}:
-                factor[affected] *= 0.40
+            factor *= self._sector_factor(kind, direction, alt, az)
         return factor, clean
 
     def update(self, samples: list[dict], pending: dict, now: float, night: int) -> dict:

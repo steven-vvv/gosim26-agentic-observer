@@ -43,7 +43,8 @@
     "directional_notices": true,
     "weather_feedback": true,
     "level_model": true,
-    "terrain_model": true
+    "terrain_model": true,
+    "sector_prior": false
   },
   "fault": {
     "enabled": true,
