@@ -126,7 +126,7 @@ class QualityModel:
             not settings["enabled"]
             or self.reports >= settings["maximum_reports"]
             or now - self.last_report < settings["cooldown_hours"] * 3600
-            or now < self.quake_until
+            or (settings.get("quake_cooldown", True) and now < self.quake_until)
             or any(direction == "ALL" for _, direction in self.notices)
         ):
             return None
@@ -137,7 +137,9 @@ class QualityModel:
         recent = history[-minimum:]
         if len({night for _, night, _ in recent}) < settings["confirm_nights"]:
             return None
-        if any(self.task.nights[night].date in self.forecast_weather_nights for _, night, _ in recent):
+        if settings.get("forecast_guard", True) and any(
+            self.task.nights[night].date in self.forecast_weather_nights for _, night, _ in recent
+        ):
             return None
         earlier = history[:-minimum]
         baseline = float(np.median([value for _, _, value in earlier]))
@@ -159,7 +161,7 @@ class QualityModel:
             "clean_samples": len(recent),
             "nights": len({night for _, night, _ in recent}),
             "dark_checks": len(dark),
-            "dark_matches": sum(dark),
+            "dark_matches": int(sum(dark)),
         }
 
     def reported(self, now: float) -> None:

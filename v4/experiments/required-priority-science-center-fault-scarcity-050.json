@@ -1,0 +1,16 @@
+{
+  "policy": {
+    "required_bonus": 200.0,
+    "required_safe_factor": 0.52,
+    "science_exponent": 1.0,
+    "refine_centers": true,
+    "scarcity_weight": 0.5
+  },
+  "fault": {
+    "minimum_samples": 48,
+    "confirm_nights": 2,
+    "drop_threshold": 0.50,
+    "forecast_guard": false,
+    "quake_cooldown": false
+  }
+}

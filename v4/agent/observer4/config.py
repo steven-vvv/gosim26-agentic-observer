@@ -106,3 +106,12 @@ def validate(config: dict) -> None:
     }.items():
         if any(type(config[section][name]) is not bool for name in fields):
             raise ValueError(f"boolean configuration required in {section}")
+    if "score_marginal" in config["policy"] and type(config["policy"]["score_marginal"]) is not bool:
+        raise ValueError("boolean configuration required for policy.score_marginal")
+    if "scarcity_weight" in config["policy"]:
+        value = config["policy"]["scarcity_weight"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 2:
+            raise ValueError("invalid configuration field: policy.scarcity_weight")
+    for name in ("forecast_guard", "quake_cooldown"):
+        if name in config["fault"] and type(config["fault"][name]) is not bool:
+            raise ValueError(f"boolean configuration required for fault.{name}")

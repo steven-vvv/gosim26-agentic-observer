@@ -7,6 +7,7 @@ import os
 
 import numpy as np
 
+from .planning import strategy_settings
 from .services import load_client
 
 
@@ -94,38 +95,47 @@ class ModelGuidance:
             "decision_sequence": sequence,
         }
 
+    def deterministic_strategy(self, night: int) -> str:
+        """Choose the public-state fallback at the start of each observing night."""
+        if self.policy["required_bonus"] >= 120.0 and self.policy["required_safe_factor"] <= 0.55:
+            return "coverage_focus"
+        remaining_fraction = (len(self.task.nights) - night) / len(self.task.nights)
+        missing_fraction = self.state.required_missing() / max(1, int(np.count_nonzero(self.task.required)))
+        return "coverage_focus" if missing_fraction > min(1.0, 1.2 * remaining_fraction) else "balanced"
+
     def weekly(self, snapshot: dict, night: int, remaining: float, sequence: int) -> str | None:
-        if not self.settings["enabled"]:
-            return None
         forecast = snapshot.get("latest_forecast") or {}
         issued = forecast.get("issued_at_utc")
         if not issued or issued == self.last_forecast:
             return None
         self.last_forecast = issued
-        task = self.task
-        remaining_fraction = (len(task.nights) - night) / len(task.nights)
-        missing_fraction = self.state.required_missing() / max(1, int(np.count_nonzero(task.required)))
-        deterministic = "coverage_focus" if missing_fraction > min(1.0, 1.2 * remaining_fraction) else "balanced"
-        options = [
-            {"id": "balanced", "required_bonus": self.policy["required_bonus"],
-             "required_safe_factor": self.policy["required_safe_factor"]},
-            {"id": "coverage_focus", "required_bonus": max(120.0, self.policy["required_bonus"]),
-             "required_safe_factor": min(0.55, self.policy["required_safe_factor"])},
-        ]
-        context = self.context(snapshot, night, remaining, sequence)
-        context.update(
-            {
-                "deterministic_choice": deterministic,
-                "eligible_choices": ["balanced", "coverage_focus"],
-                "planning_rule": "coverage_focus when conservative required deficit exceeds 1.2 times remaining night fraction",
-                "missing_required_fraction": round(missing_fraction, 6),
-                "remaining_night_fraction": round(remaining_fraction, 6),
-                "choice_prior_basis": "heuristic preference, not calibrated win probabilities",
-            }
-        )
-        options[0]["prior_probability"] = 0.98 if deterministic == "balanced" else 0.02
-        options[1]["prior_probability"] = 1 - options[0]["prior_probability"]
-        choice = self.advisor.choose("weekly_planning", options, context) if self.available(remaining) else None
+        remaining_fraction = (len(self.task.nights) - night) / len(self.task.nights)
+        missing_fraction = self.state.required_missing() / max(1, int(np.count_nonzero(self.task.required)))
+        deterministic = self.deterministic_strategy(night)
+        choice = None
+        if self.available(remaining):
+            options = []
+            for strategy in ("balanced", "coverage_focus"):
+                settings = strategy_settings(self.policy, strategy, model_selected=True)
+                options.append({"id": strategy, "required_bonus": settings["required_bonus"],
+                                "required_safe_factor": settings["required_safe_factor"]})
+            if (options[0]["required_bonus"], options[0]["required_safe_factor"]) != (
+                options[1]["required_bonus"], options[1]["required_safe_factor"]
+            ):
+                context = self.context(snapshot, night, remaining, sequence)
+                context.update(
+                    {
+                        "deterministic_choice": deterministic,
+                        "eligible_choices": ["balanced", "coverage_focus"],
+                        "planning_rule": "coverage_focus for an already strong base policy; otherwise when required deficit exceeds 1.2 times remaining night fraction",
+                        "missing_required_fraction": round(missing_fraction, 6),
+                        "remaining_night_fraction": round(remaining_fraction, 6),
+                        "choice_prior_basis": "heuristic preference, not calibrated win probabilities",
+                    }
+                )
+                options[0]["prior_probability"] = 0.98 if deterministic == "balanced" else 0.02
+                options[1]["prior_probability"] = 1 - options[0]["prior_probability"]
+                choice = self.advisor.choose("weekly_planning", options, context)
         selected = choice or deterministic
         self.weekly_plan = {"strategy": selected, "source": "model" if choice else "deterministic",
                             "forecast_issued_at_utc": issued, "night_index": night}
@@ -135,10 +145,12 @@ class ModelGuidance:
     def action(self, snapshot: dict, night: int, remaining: float, sequence: int, alternatives: list[dict]) -> int | None:
         if night in self.action_nights or len(alternatives) < 2 or not self.available(remaining):
             return None
-        self.action_nights.add(night)
         best, second = alternatives[:2]
         gap = max(0.0, (best["merit"] - second["merit"]) / max(best["merit"], 1e-9))
         eligible = gap <= self.settings["action_merit_tolerance"]
+        if not eligible:
+            return None
+        self.action_nights.add(night)
         preferred = min(0.995, 0.95 + 0.045 * min(1.0, gap / max(1e-9, self.settings["action_merit_tolerance"])))
         options = []
         for index, candidate in enumerate((best, second)):

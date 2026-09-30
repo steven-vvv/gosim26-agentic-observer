@@ -22,23 +22,74 @@ from .geometry import (
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
 
 
+def strategy_settings(policy: dict, strategy: str, *, model_selected: bool = False) -> dict:
+    settings = dict(policy)
+    if strategy == "coverage_focus":
+        settings["required_bonus"] = max(120.0, settings["required_bonus"])
+        settings["required_safe_factor"] = min(0.55, settings["required_safe_factor"])
+    elif strategy == "balanced":
+        if model_selected:
+            settings["required_bonus"] = min(120.0, settings["required_bonus"])
+            settings["required_safe_factor"] = max(0.55, settings["required_safe_factor"])
+    else:
+        raise ValueError("unknown weekly strategy")
+    return settings
+
+
+def fiber_totals(fibers: np.ndarray, gains: np.ndarray, weight: np.ndarray, count: int) -> np.ndarray:
+    """Sum the best target per fiber for each candidate center and duration."""
+    centers, targets = fibers.shape
+    labels = np.arange(centers)[:, None] * (count + 1) + np.where(fibers >= 0, fibers, count)
+    order = np.argsort(labels.ravel(), kind="stable")
+    sorted_labels = labels.ravel()[order]
+    starts = np.r_[0, np.flatnonzero(np.diff(sorted_labels)) + 1]
+    values = (gains.T[None, :, :] * weight[:, :, None]).reshape(-1, len(gains))[order]
+    maxima = np.maximum.reduceat(values, starts, axis=0)
+    sizes = np.diff(np.r_[starts, len(sorted_labels)])
+    # The old search included zero for every target outside a fiber.
+    maxima = np.where(sizes[:, None] < targets, np.maximum(maxima, 0), maxima)
+    totals = np.zeros((centers * (count + 1), len(gains)))
+    totals[sorted_labels[starts]] = maxima
+    totals = totals.reshape(centers, count + 1, len(gains))[:, :count]
+    return np.add.accumulate(totals, axis=1)[:, -1, :]
+
+
+def expected_science_gains(factors: np.ndarray, weights: np.ndarray, best: np.ndarray,
+                           probabilities: np.ndarray, multipliers: np.ndarray, mismatch: float) -> np.ndarray:
+    """Expected improvement of the public best score for each declared program."""
+    score = factors * weights[None, :]
+    baseline = np.maximum(0, score * mismatch - best[None, :])
+    matching = np.maximum(0, score[None, :, :] * multipliers[:, None, None] - best[None, None, :])
+    return probabilities[:, None, :] * matching + (1 - probabilities[:, None, :]) * baseline[None, :, :]
+
+
+def scarcity_multipliers(visibility: np.ndarray, required: np.ndarray, minimum: float, weight: float) -> np.ndarray:
+    """Weight required targets with fewer remaining public observing hours."""
+    future = np.cumsum(visibility[::-1], axis=0)[::-1]
+    pressure = np.ones_like(future)
+    for night, hours in enumerate(future):
+        available = required & (hours >= minimum)
+        if np.any(available):
+            typical = float(np.median(hours[available]))
+            pressure[night] += weight * (np.clip(typical / np.maximum(hours, minimum), 1.0, 3.0) - 1.0)
+    return pressure
+
+
 class Planner:
     def __init__(self, task, state, quality, pointing, config: dict):
         self.task, self.state, self.quality, self.pointing = task, state, quality, pointing
         self.config = config
         self.settings = config["policy"]
         task.prepare_neighbors(self.settings["neighbor_radius_deg"])
+        weight = self.settings.get("scarcity_weight", 0)
+        self.scarcity = (scarcity_multipliers(task.visibility, task.required, task.minimum_exposure, weight)
+                         if weight else None)
         self.last_trace = {}
         self.pending = None
         self.alternatives = []
 
-    def set_strategy(self, strategy: str) -> None:
-        self.settings = dict(self.config["policy"])
-        if strategy == "coverage_focus":
-            self.settings["required_bonus"] = max(120.0, self.settings["required_bonus"])
-            self.settings["required_safe_factor"] = min(0.55, self.settings["required_safe_factor"])
-        elif strategy != "balanced":
-            raise ValueError("unknown weekly strategy")
+    def set_strategy(self, strategy: str, *, model_selected: bool = False) -> None:
+        self.settings = strategy_settings(self.config["policy"], strategy, model_selected=model_selected)
 
     def plan(self, now: float, night_index: int, remaining_wallclock: float = 900.0) -> dict | None:
         self.alternatives = []
@@ -61,14 +112,25 @@ class Planner:
         rate = task.flux * base_quality * scale * directional * settings["quality_safety"]
         rate /= task.scoring["flux_zero_point"] * task.scoring["exposure_zero_point_seconds"]
         reach = np.minimum(1, rate * np.minimum(np.minimum(task.maximum_exposure, setting_seconds), left))
+        probabilities = self.quality.program_probabilities(base_quality)
+        mult = np.array([task.scoring["program"]["multipliers"][name] for name in PROGRAMS])
+        mismatch = task.scoring["program"]["mismatch_multiplier"]
+        expected_mult = mismatch + (mult[:, None] - mismatch) * probabilities
         threshold = float(task.scoring["required"]["observed_factor_threshold"])
         incomplete = task.required & (state.factor_lower < threshold)
         urgency = 1.0 + settings["deadline_weight"] / np.maximum(1, task.last_night - night_index + 1)
         setting_boost = 1.0 + 0.35 * np.maximum(0, ha / np.maximum(1, task.hmax))
-        science = task.weight * np.maximum(
-            0, reach ** settings["science_exponent"] - state.factor_estimate ** settings["science_exponent"]
+        if settings.get("score_marginal", False):
+            science = np.max(expected_science_gains(reach[None, :], task.weight, state.best_score,
+                                                    probabilities, mult, mismatch)[:, 0, :], axis=0)
+        else:
+            science = task.weight * np.maximum(
+                0, reach ** settings["science_exponent"] - state.factor_estimate ** settings["science_exponent"]
+            )
+        required_bonus = settings["required_bonus"] if self.scarcity is None else (
+            settings["required_bonus"] * self.scarcity[night_index]
         )
-        required = incomplete * (reach >= settings["required_safe_factor"]) * settings["required_bonus"]
+        required = incomplete * (reach >= settings["required_safe_factor"]) * required_bonus
         priority = (science + required) * urgency * setting_boost * directional
         priority *= np.maximum(0.25, 0.80 ** np.minimum(state.misses, 6))
         priority = np.where(visible & (task.last_night >= night_index), priority, 0)
@@ -83,10 +145,6 @@ class Planner:
         count = settings["anchors"]
         if remaining_wallclock < settings["budget_reserve_seconds"] + 15:
             count = min(count, 2)
-        probabilities = self.quality.program_probabilities(base_quality)
-        mult = np.array([task.scoring["program"]["multipliers"][name] for name in PROGRAMS])
-        mismatch = task.scoring["program"]["mismatch_multiplier"]
-        expected_mult = mismatch + (mult[:, None] - mismatch) * probabilities
         uniformity = state.uniformity_gain() * settings["uniformity_weight"]
         finalists = []
         used = []
@@ -118,10 +176,15 @@ class Planner:
             if not len(durations):
                 continue
             factors = np.minimum(1, durations[:, None] * rate[near])
-            science_gain = task.weight[near] * np.maximum(
-                0, factors ** settings["science_exponent"] - state.factor_estimate[near] ** settings["science_exponent"]
-            )
-            req_gain = incomplete[near][None, :] * (factors >= settings["required_safe_factor"]) * settings["required_bonus"]
+            if settings.get("score_marginal", False):
+                science_gain = expected_science_gains(factors, task.weight[near], state.best_score[near],
+                                                       probabilities[:, near], mult, mismatch)
+            else:
+                science_gain = task.weight[near] * np.maximum(
+                    0, factors ** settings["science_exponent"] - state.factor_estimate[near] ** settings["science_exponent"]
+                )
+            near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
+            req_gain = incomplete[near][None, :] * (factors >= settings["required_safe_factor"]) * near_bonus
             fairness = (
                 (state.factor_lower[near][None, :] < threshold) & (factors >= settings["required_safe_factor"])
             ) * uniformity[near]
@@ -129,21 +192,30 @@ class Planner:
             gains = np.where(durations[:, None] <= setting_seconds[near][None, :], gains, 0)
             if not np.any(gains > 0):
                 continue
-            # Choose a winner independently for every fiber at every duration, then sum.
-            total = np.zeros((len(ca), len(durations)))
-            for fiber in range(task.grid.n):
-                values = np.where(fibers[:, None, :] == fiber, gains[None, :, :] * geometry_weight[:, None, :], 0)
-                total += np.max(values, axis=2)
-            center_limit = np.array([self._center_up(float(a), float(z), lst) for a, z in zip(ca, cz)])
-            total = np.where(durations[None, :] <= center_limit[:, None], total, 0)
-            merit = total / durations[None, :]
+            if settings.get("score_marginal", False):
+                total = fiber_totals(fibers, gains.reshape(-1, len(near)), geometry_weight, task.grid.n)
+                total = total.reshape(len(ca), len(PROGRAMS), len(durations))
+            else:
+                total = fiber_totals(fibers, gains, geometry_weight, task.grid.n)
+            center_limit = self._centers_up(ca, cz, lst)
+            if settings.get("score_marginal", False):
+                total = np.where(durations[None, None, :] <= center_limit[:, None, None], total, 0)
+                merit = total / durations[None, None, :]
+            else:
+                total = np.where(durations[None, :] <= center_limit[:, None], total, 0)
+                merit = total / durations[None, :]
             flat = int(np.argmax(merit))
-            center_i, duration_i = np.unravel_index(flat, merit.shape)
-            value = float(merit[center_i, duration_i])
+            if settings.get("score_marginal", False):
+                center_i, program_i, duration_i = np.unravel_index(flat, merit.shape)
+                value = float(merit[center_i, program_i, duration_i])
+            else:
+                center_i, duration_i = np.unravel_index(flat, merit.shape)
+                program_i = None
+                value = float(merit[center_i, duration_i])
             if value <= 0 or (len(finalists) >= 6 and value <= finalists[-1]["merit"]):
                 continue
             selected = []
-            gain = gains[duration_i] * geometry_weight[center_i]
+            gain = gains[program_i, duration_i] * geometry_weight[center_i] if program_i is not None else gains[duration_i] * geometry_weight[center_i]
             for fiber in range(task.grid.n):
                 ids = np.flatnonzero((fibers[center_i] == fiber) & (gain > 0))
                 if len(ids):
@@ -154,6 +226,7 @@ class Planner:
                 "az": float(cz[center_i]),
                 "duration": int(durations[duration_i]),
                 "selected": selected,
+                "program_i": program_i,
             }
             finalists.append(candidate)
             finalists.sort(key=lambda entry: entry["merit"], reverse=True)
@@ -164,8 +237,11 @@ class Planner:
         for item in finalists:
             selected = np.array([i for _, i in item["selected"]], dtype=np.int32)
             exposure_factors = np.minimum(1, rate[selected] * item["duration"])
-            votes = np.sum((task.weight[selected] * exposure_factors)[None, :] * expected_mult[:, selected], axis=1)
-            program_i = int(np.argmax(votes))
+            if item["program_i"] is None:
+                votes = np.sum((task.weight[selected] * exposure_factors)[None, :] * expected_mult[:, selected], axis=1)
+                program_i = int(np.argmax(votes))
+            else:
+                program_i = item["program_i"]
             program = PROGRAMS[program_i]
             command_alt = item["alt"] - self.pointing.alt_offset
             command_az = (item["az"] - self.pointing.az_offset) % 360.0
@@ -223,6 +299,20 @@ class Planner:
         ra, dec = to_equatorial(alt, az, lst, self.task.latitude)
         hmax = float(max_hour_angle(dec, self.task.latitude, self.task.minimum_altitude + 0.1))
         return (hmax - float(wrap180(lst - ra))) / SIDEREAL_RATE if hmax < 180 else 1e9
+
+    def _centers_up(self, alt: np.ndarray, az: np.ndarray, lst: float) -> np.ndarray:
+        latitude = self.task.latitude
+        a, z = np.asarray(alt) * RAD, np.asarray(az) * RAD
+        lat = latitude * RAD
+        sin_a, cos_a = np.sin(a), np.cos(a)
+        sin_lat, cos_lat = math.sin(lat), math.cos(lat)
+        dec = np.arcsin(np.clip(sin_a * sin_lat + cos_a * cos_lat * np.cos(z), -1, 1))
+        cd = np.maximum(1e-12, np.cos(dec))
+        sh = -np.sin(z) * cos_a / cd
+        ch = (sin_a - np.sin(dec) * sin_lat) / (cd * max(1e-12, cos_lat))
+        ra = (lst - np.arctan2(sh, ch) / RAD) % 360.0
+        hmax = max_hour_angle(dec / RAD, latitude, self.task.minimum_altitude + 0.1)
+        return np.where(hmax < 180, (hmax - wrap180(lst - ra)) / SIDEREAL_RATE, 1e9)
 
     def _durations(self, rate, required, left: float):
         low, high = self.task.minimum_exposure, min(self.task.maximum_exposure, int(left))

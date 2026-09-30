@@ -35,6 +35,7 @@
     "sealed": true,
     "count": 64,
     "seed_base": 1470000,
+    "seed_overrides": {"35": 1504913},
     "profiles": [
       {"nights": 14, "targets": 6500, "area_deg2": 1300, "stress": true, "start_date": "2026-12-01"},
       {"nights": 50, "targets": 12000, "area_deg2": 4000, "stress": false, "start_date": "2026-09-15"},

@@ -7,6 +7,7 @@ import concurrent.futures
 import csv
 import hashlib
 import json
+import multiprocessing
 import os
 import shutil
 import tempfile
@@ -24,7 +25,7 @@ def specifications(dataset: str, path: Path | None = None):
     for i in range(selected["count"]):
         profile = selected["profiles"][i % len(selected["profiles"])]
         start = date.fromisoformat(profile["start_date"])
-        seed = selected["seed_base"] + i * 997 + 17
+        seed = selected.get("seed_overrides", {}).get(str(i), selected["seed_base"] + i * 997 + 17)
         name = f"{dataset}-r{data['generation_revision']}-{i:03d}"
         result.append(
             {
@@ -98,7 +99,8 @@ def main():
     specs = specifications(args.dataset, args.specs)
     if args.limit is not None:
         specs = specs[: args.limit]
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, min(args.jobs, 4))) as pool:
+    context = multiprocessing.get_context("fork") if os.name == "posix" else None
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, min(args.jobs, 4)), mp_context=context) as pool:
         futures = [pool.submit(generate, spec, args.out) for spec in specs]
         for future in concurrent.futures.as_completed(futures):
             print(json.dumps(future.result(), sort_keys=True), flush=True)

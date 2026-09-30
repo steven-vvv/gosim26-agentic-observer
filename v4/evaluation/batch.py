@@ -6,6 +6,7 @@ import argparse
 import concurrent.futures
 import hashlib
 import json
+import multiprocessing
 import statistics
 from pathlib import Path
 
@@ -59,7 +60,16 @@ def run(dataset: str, variants: list[str], jobs: int, *, limit: int | None = Non
     source = source_sha256()
     requested = [(_run, card, output / variant / card.name, variant, source) for variant in variants for card in cards]
     results = {}
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, min(jobs, 4))) as pool:
+    # Python 3.14 defaults to forkserver on POSIX.  The evaluator is often run
+    # in a headless sandbox where forkserver's Unix socket is unavailable;
+    # fork is equivalent here because workers only receive immutable paths and
+    # configuration values.
+    methods = multiprocessing.get_all_start_methods()
+    context = multiprocessing.get_context("fork") if "fork" in methods else None
+    pool_options = {"max_workers": max(1, min(jobs, 4))}
+    if context is not None:
+        pool_options["mp_context"] = context
+    with concurrent.futures.ProcessPoolExecutor(**pool_options) as pool:
         futures = {pool.submit(fn, *args): (args[0].name, args[2]) for fn, *args in requested}
         for future in concurrent.futures.as_completed(futures):
             card, variant = futures[future]

@@ -1,0 +1,9 @@
+{
+  "fault": {
+    "minimum_samples": 24,
+    "confirm_nights": 2,
+    "drop_threshold": 0.60,
+    "forecast_guard": true,
+    "quake_cooldown": true
+  }
+}

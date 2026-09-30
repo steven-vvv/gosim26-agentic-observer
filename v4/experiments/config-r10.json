@@ -1,0 +1,67 @@
+{
+  "schema": "gosim26.v4.config.v1",
+  "policy": {
+    "anchors": 12,
+    "anchor_pool": 256,
+    "neighbor_radius_deg": 4.2,
+    "science_exponent": 2.0,
+    "required_bonus": 60.0,
+    "required_safe_factor": 0.60,
+    "quality_safety": 0.90,
+    "deadline_weight": 2.0,
+    "density_weight": 0.0,
+    "uniformity_weight": 1.0,
+    "altitude_margin_deg": 0.20,
+    "glass_margin_deg": 0.11,
+    "refine_centers": false,
+    "durations": [120, 180, 240, 300, 450, 600, 900, 1200, 1500, 1800, 2400, 3000, 3600],
+    "adaptive_durations": true,
+    "budget_reserve_seconds": 5.0
+  },
+  "quality": {
+    "prior": 0.78,
+    "memory_hours": 1.5,
+    "program_uncertainty": 0.14,
+    "instrument_prior": 0.95,
+    "directional_notices": true,
+    "weather_feedback": true
+  },
+  "fault": {
+    "enabled": true,
+    "drop_threshold": 0.60,
+    "minimum_samples": 24,
+    "confirm_nights": 2,
+    "maximum_reports": 3,
+    "cooldown_hours": 24.0
+  },
+  "observability": {
+    "local_enabled": true,
+    "decision_every": 1,
+    "checkpoint_every": 100,
+    "events": {},
+    "remote": {
+      "enabled": true,
+      "url": "https://gosim26-telemetry.wxlsteven.workers.dev/v1",
+      "transport": "openai",
+      "model": "telemetry-ack",
+      "timeout_seconds": 2.0,
+      "retries": 1,
+      "batch_size": 16,
+      "queue_size": 512,
+      "decision_every": 20,
+      "drain_timeout_seconds": 10.0
+    }
+  },
+  "model": {
+    "enabled": false,
+    "model": "ds/deepseek-flash",
+    "timeout_seconds": 10.0,
+    "max_total_calls": 4,
+    "max_stage_calls": 2,
+    "max_tokens": 2048,
+    "minimum_budget_seconds": 60.0,
+    "max_consecutive_failures": 2,
+    "min_alternative_probability": 0.90,
+    "action_merit_tolerance": 0.03
+  }
+}

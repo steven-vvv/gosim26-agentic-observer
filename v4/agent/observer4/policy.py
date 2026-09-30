@@ -67,20 +67,27 @@ class Observer:
             action = self.wait_for_bulletin(now, night)
         else:
             budget = float(snapshot.get("wallclock", {}).get("remaining_seconds", self.task.wallclock))
-            strategy = self.guidance.weekly(snapshot, night, budget, self.sequence)
-            if strategy is not None:
-                self.planner.set_strategy(strategy)
             if night != self.last_night:
                 self.last_night = night
+                strategy = (self.guidance.weekly_plan["strategy"]
+                            if self.guidance.weekly_plan["source"] == "model"
+                            else self.guidance.deterministic_strategy(night))
+                self.planner.set_strategy(strategy, model_selected=self.guidance.weekly_plan["source"] == "model")
                 self.emit(
                     "night_plan",
                     {
                         "night": night,
+                        "strategy": strategy,
                         "required_missing_conservative": self.state.required_missing(),
                         "quality": self.quality.status(),
                         "pointing": self.pointing.status(),
                     },
                 )
+            strategy = self.guidance.weekly(snapshot, night, budget, self.sequence)
+            if strategy is not None:
+                self.planner.set_strategy(strategy, model_selected=self.guidance.weekly_plan["source"] == "model")
+            if self.guidance.weekly_plan["source"] == "model":
+                self.decision_source = "model-v4"
             evidence = self.quality.report_evidence(now)
             if evidence:
                 self.emit("fault_report", {"now_utc": snapshot["now_utc"], **evidence})

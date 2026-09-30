@@ -49,10 +49,10 @@ class SurveyState:
                 continue
             if not np.isfinite(value) or value < 0:
                 raise ValueError("invalid feedback score")
-            normalized = value / self.task.weight[i]
+            normalized = value / float(self.task.weight[i])
             lower = float(np.clip((value - 1e-6) / (self.task.weight[i] * max(multiplier, mismatch)), 0, 1))
-            matched = abs(normalized - multiplier) < 1e-4
-            saturated_mismatch = abs(normalized - mismatch) < 1e-4
+            matched = bool(abs(normalized - multiplier) < 1e-4)
+            saturated_mismatch = bool(abs(normalized - mismatch) < 1e-4)
             assumed_multiplier = (
                 multiplier if matched or (not saturated_mismatch and data["matched_probability"] >= 0.7) else mismatch
             )
