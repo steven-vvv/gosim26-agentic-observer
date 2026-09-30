@@ -500,6 +500,11 @@ class InstrumentMonitor:
                       and evidence.get("band_targets", 0) >= 3)
             certain = strong and evidence.get("band_llr", 0.0) >= float(self.settings.get("early_paid_llr", 6.0))
             if not (strong and (free or certain)) or evidence["drop"] < -float(self.settings.get("maximum_fault_drop", 1.8)):
+                if (self.quake_notice and evidence.get("band_llr", 0.0) >= float(self.settings.get("quake_band_llr", 1.0))
+                        and self.settings.get("model_hidden_quakes", True)):
+                    # The earthquake notice cannot show a second shock while the first one
+                    # lasts; an instrument-like cut outside the fault window is modelled as one.
+                    self._hidden_quake(evidence, now, night)
                 return None
             evidence["kind"] = "early_" + evidence["kind"]
             return evidence
