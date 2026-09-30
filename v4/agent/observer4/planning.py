@@ -111,6 +111,20 @@ class Planner:
         self._plan_anchors = 1.0
         self._exposure_seconds = 900.0
 
+    def _cluster_order(self, pool, priority, count: int, extra: int):
+        """Pool order: the first anchors by own priority, then by nearby priority sum."""
+        task = self.task
+        radius = math.cos(float(self.settings.get("cluster_radius_deg", 1.3)) * RAD)
+        values = np.zeros(len(pool))
+        for k, anchor in enumerate(pool):
+            near = task.neighbors(int(anchor))
+            close = near[task.vectors[near] @ task.vectors[int(anchor)] >= radius]
+            values[k] = float(np.sum(priority[close]))
+        head = pool[:count]
+        rest = pool[count:]
+        rest = rest[np.lexsort((rest, -values[count:]))]
+        return np.concatenate((head, rest))
+
     def _paced_anchors(self, now: float, night_index: int, remaining_wallclock: float) -> int:
         """Anchor count that keeps the remaining plans inside the wall-clock budget.
 
@@ -238,6 +252,12 @@ class Planner:
         pool = pool[np.lexsort((pool, -priority[pool]))]
         # Budget pacing uses measured time in the runtime; this is a predictable fallback.
         count = self._paced_anchors(now, night_index, remaining_wallclock)
+        extra = int(settings.get("cluster_anchors", 0))
+        if extra > 0:
+            # Sparse valuable targets (required ones) are completed a few per field; anchors
+            # whose surroundings hold the most priority find the densest fields.
+            pool = self._cluster_order(pool, priority, count, extra)
+            count += extra
         uniformity = state.uniformity_gain() * settings["uniformity_weight"]
         glass_margin = settings["glass_margin_deg"]
         if settings.get("adaptive_margin", False):
