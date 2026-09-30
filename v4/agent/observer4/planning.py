@@ -87,6 +87,43 @@ class Planner:
         self.last_trace = {}
         self.pending = None
         self.alternatives = []
+        self._rate_profile = None
+        self._terrain_profile = None
+        self._plan_seconds = None
+        self._plan_anchors = 1.0
+        self._exposure_seconds = 900.0
+
+    def _paced_anchors(self, now: float, night_index: int, remaining_wallclock: float) -> int:
+        """Anchor count that keeps the remaining plans inside the wall-clock budget.
+
+        Planning time grows with the number of anchor fields; remaining plans are
+        estimated from the observing time left and the recent mean exposure length.
+        """
+        settings = self.settings
+        base = int(settings["anchors"])
+        if remaining_wallclock < settings["budget_reserve_seconds"] + 15:
+            return min(base, 2)
+        if not settings.get("pace_budget", True) or self._plan_seconds is None:
+            return base
+        task = self.task
+        left = max(0.0, task.nights[night_index].end - now) + sum(
+            night.end - night.start for night in task.nights[night_index + 1:])
+        plans = max(1.0, 1.15 * left / max(60.0, self._exposure_seconds))
+        allowance = (remaining_wallclock - settings["budget_reserve_seconds"] - 20.0) / plans
+        per_anchor = self._plan_seconds / max(1, self._plan_anchors)
+        if per_anchor <= 0:
+            return base
+        return int(np.clip(math.floor(allowance / per_anchor), 2, base))
+
+    def record_timing(self, seconds: float, anchors: int, duration: float | None) -> None:
+        alpha = 0.05
+        if self._plan_seconds is None:
+            self._plan_seconds, self._plan_anchors = seconds, max(1, anchors)
+        else:
+            self._plan_seconds = (1 - alpha) * self._plan_seconds + alpha * seconds
+            self._plan_anchors = (1 - alpha) * self._plan_anchors + alpha * max(1, anchors)
+        if duration:
+            self._exposure_seconds = (1 - alpha) * self._exposure_seconds + alpha * duration
 
     def set_strategy(self, strategy: str, *, model_selected: bool = False) -> None:
         self.settings = strategy_settings(self.config["policy"], strategy, model_selected=model_selected)
@@ -105,14 +142,35 @@ class Planner:
         vectors = horizontal_vectors(task.ra, task.dec, lst, task.latitude)
         altitude, azimuth = altaz(vectors)
         directional, clean = self.quality.direction_factors(altitude, azimuth)
-        base_quality = lunar_factors(
-            task.ra, task.dec, now + 450.0, task.latitude, task.longitude, task.scoring.get("lunar_model")
-        ) / (task.scoring["q0"] * airmass(altitude) ** task.scoring["airmass_exponent"])
-        scale = self.quality.scale(now)
-        rate = task.flux * base_quality * scale * directional * settings["quality_safety"]
-        rate /= task.scoring["flux_zero_point"] * task.scoring["exposure_zero_point_seconds"]
+        terrain_free = self.quality.terrain_free
+        local_clean = self.quality.local_clean
+        notice_clean = self.quality.notice_clean
+        predicted = self.quality.level_prediction(now, night_index)
+        zero_point = task.scoring["flux_zero_point"] * task.scoring["exposure_zero_point_seconds"]
+        terrain = self.quality.terrain_model
+        track = self._track(now, altitude, azimuth) if (predicted is not None or terrain is not None) else None
+        self._terrain_profile = self._terrain_track(track, terrain) if terrain is not None else None
+        if predicted is None:
+            base_quality = lunar_factors(
+                task.ra, task.dec, now + 450.0, task.latitude, task.longitude, task.scoring.get("lunar_model")
+            ) / (task.scoring["q0"] * airmass(altitude) ** task.scoring["airmass_exponent"])
+            scale = self.quality.scale(now)
+            safety = settings["quality_safety"]
+            profile = None
+            probabilities = self.quality.program_probabilities(base_quality)
+        else:
+            scale, sigma = predicted
+            safety = math.exp(-settings.get("level_safety_z", 1.5) * sigma)
+            profile = self._k_profile(now, track)
+            base_quality = profile[1][1]
+            probabilities = self.quality.program_probabilities(
+                base_quality, max(settings.get("program_uncertainty_floor", 0.05), sigma))
+        rate = task.flux * base_quality * scale * directional * safety / zero_point
+        if profile is not None:
+            self._rate_profile = (profile[0], task.flux * profile[1] * scale * directional * safety / zero_point)
+        else:
+            self._rate_profile = None
         reach = np.minimum(1, rate * np.minimum(np.minimum(task.maximum_exposure, setting_seconds), left))
-        probabilities = self.quality.program_probabilities(base_quality)
         mult = np.array([task.scoring["program"]["multipliers"][name] for name in PROGRAMS])
         mismatch = task.scoring["program"]["mismatch_multiplier"]
         expected_mult = mismatch + (mult[:, None] - mismatch) * probabilities
@@ -131,7 +189,7 @@ class Planner:
             settings["required_bonus"] * self.scarcity[night_index]
         )
         required = incomplete * (reach >= settings["required_safe_factor"]) * required_bonus
-        priority = (science + required) * urgency * setting_boost * directional
+        priority = (science + required) * urgency * setting_boost * directional * terrain_free
         priority *= np.maximum(0.25, 0.80 ** np.minimum(state.misses, 6))
         priority = np.where(visible & (task.last_night >= night_index), priority, 0)
         pool = np.flatnonzero(priority > 1e-8)
@@ -142,9 +200,7 @@ class Planner:
         pool = pool[np.argpartition(priority[pool], -limit)[-limit:]]
         pool = pool[np.lexsort((pool, -priority[pool]))]
         # Budget pacing uses measured time in the runtime; this is a predictable fallback.
-        count = settings["anchors"]
-        if remaining_wallclock < settings["budget_reserve_seconds"] + 15:
-            count = min(count, 2)
+        count = self._paced_anchors(now, night_index, remaining_wallclock)
         uniformity = state.uniformity_gain() * settings["uniformity_weight"]
         finalists = []
         used = []
@@ -157,11 +213,15 @@ class Planner:
                 continue
             used.append(int(anchor))
             near = task.neighbors(int(anchor))
-            near = near[visible[near] & (directional[near] > 0)]
+            near = near[visible[near] & (directional[near] > 0) & (terrain_free[near] > 0.02)]
             if not len(near):
                 continue
             ca, cz = task.grid.centers_for_target(float(altitude[anchor]), float(azimuth[anchor]))
-            keep = (ca >= task.minimum_altitude + 0.4) & (ca <= 89.85)
+            # Revision 2 scores each target on its own altitude; the centre only needs to be
+            # a valid pointing. Revision 1 also required the centre above the limit.
+            relaxed = getattr(task, "revision", 1) >= 2 and settings.get("free_center", True)
+            floor = 0.0 if relaxed else task.minimum_altitude + 0.4
+            keep = (ca >= floor) & (ca <= 89.85)
             ca, cz = ca[keep], cz[keep]
             if not len(ca):
                 continue
@@ -175,7 +235,7 @@ class Planner:
             durations = self._durations(rate[near], incomplete[near], left)
             if not len(durations):
                 continue
-            factors = np.minimum(1, durations[:, None] * rate[near])
+            factors = np.minimum(1, durations[:, None] * self._rates(durations, near, rate))
             if settings.get("score_marginal", False):
                 science_gain = expected_science_gains(factors, task.weight[near], state.best_score[near],
                                                        probabilities[:, near], mult, mismatch)
@@ -189,6 +249,7 @@ class Planner:
                 (state.factor_lower[near][None, :] < threshold) & (factors >= settings["required_safe_factor"])
             ) * uniformity[near]
             gains = (science_gain + req_gain + fairness) * urgency[near] * setting_boost[near]
+            gains = gains * self._terrain_open(durations, near, terrain_free)
             gains = np.where(durations[:, None] <= setting_seconds[near][None, :], gains, 0)
             if not np.any(gains > 0):
                 continue
@@ -197,7 +258,7 @@ class Planner:
                 total = total.reshape(len(ca), len(PROGRAMS), len(durations))
             else:
                 total = fiber_totals(fibers, gains, geometry_weight, task.grid.n)
-            center_limit = self._centers_up(ca, cz, lst)
+            center_limit = self._centers_up(ca, cz, lst) if not relaxed else np.full(len(ca), 1e9)
             if settings.get("score_marginal", False):
                 total = np.where(durations[None, None, :] <= center_limit[:, None, None], total, 0)
                 merit = total / durations[None, None, :]
@@ -236,7 +297,8 @@ class Planner:
             return None
         for item in finalists:
             selected = np.array([i for _, i in item["selected"]], dtype=np.int32)
-            exposure_factors = np.minimum(1, rate[selected] * item["duration"])
+            item_rate = self._rates(np.array([item["duration"]]), selected, rate)[0]
+            exposure_factors = np.minimum(1, item_rate * item["duration"])
             if item["program_i"] is None:
                 votes = np.sum((task.weight[selected] * exposure_factors)[None, :] * expected_mult[:, selected], axis=1)
                 program_i = int(np.argmax(votes))
@@ -261,6 +323,8 @@ class Planner:
                 "duration": item["duration"],
                 "program": program,
                 "night": night_index,
+                "signature": frozenset(kind for kind, direction in self.quality.notices if direction == "ALL"),
+                "predicted_level": None if predicted is None else [math.log(max(scale, 1e-9)), predicted[1]],
                 "pointing": dict(action["pointing"]),
                 "targets": [
                     {
@@ -268,10 +332,12 @@ class Planner:
                         "fiber": fiber,
                         "base_quality": float(base_quality[i]),
                         "clean": bool(clean[i]),
+                        "local_clean": bool(local_clean[i]),
+                        "notice_clean": bool(notice_clean[i]),
                         "matched_probability": float(probabilities[program_i, i]),
-                        "predicted_factor": float(min(1, rate[i] * item["duration"])),
+                        "predicted_factor": float(min(1, rate_i * item["duration"])),
                     }
-                    for fiber, i in item["selected"]
+                    for (fiber, i), rate_i in zip(item["selected"], item_rate)
                 ],
             }
             self.alternatives.append({"action": action, "pending": pending, "merit": item["merit"]})
@@ -294,6 +360,82 @@ class Planner:
             "visible_targets": int(np.count_nonzero(visible)),
         }
         return action
+
+    PROFILE_OFFSETS = (0.0, 300.0, 600.0, 900.0, 1350.0, 1800.0)
+    TRACK_TIMES = (0.0, 300.0, 600.0, 900.0, 1350.0, 1800.0, 2700.0, 3600.0)
+
+    def _track(self, now: float, altitude0, azimuth0) -> dict:
+        """Altitude and azimuth of every target at fixed offsets after now."""
+        task = self.task
+        alt, az = [np.asarray(altitude0)], [np.asarray(azimuth0)]
+        for offset in self.TRACK_TIMES[1:]:
+            a, z = altaz(horizontal_vectors(task.ra, task.dec, sidereal(now + offset, task.longitude), task.latitude))
+            alt.append(a)
+            az.append(z)
+        return {"now": now, "alt": np.array(alt), "az": np.array(az)}
+
+    def _k_profile(self, now: float, track: dict):
+        """Lunar factor over airmass at exposure-midpoint offsets for every target."""
+        task = self.task
+        exponent = task.scoring["airmass_exponent"]
+        model = task.scoring.get("lunar_model")
+        rows = []
+        for j, offset in enumerate(self.PROFILE_OFFSETS):
+            lunar = lunar_factors(task.ra, task.dec, now + max(offset, 60.0), task.latitude, task.longitude, model)
+            rows.append(lunar / (task.scoring["q0"] * airmass(np.maximum(track["alt"][j], 1.0)) ** exponent))
+        # Midpoint sampling; time-resolved scoring differs only at second order in time.
+        return np.array(self.PROFILE_OFFSETS), np.array(rows)
+
+    def _terrain_track(self, track: dict, terrain) -> dict:
+        """Unblocked probability along each envelope target's track."""
+        envelope = np.zeros(track["alt"].shape[1], dtype=bool)
+        for j in range(len(self.TRACK_TIMES)):
+            envelope |= terrain.envelope(track["az"][j], track["alt"][j])
+        candidates = np.flatnonzero(envelope)
+        free = np.ones((len(self.TRACK_TIMES), len(candidates)))
+        if len(candidates):
+            for j in range(len(self.TRACK_TIMES)):
+                free[j] = 1.0 - terrain.blocked_probability(track["az"][j, candidates], track["alt"][j, candidates])
+        # Mean unblocked fraction over [0, t] at every track time (trapezoid rule).
+        times = np.array(self.TRACK_TIMES)
+        cumulative = np.zeros_like(free)
+        for j in range(1, len(times)):
+            cumulative[j] = cumulative[j - 1] + 0.5 * (free[j] + free[j - 1]) * (times[j] - times[j - 1])
+        mean = free.copy()
+        mean[1:] = cumulative[1:] / times[1:, None]
+        position = np.full(track["alt"].shape[1], -1, dtype=np.int64)
+        position[candidates] = np.arange(len(candidates))
+        return {"times": times, "mean": mean, "position": position}
+
+    def _terrain_open(self, durations, indices, fallback):
+        """Expected unblocked fraction of each exposure length for the given targets."""
+        profile = self._terrain_profile
+        durations = np.asarray(durations, dtype=float)
+        result = np.ones((len(durations), len(indices)))
+        if profile is None:
+            return result * fallback[indices][None, :] if fallback is not None else result
+        position = profile["position"][indices]
+        inside = position >= 0
+        if not np.any(inside):
+            return result
+        times, mean = profile["times"], profile["mean"][:, position[inside]]
+        span = np.clip(durations, times[1], times[-1])
+        j = np.clip(np.searchsorted(times, span, side="right") - 1, 1, len(times) - 2)
+        w = (span - times[j]) / (times[j + 1] - times[j])
+        result[:, inside] = (1 - w)[:, None] * mean[j] + w[:, None] * mean[j + 1]
+        return result
+
+    def _rates(self, durations, indices, fallback):
+        """Rate per duration for the given targets, using the midpoint profile if available."""
+        durations = np.asarray(durations, dtype=float)
+        if self._rate_profile is None:
+            return np.broadcast_to(fallback[indices], (len(durations), len(indices)))
+        offsets, rates = self._rate_profile
+        mid = np.clip(durations / 2, offsets[0], offsets[-1])
+        j = np.clip(np.searchsorted(offsets, mid, side="right") - 1, 0, len(offsets) - 2)
+        w = (mid - offsets[j]) / (offsets[j + 1] - offsets[j])
+        sub = rates[:, indices]
+        return (1 - w)[:, None] * sub[j] + w[:, None] * sub[j + 1]
 
     def _center_up(self, alt: float, az: float, lst: float) -> float:
         ra, dec = to_equatorial(alt, az, lst, self.task.latitude)

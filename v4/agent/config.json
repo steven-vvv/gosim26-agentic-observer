@@ -18,7 +18,11 @@
     "refine_centers": true,
     "durations": [120, 180, 240, 300, 450, 600, 900, 1200, 1500, 1800, 2400, 3000, 3600],
     "adaptive_durations": true,
-    "budget_reserve_seconds": 5.0
+    "budget_reserve_seconds": 5.0,
+    "free_center": true,
+    "pace_budget": true,
+    "level_safety_z": 1.5,
+    "program_uncertainty_floor": 0.05
   },
   "quality": {
     "prior": 0.78,
@@ -26,7 +30,9 @@
     "program_uncertainty": 0.14,
     "instrument_prior": 0.95,
     "directional_notices": true,
-    "weather_feedback": true
+    "weather_feedback": true,
+    "level_model": false,
+    "terrain_model": false
   },
   "fault": {
     "enabled": true,
@@ -36,7 +42,8 @@
     "minimum_samples": 48,
     "confirm_nights": 2,
     "maximum_reports": 3,
-    "cooldown_hours": 24.0
+    "cooldown_hours": 24.0,
+    "mode": "legacy"
   },
   "observability": {
     "local_enabled": true,

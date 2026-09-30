@@ -37,7 +37,8 @@ def baseline_factory(clone: Path):
     return lambda publication: module.BaselineAgent(publication)
 
 
-def evaluate(card: Path, output: Path, config: dict, *, baseline=False, fast=False, wallclock=None, profile=None) -> dict:
+def evaluate(card: Path, output: Path, config: dict, *, baseline=False, fast=False, wallclock=None, profile=None,
+             factory=None) -> dict:
     clone = resolve()
     from challenge.v4_workflow import V4Workflow
 
@@ -50,7 +51,11 @@ def evaluate(card: Path, output: Path, config: dict, *, baseline=False, fast=Fal
     def record(event, payload):
         events.append({"event": event, "payload": payload})
 
-    factory = baseline_factory(clone) if baseline else lambda publication: Observer(publication, config, record)
+    if factory is not None:
+        custom = factory
+        factory = lambda publication: custom(publication, record)
+    else:
+        factory = baseline_factory(clone) if baseline else lambda publication: Observer(publication, config, record)
 
     def initialize(publication):
         holder["agent"] = factory(publication)

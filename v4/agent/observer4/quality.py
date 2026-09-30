@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
 
 import numpy as np
+
+from .geometry import altaz, horizontal_vectors, sidereal
+from .terrain import TerrainModel
 
 DIRECTIONS = {"N": 0.0, "NE": 45.0, "E": 90.0, "SE": 135.0, "S": 180.0, "SW": 225.0, "W": 270.0, "NW": 315.0}
 
@@ -28,6 +32,8 @@ class QualityModel:
         self.zero_observes = 0
         self.estimate = self.settings["prior"]
         self.last_notice_signature = None
+        self.terrain_model = None
+        self.terrain_free = None
 
     def messages(self, snapshot: dict, now: float) -> None:
         for message in snapshot.get("new_messages", []):
@@ -35,6 +41,8 @@ class QualityModel:
                 for notice in message.get("notices", []):
                     if notice.get("event_kind") == "terrain_obstruction":
                         self.terrain.add(notice.get("direction", ""))
+                if self.settings.get("terrain_model", False) and self.terrain:
+                    self.terrain_model = TerrainModel(self.terrain, self.settings)
         bulletin = snapshot.get("latest_bulletin") or {}
         self.notices = {
             (str(row.get("event_kind", "")), str(row.get("direction", "")))
@@ -55,13 +63,28 @@ class QualityModel:
         alt, az = np.asarray(altitude), np.asarray(azimuth)
         factor = np.ones_like(alt, dtype=float)
         clean = np.ones_like(alt, dtype=bool)
-        for direction in self.terrain:
+        self.terrain_free = np.ones_like(alt, dtype=float)
+        if self.terrain_model is not None:
+            # A blocked target scores nothing, so the free probability scales expected gains;
+            # fault levels keep the conservative envelope.
+            self.terrain_free = 1.0 - self.terrain_model.blocked_probability(az, alt)
+            clean &= ~self.terrain_model.envelope(az, alt)
+        else:
+            for direction in self.terrain:
+                if direction in DIRECTIONS:
+                    near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 58.0
+                    factor[(alt < 50.3) & near] = 0.0
+                    clean[(alt < 50.3) & near] = False
+        self.notice_clean = np.ones_like(alt, dtype=bool)
+        for kind, direction in self.notices:
             if direction in DIRECTIONS:
-                near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 58.0
-                factor[(alt < 50.3) & near] = 0.0
-                clean[(alt < 50.3) & near] = False
+                # Sector events reach up to 60 deg beyond a centre quantized to 22.5 deg.
+                near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 83.0
+                self.notice_clean &= ~(near & (alt < 81.0))
         if not self.settings["directional_notices"]:
+            self.local_clean = clean.copy()
             return factor, clean
+        self.local_clean = clean.copy()
         for kind, direction in self.notices:
             if direction == "ALL":
                 clean[:] = False
@@ -71,6 +94,7 @@ class QualityModel:
             near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 72.0
             affected = (alt < 80.0) & near
             clean[affected] = False
+            self.local_clean[affected] = False
             if kind == "rocket_launch":
                 factor[near & (alt < 62.0)] = 0.0
             elif kind in {"rain", "overcast", "haze", "storm"}:
@@ -101,6 +125,25 @@ class QualityModel:
         self.scale(now)
         return self.status()
 
+    def attach(self, monitor) -> None:
+        """Use exact exposure levels from the instrument monitor when configured."""
+        self.monitor = monitor if self.settings.get("level_model", False) else None
+
+    def level_prediction(self, now: float, night: int):
+        monitor = getattr(self, "monitor", None)
+        if monitor is None:
+            return None
+        signature = frozenset(kind for kind, direction in self.notices if direction == "ALL")
+        predicted = monitor.predict(now, night, signature)
+        if predicted is None:
+            return None
+        level, sigma = predicted
+        self.instrument = float(self.settings["instrument_prior"]) * math.exp(
+            monitor.efficiency.log_efficiency(night, now))
+        self.estimate = float(np.clip(math.exp(level), 0.005, 3.0))
+        self.level_sigma = sigma
+        return self.estimate, sigma
+
     def scale(self, now: float) -> float:
         if not self.settings["weather_feedback"]:
             return self.estimate
@@ -112,10 +155,10 @@ class QualityModel:
             self.estimate = float(np.median(historical[-200:])) if len(historical) >= 8 else self.settings["prior"]
         return self.estimate
 
-    def program_probabilities(self, base_quality):
+    def program_probabilities(self, base_quality, uncertainty=None):
         band_quality = np.maximum(1e-6, np.asarray(base_quality) * self.estimate / self.instrument)
         thresholds = self.task.scoring["program"]["bands"]
-        uncertainty = self.settings["program_uncertainty"]
+        uncertainty = self.settings["program_uncertainty"] if uncertainty is None else uncertainty
         dark = 1 / (1 + np.exp(np.clip(-np.log(band_quality / thresholds["DARK"]) / uncertainty, -50, 50)))
         above_bright = 1 / (1 + np.exp(np.clip(-np.log(band_quality / thresholds["BRIGHT"]) / uncertainty, -50, 50)))
         return np.stack((dark, np.maximum(0, above_bright - dark), 1 - above_bright))
@@ -164,6 +207,65 @@ class QualityModel:
             "dark_matches": int(sum(dark)),
         }
 
+    def terrain_evidence(self, record: dict, pending: dict, task, extra_directions=()) -> int:
+        """Unblocked fractions of hit targets inside the terrain envelope.
+
+        The reference level comes from targets outside the envelope or, when the whole
+        field lies inside it, from the level predicted for this exposure. Targets near
+        directional notices published during the exposure are skipped, since a sector
+        event can dim or close them as terrain would.
+        """
+        model = self.terrain_model
+        if model is None or record.get("z") is None:
+            return 0
+        level = record["level"]
+        predicted = pending.get("predicted_level")
+        if level is None and predicted is not None and predicted[1] <= float(self.settings.get("terrain_sigma", 0.08)):
+            level = predicted[0]
+        if level is None:
+            return 0
+        if record["zero"] and np.any(record["hit"] & record["clean"]):
+            return 0  # a closed dome zeroes targets outside the envelope as well
+        excluded = [DIRECTIONS[d] for d in extra_directions if d in DIRECTIONS]
+        rows = pending["targets"]
+        indices = record["indices"]
+        program = task.scoring["program"]
+        mismatch = float(program["mismatch_multiplier"])
+        multipliers = (*[float(x) for x in program["multipliers"].values()], mismatch)
+        base = float(np.exp(level))
+        steps = max(2, min(9, int(pending["duration"] // 450) + 2))
+        times = pending["start"] + pending["duration"] * (np.arange(steps) + 0.5) / steps
+        tracks, observations = [], []
+        for j, row in enumerate(rows):
+            if not record["hit"][j] or not row.get("notice_clean", True):
+                continue
+            i = int(indices[j])
+            vectors = [horizontal_vectors(task.ra[i:i + 1], task.dec[i:i + 1], sidereal(float(t), task.longitude),
+                                          task.latitude) for t in times]
+            samples = [altaz(v) for v in vectors]
+            az = np.array([sample[1][0] for sample in samples])
+            alt = np.array([sample[0][0] for sample in samples])
+            if not np.any(model.envelope(az, alt)):
+                continue
+            if any(np.any((np.abs((az - center + 180) % 360 - 180) <= 83.0) & (alt < 81.0)) for center in excluded):
+                continue
+            score = float(record["scores"][j])
+            ratio = score / float(task.weight[i])
+            if score <= 0:
+                observation = ("fraction", 0.0)
+            elif any(abs(ratio - m) < 2e-5 for m in multipliers):
+                # Saturated: flux*t*base*k*open/(f0*t0) >= 1, and z/ratio = f0*t0/(flux*t*k).
+                observation = ("lower", float(min(1.0, record["z"][j] / ratio / base)))
+            else:
+                # y = open fraction x program multiplier, and the multiplier may be either.
+                implied = float(record["z"][j]) / base
+                declared = float(program["multipliers"][pending["program"]])
+                low, high = implied / max(declared, mismatch), implied / min(declared, mismatch)
+                observation = ("interval", (float(min(1.0, low)), float(min(1.0, high))))
+            tracks.append((az, alt))
+            observations.append(observation)
+        return model.update(tracks, observations)
+
     def reported(self, now: float) -> None:
         self.last_report = now
         self.reports += 1
@@ -182,4 +284,5 @@ class QualityModel:
             "reports": self.reports,
             "zero_observes": self.zero_observes,
             "notices": [list(pair) for pair in sorted(self.notices)],
+            "terrain": None if self.terrain_model is None else self.terrain_model.status(),
         }

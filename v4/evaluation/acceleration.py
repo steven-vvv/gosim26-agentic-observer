@@ -95,6 +95,9 @@ def fast_runner():
     original_altaz = v4_fiber_map.radec_to_altaz
     memo_altaz = functools.lru_cache(maxsize=131072)(original_altaz)
 
+    exact = "step_seconds does not affect" in (v4_fiber_map.min_altitude_during.__doc__ or "") or \
+        "Exact minimum altitude" in (v4_fiber_map.min_altitude_during.__doc__ or "")
+
     def sampled_minimum(ra, dec, start, end, config, step_seconds=60):
         if end <= start or step_seconds <= 0:
             return v4_fiber_map.min_altitude_during(ra, dec, start, end, config, step_seconds)
@@ -113,7 +116,9 @@ def fast_runner():
                     samples.add(start + timedelta(seconds=k * step_seconds))
         return min(memo_altaz(ra, dec, sample, latitude, longitude)[0] for sample in samples)
 
-    module.min_altitude_during = sampled_minimum
+    if not exact:
+        # Older engines sampled the track every 120 s; keep their exact sample points.
+        module.min_altitude_during = sampled_minimum
     module.radec_to_altaz = memo_altaz
     return module
 
