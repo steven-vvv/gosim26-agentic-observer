@@ -38,21 +38,26 @@ def strategy_settings(policy: dict, strategy: str, *, model_selected: bool = Fal
 
 
 def fiber_totals(fibers: np.ndarray, gains: np.ndarray, weight: np.ndarray, count: int) -> np.ndarray:
-    """Sum the best target per fiber for each candidate center and duration."""
+    """Sum the best target per fiber for each candidate center and duration.
+
+    Only centre-target pairs inside a fibre are reduced; the result is bitwise equal to the
+    dense reduction over every pair, including its zero floor and summation order.
+    """
     centers, targets = fibers.shape
-    labels = np.arange(centers)[:, None] * (count + 1) + np.where(fibers >= 0, fibers, count)
-    order = np.argsort(labels.ravel(), kind="stable")
-    sorted_labels = labels.ravel()[order]
-    starts = np.r_[0, np.flatnonzero(np.diff(sorted_labels)) + 1]
-    values = (gains.T[None, :, :] * weight[:, :, None]).reshape(-1, len(gains))[order]
-    maxima = np.maximum.reduceat(values, starts, axis=0)
-    sizes = np.diff(np.r_[starts, len(sorted_labels)])
-    # The old search included zero for every target outside a fiber.
-    maxima = np.where(sizes[:, None] < targets, np.maximum(maxima, 0), maxima)
-    totals = np.zeros((centers * (count + 1), len(gains)))
-    totals[sorted_labels[starts]] = maxima
-    totals = totals.reshape(centers, count + 1, len(gains))[:, :count]
-    return np.add.accumulate(totals, axis=1)[:, -1, :]
+    c_idx, t_idx = np.nonzero(fibers >= 0)
+    totals = np.zeros((centers * count, gains.shape[0]))
+    if len(c_idx):
+        labels = c_idx * count + fibers[c_idx, t_idx]
+        order = np.argsort(labels, kind="stable")
+        sorted_labels = labels[order]
+        starts = np.r_[0, np.flatnonzero(np.diff(sorted_labels)) + 1]
+        values = (gains[:, t_idx[order]] * weight[c_idx[order], t_idx[order]][None, :]).T
+        maxima = np.maximum.reduceat(values, starts, axis=0)
+        sizes = np.diff(np.r_[starts, len(sorted_labels)])
+        # The dense search included zero for every target outside a fiber.
+        maxima = np.where(sizes[:, None] < targets, np.maximum(maxima, 0), maxima)
+        totals[sorted_labels[starts]] = maxima
+    return np.add.accumulate(totals.reshape(centers, count, -1), axis=1)[:, -1, :]
 
 
 def expected_science_gains(factors: np.ndarray, weights: np.ndarray, best: np.ndarray,
