@@ -258,10 +258,7 @@ class Planner:
             if settings["refine_centers"]:
                 ca = np.concatenate((ca, ca + 0.12, ca - 0.12))
                 cz = np.tile(cz, 3)
-            fibers, margin, _, _ = task.grid.classify(vectors[near], ca, cz)
             fields_checked += len(ca)
-            geometry_weight = np.where(fibers >= 0, 1.0, 0.0)
-            geometry_weight *= np.where(margin >= glass_margin, 1.0, 0.45)
             durations = self._durations(rate[near], incomplete[near], left)
             if not len(durations):
                 continue
@@ -283,6 +280,13 @@ class Planner:
             gains = np.where(durations[:, None] <= setting_seconds[near][None, :], gains, 0)
             if not np.any(gains > 0):
                 continue
+            # Targets without a positive gain never fill a fibre; dropping them before the
+            # geometry leaves every fibre maximum and choice unchanged.
+            useful = np.any(gains > 0, axis=tuple(range(gains.ndim - 1)))
+            near, gains = near[useful], gains[..., useful]
+            fibers, margin, _, _ = task.grid.classify(vectors[near], ca, cz)
+            geometry_weight = np.where(fibers >= 0, 1.0, 0.0)
+            geometry_weight *= np.where(margin >= glass_margin, 1.0, 0.45)
             if settings.get("score_marginal", False):
                 total = fiber_totals(fibers, gains.reshape(-1, len(near)), geometry_weight, task.grid.n)
                 total = total.reshape(len(ca), len(PROGRAMS), len(durations))
