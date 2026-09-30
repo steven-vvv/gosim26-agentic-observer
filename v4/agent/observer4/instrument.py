@@ -474,22 +474,26 @@ class InstrumentMonitor:
     def decide(self, now: float, night: int) -> dict | None:
         """Return report evidence when a report is warranted now.
 
-        The generator starts one fault uniformly within window_slots of the survey
-        midpoint, so a report before the window cannot be right and one after it cannot be
-        wrong. Free false reports (engine revision 2) buy weaker evidence and two probes.
+        The default generator starts one fault uniformly within window_slots of the survey
+        midpoint, so inside the window ordinary evidence suffices and after it a report
+        cannot be wrong. Before the window, and after a repair, only strong evidence is
+        reported, since a fault there needs a card that overrides the fault count. Free
+        false reports (engine revision 2) buy weaker evidence and a timed probe.
         """
         if self.pending is not None or not self.settings.get("enabled", True):
-            return None
-        if self.repaired and not (self.revision >= 2 and self.free_left()):
             return None
         if len(self.reports) >= int(self.settings.get("monitor_maximum_reports", 6)):
             return None
         slot = self.slot_index(now, night)
         trusted = self.window_trusted and not self.repaired
         free = self.free_left()
-        if trusted and slot < self.window[0] - float(self.settings.get("window_margin_slots", 2)):
-            # A card with more faults than the generator's default starts one earlier; only
-            # a clear instrument-like cut (program bands kept) is reported before the window.
+        early = trusted and slot < self.window[0] - float(self.settings.get("window_margin_slots", 2))
+        if early or self.repaired:
+            # Outside the generator's single-fault window (before it, or after a repair) a
+            # fault exists only on cards that override the fault count; report only a clear
+            # instrument-like cut there (program bands kept, no recent earthquake).
+            if self.repaired and not self.settings.get("monitor_after_repair", True):
+                return None
             evidence = self._detect(1.0) if self.settings.get("early_reports", True) else None
             if evidence is None:
                 return None
@@ -506,7 +510,7 @@ class InstrumentMonitor:
                     # lasts; an instrument-like cut outside the fault window is modelled as one.
                     self._hidden_quake(evidence, now, night)
                 return None
-            evidence["kind"] = "early_" + evidence["kind"]
+            evidence["kind"] = ("repeat_" if self.repaired else "early_") + evidence["kind"]
             return evidence
         evidence = self._detect(1.0)
         if evidence is None and free:
@@ -601,9 +605,11 @@ class InstrumentMonitor:
         self.false_since_correct = 0
         self.efficiency.fault_log = 0.0
         self.segment_start = len(self.records)
+        if self.repairs >= 2:
+            self.window_trusted = False
 
     def _reject(self, entry: dict) -> None:
-        if entry["kind"].removeprefix("early_") in ("step", "cross_segment", "cross_night") and entry["drop"] < 0 \
+        if entry["kind"].split("_", 1)[-1] in ("step", "cross_segment", "cross_night") and entry["drop"] < 0 \
                 and entry.get("band_llr", 0.0) > float(self.settings.get("quake_band_llr", 1.0)):
             # An efficiency cut that a report did not repair behaves like a hidden aftershock;
             # program bands that kept their levels show the cut was not in the sky.
