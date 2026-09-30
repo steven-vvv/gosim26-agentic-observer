@@ -404,18 +404,22 @@ class InstrumentMonitor:
         threshold = scale * float(self.settings.get("step_threshold", 0.28))
         window = int(self.settings.get("step_window", 6))
         spread = float(self.settings.get("reference_spread", 0.2))
+        wide = float(self.settings.get("reference_spread_max", 0.4))
         for split in range(max(reference_count, len(levels) - window), len(levels) - 1):
             # One exposure may straddle the change; it belongs to neither side.
             for gap in (0, 1):
                 if split - gap < reference_count:
                     continue
                 reference = [r["level"] for r in levels[:split - gap]][-int(self.settings.get("reference_window", 8)):]
-                if max(reference) - min(reference) >= spread:
+                width = max(reference) - min(reference)
+                if width >= wide:
                     continue
+                # A noisy reference needs a proportionally larger drop.
+                needed = threshold if width < spread else threshold + width
                 ref = float(np.median(reference))
-                if levels[split]["level"] >= ref - threshold:
+                if levels[split]["level"] >= ref - needed:
                     continue
-                run = self._persistent(levels[split:], ref, threshold)
+                run = self._persistent(levels[split:], ref, needed)
                 if run is not None:
                     level = float(np.median([r["level"] for r in run]))
                     return {"kind": "step", "reference": ref, "level": level, "drop": level - ref, "run": run}
@@ -427,9 +431,11 @@ class InstrumentMonitor:
         if not levels or len(levels) > int(self.settings.get("cross_segment_exposures", 6)):
             return None
         first = levels[0]
-        reduced = first["signature"] - {"earthquake"}
+        # Earthquakes are modelled as efficiency; a cold snap moves the sky by at most ~11 %.
+        mild = {"earthquake", "cold_snap"}
+        reduced = first["signature"] - mild
         earlier = [r for r in self.records[:self.segment_start] if r["level"] is not None
-                   and (r["signature"] - {"earthquake"}) == reduced and r["end"] <= first["start"]]
+                   and (r["signature"] - mild) == reduced and r["end"] <= first["start"]]
         if not earlier or first["start"] - earlier[-1]["end"] > 3 * 86400.0:
             return None
         previous = [r for r in earlier if r["night"] == earlier[-1]["night"]][-3:]
@@ -437,6 +443,8 @@ class InstrumentMonitor:
         same_night = previous[-1]["night"] == first["night"]
         threshold = scale * float(self.settings.get("cross_segment_threshold" if same_night else "cross_night_threshold",
                                                     0.30 if same_night else 0.45))
+        if ("cold_snap" in first["signature"]) != ("cold_snap" in previous[-1]["signature"]):
+            threshold += float(self.settings.get("cold_snap_allowance", 0.12))
         # Compare efficiency-corrected levels; the first record may straddle the change.
         shifted = [dict(r, level=r["level"] - self.log_eff(r)) for r in levels[1:]] if len(levels) > 2 else \
             [dict(r, level=r["level"] - self.log_eff(r)) for r in levels]
