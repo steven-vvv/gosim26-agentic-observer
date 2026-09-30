@@ -23,6 +23,7 @@
     "adaptive_margin": true,
     "opportunity_weight": 0.0,
     "cluster_anchors": 0,
+    "refine_top": 0,
     "arrival_cap": false,
     "arrival_min": 8,
     "arrival_busy": 0.5,

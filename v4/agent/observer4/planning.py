@@ -111,6 +111,48 @@ class Planner:
         self._plan_anchors = 1.0
         self._exposure_seconds = 900.0
 
+    def _refine(self, item, vectors, glass_margin, lst, relaxed, floor) -> int:
+        """Try small centre shifts around a finalist; keep the best field (local search).
+
+        Without gaps a shift of a fraction of a cell moves targets between cells, which
+        resolves collisions of two valuable targets in one cell.
+        """
+        search = item.get("_search")
+        if search is None:
+            return 0
+        near, gains, durations = search
+        task, settings = self.task, self.settings
+        steps = np.asarray(settings.get("refine_shifts", [-0.24, -0.12, 0.12, 0.24]), dtype=float)
+        da, dz = np.meshgrid(np.r_[0.0, steps], np.r_[0.0, steps], indexing="ij")
+        da, dz = da.ravel()[1:], dz.ravel()[1:]
+        ca = item["alt"] + da
+        cz = (item["az"] + dz / max(0.05, math.cos(item["alt"] * RAD))) % 360.0
+        keep = (ca >= floor) & (ca <= 89.85)
+        ca, cz = ca[keep], cz[keep]
+        if not len(ca):
+            return 0
+        fibers, margin, _, _ = task.grid.classify(vectors[near], ca, cz)
+        geometry_weight = np.where(fibers >= 0, 1.0, 0.0)
+        geometry_weight *= np.where(margin >= glass_margin, 1.0, 0.45)
+        total = fiber_totals(fibers, gains, geometry_weight, task.grid.n)
+        center_limit = self._centers_up(ca, cz, lst) if not relaxed else np.full(len(ca), 1e9)
+        total = np.where(durations[None, :] <= center_limit[:, None], total, 0)
+        merit = total / durations[None, :]
+        flat = int(np.argmax(merit))
+        center_i, duration_i = np.unravel_index(flat, merit.shape)
+        value = float(merit[center_i, duration_i])
+        if value <= item["merit"] * (1.0 + 1e-9):
+            return len(ca)
+        gain = gains[duration_i] * geometry_weight[center_i]
+        selected = []
+        for fiber in range(task.grid.n):
+            ids = np.flatnonzero((fibers[center_i] == fiber) & (gain > 0))
+            if len(ids):
+                selected.append((fiber, int(near[ids[int(np.argmax(gain[ids]))]])))
+        item.update({"merit": value, "alt": float(ca[center_i]), "az": float(cz[center_i]),
+                     "duration": int(durations[duration_i]), "selected": selected, "refined": True})
+        return len(ca)
+
     def _arrival_cap(self, now, left, incomplete, visible, reach, ha, scale, safety, zero_point, open_now):
         """Latest end for this exposure so that a burst of required targets finds the telescope free.
 
@@ -409,10 +451,18 @@ class Planner:
                 "duration": int(durations[duration_i]),
                 "selected": selected,
                 "program_i": program_i,
+                "_search": (near, gains, durations) if program_i is None else None,
             }
             finalists.append(candidate)
             finalists.sort(key=lambda entry: entry["merit"], reverse=True)
             del finalists[6:]
+        refine = int(settings.get("refine_top", 0))
+        if refine > 0 and finalists:
+            relaxed = getattr(task, "revision", 1) >= 2 and settings.get("free_center", True)
+            floor = 0.0 if relaxed else task.minimum_altitude + 0.4
+            for item in finalists[:refine]:
+                fields_checked += self._refine(item, vectors, glass_margin, lst, relaxed, floor)
+            finalists.sort(key=lambda entry: entry["merit"], reverse=True)
         if not finalists:
             self.last_trace = {"reason": "no_profitable_field", "anchors": len(used), "fields": fields_checked}
             return None
