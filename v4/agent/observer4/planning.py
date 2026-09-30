@@ -170,14 +170,14 @@ class Planner:
         rest = rest[np.lexsort((rest, -values[count:]))]
         return np.concatenate((head, rest))
 
-    def _paced_anchors(self, now: float, night_index: int, remaining_wallclock: float) -> int:
+    def _paced_anchors(self, now: float, night_index: int, remaining_wallclock: float, extra: int = 0) -> int:
         """Anchor count that keeps the remaining plans inside the wall-clock budget.
 
         Planning time grows with the number of anchor fields; remaining plans are
         estimated from the observing time left and the recent mean exposure length.
         """
         settings = self.settings
-        base = int(settings["anchors"])
+        base = int(settings["anchors"]) + extra
         if remaining_wallclock < settings["budget_reserve_seconds"] + 15:
             return min(base, 2)
         if not settings.get("pace_budget", True) or self._plan_seconds is None:
@@ -303,13 +303,16 @@ class Planner:
         pool = pool[np.argpartition(priority[pool], -limit)[-limit:]]
         pool = pool[np.lexsort((pool, -priority[pool]))]
         # Budget pacing uses measured time in the runtime; this is a predictable fallback.
-        count = self._paced_anchors(now, night_index, remaining_wallclock)
         extra = int(settings.get("cluster_anchors", 0))
+        total = self._paced_anchors(now, night_index, remaining_wallclock, extra)
         if extra > 0:
             # Sparse valuable targets (required ones) are completed a few per field; anchors
-            # whose surroundings hold the most priority find the densest fields.
-            pool = self._cluster_order(pool, priority, count, extra)
-            count += extra
+            # whose surroundings hold the most priority find the densest fields. Pacing
+            # shrinks both kinds in proportion.
+            base = int(settings["anchors"])
+            extra = min(extra, round(total * extra / (base + extra)))
+            pool = self._cluster_order(pool, priority, total - extra, extra)
+        count = total
         uniformity = state.uniformity_gain() * settings["uniformity_weight"]
         glass_margin = settings["glass_margin_deg"]
         if settings.get("adaptive_margin", False):
