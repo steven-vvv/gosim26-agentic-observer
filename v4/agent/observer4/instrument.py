@@ -488,7 +488,8 @@ class InstrumentMonitor:
         trusted = self.window_trusted and not self.repaired
         free = self.free_left()
         early = trusted and slot < self.window[0] - float(self.settings.get("window_margin_slots", 2))
-        if early or self.repaired:
+        # After a repair, free reports keep ordinary evidence; paid ones need strong evidence.
+        if early or (self.repaired and not free):
             # Outside the generator's single-fault window (before it, or after a repair) a
             # fault exists only on cards that override the fault count; report only a clear
             # instrument-like cut there (program bands kept, no recent earthquake).
