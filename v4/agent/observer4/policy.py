@@ -177,6 +177,7 @@ class Observer:
         signature = pending.get("signature", frozenset())
         mixed = False
         directions = set()
+        stable = set(pending.get("sectors", ()))
         for bulletin in bulletins:
             try:
                 issued = parse_utc(bulletin["issued_at_utc"]).timestamp()
@@ -188,6 +189,7 @@ class Observer:
                     mixed = True
                 directions.update(n.get("direction") for n in bulletin.get("notices", [])
                                   if n.get("direction") != "ALL" and n.get("event_kind") != "terrain_obstruction")
+                stable &= {(n.get("event_kind"), n.get("direction")) for n in bulletin.get("notices", [])}
         reference = self.instrument.reference_level(pending["night"], signature, start)
         record = build_record(self.task, pending, hits, signature, self.revision >= 2, reference, mixed=mixed)
         self.instrument.add(record)
@@ -196,6 +198,11 @@ class Observer:
         except Exception as error:  # noqa: BLE001 - fall back to the announced-sector envelope
             self.quality.terrain_model = None
             self.emit("terrain_disabled", {"error_type": type(error).__name__, "detail": str(error)[:200]})
+        try:
+            self.quality.sector_evidence(record, pending, self.task, stable)
+        except Exception as error:  # noqa: BLE001 - fall back to the sector prior
+            self.quality.sector_tracker = None
+            self.emit("sectors_disabled", {"error_type": type(error).__name__, "detail": str(error)[:200]})
         if pending.get("predicted_level") is not None and record["level"] is not None:
             self.level_errors.append((round(record["level"] - pending["predicted_level"][0], 4),
                                       pending["predicted_level"][1]))

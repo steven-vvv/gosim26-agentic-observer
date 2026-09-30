@@ -44,7 +44,8 @@
     "weather_feedback": true,
     "level_model": true,
     "terrain_model": true,
-    "sector_prior": false
+    "sector_prior": false,
+    "sector_model": false
   },
   "fault": {
     "enabled": true,

@@ -71,6 +71,11 @@ class QualityModel:
         self.last_notice_signature = None
         self.terrain_model = None
         self.terrain_free = None
+        self.sector_tracker = None
+        if self.settings.get("sector_model", False):
+            from .sectors import SectorTracker
+
+            self.sector_tracker = SectorTracker(self.settings)
 
     def messages(self, snapshot: dict, now: float) -> None:
         for message in snapshot.get("new_messages", []):
@@ -86,6 +91,8 @@ class QualityModel:
             for row in bulletin.get("notices", [])
             if row.get("event_kind") != "terrain_obstruction"
         }
+        if self.sector_tracker is not None:
+            self.sector_tracker.sync(self.notices)
         self.forecast = snapshot.get("latest_forecast")
         for notice in (self.forecast or {}).get("notices", []):
             if notice.get("event_kind") in {"rain", "storm", "overcast", "haze"}:
@@ -109,6 +116,9 @@ class QualityModel:
         return factor
 
     def _sector_factor(self, kind, direction, alt, az):
+        tracker = self.sector_tracker
+        if tracker is not None and (kind, direction) in tracker.events:
+            return tracker.events[(kind, direction)].expected_factor(alt, az)
         offset = (az - DIRECTIONS[direction] + 180) % 360 - 180
         if self.settings.get("sector_prior", False) and kind in {"rain", "overcast", "haze", "storm", "rocket_launch"}:
             inside = sector_inside_probability(kind, offset, alt)
@@ -333,6 +343,61 @@ class QualityModel:
             observations.append(observation)
         return model.update(tracks, observations)
 
+    def sector_evidence(self, record: dict, pending: dict, task, stable) -> int:
+        """Ratios of hit targets inside one active sector envelope to the exposure's clean level."""
+        tracker = self.sector_tracker
+        if tracker is None or not tracker.events or record.get("z") is None or record["level"] is None:
+            return 0
+        events = [event for key, event in tracker.events.items() if key in stable]
+        if not events:
+            return 0
+        indices = record["indices"]
+        hit = record["hit"]
+        if not np.any(hit):
+            return 0
+        middle = pending["start"] + pending["duration"] / 2
+        ids = indices[hit]
+        alt, az = altaz(horizontal_vectors(task.ra[ids], task.dec[ids], sidereal(middle, task.longitude), task.latitude))
+        z = record["z"][hit]
+        scores = record["scores"][hit]
+        ratio = scores / task.weight[ids]
+        program = task.scoring["program"]
+        declared = float(program["multipliers"][pending["program"]])
+        mismatch = float(program["mismatch_multiplier"])
+        multipliers = (declared, mismatch)
+        base = float(np.exp(record["level"]))
+        zero_point = float(task.scoring["flux_zero_point"]) * float(task.scoring["exposure_zero_point_seconds"])
+        terrain = self.terrain_model
+        free = np.ones(len(ids), dtype=bool)
+        if terrain is not None:
+            free = ~terrain.envelope(az, alt)
+        envelopes = [event.envelope(alt, az) for event in events]
+        used = 0
+        for event, inside in zip(events, envelopes):
+            others = np.zeros(len(ids), dtype=bool)
+            for other, mask in zip(events, envelopes):
+                if other is not event:
+                    others |= mask
+            select = inside & ~others & free
+            if not np.any(select):
+                continue
+            low, high = [], []
+            for j in np.flatnonzero(select):
+                if scores[j] <= 0:
+                    low.append(0.0)
+                    high.append(0.05)
+                elif any(abs(ratio[j] - m) < 2e-5 for m in multipliers):
+                    # Saturated: the sector factor is at least what saturation needed.
+                    need = zero_point / (task.flux[ids[j]] * pending["duration"] * base * z[j] / max(ratio[j], 1e-9))
+                    low.append(float(min(1.0, need)))
+                    high.append(1.0)
+                else:
+                    value = float(z[j]) / base
+                    low.append(value / max(multipliers))
+                    high.append(min(1.0, value / min(multipliers)))
+            used += event.update(alt[select], az[select], np.array(low), np.array(high))
+        return used
+
     def reported(self, now: float) -> None:
         self.last_report = now
         self.reports += 1
@@ -352,4 +417,5 @@ class QualityModel:
             "zero_observes": self.zero_observes,
             "notices": [list(pair) for pair in sorted(self.notices)],
             "terrain": None if self.terrain_model is None else self.terrain_model.status(),
+            "sectors": None if self.sector_tracker is None else self.sector_tracker.status(),
         }

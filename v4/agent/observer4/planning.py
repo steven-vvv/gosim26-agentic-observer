@@ -499,6 +499,7 @@ class Planner:
                 "program": program,
                 "night": night_index,
                 "signature": frozenset(kind for kind, direction in self.quality.notices if direction == "ALL"),
+                "sectors": tuple(sorted(pair for pair in self.quality.notices if pair[1] != "ALL")),
                 "predicted_level": None if predicted is None else [math.log(max(scale, 1e-9)), predicted[1]],
                 "pointing": dict(action["pointing"]),
                 "targets": [
