@@ -59,6 +59,22 @@ class QualityModel:
     def closed(self) -> bool:
         return any(kind in {"rain", "storm"} and direction == "ALL" for kind, direction in self.notices)
 
+    def notice_factor(self, altitude, azimuth):
+        """Gain factor from the announced sector events alone (no state is changed)."""
+        alt, az = np.asarray(altitude), np.asarray(azimuth)
+        factor = np.ones_like(alt, dtype=float)
+        if not self.settings["directional_notices"]:
+            return factor
+        for kind, direction in self.notices:
+            if direction not in DIRECTIONS:
+                continue
+            near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 72.0
+            if kind == "rocket_launch":
+                factor[near & (alt < 62.0)] = 0.0
+            elif kind in {"rain", "overcast", "haze", "storm"}:
+                factor[(alt < 80.0) & near] *= 0.40
+        return factor
+
     def direction_factors(self, altitude, azimuth):
         alt, az = np.asarray(altitude), np.asarray(azimuth)
         factor = np.ones_like(alt, dtype=float)

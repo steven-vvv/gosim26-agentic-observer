@@ -111,6 +111,51 @@ class Planner:
         self._plan_anchors = 1.0
         self._exposure_seconds = 900.0
 
+    def _arrival_cap(self, now, left, incomplete, visible, reach, ha, scale, safety, zero_point, open_now):
+        """Latest end for this exposure so that a burst of required targets finds the telescope free.
+
+        Required targets rising later in the night (or reachable only once higher) are
+        scanned every 5 minutes with the current sky level; when enough of them become
+        reachable within the look-ahead, exposures are cut to end by then. Without
+        readout overheads, a shorter exposure loses little; a missed window is lost.
+        """
+        task, settings = self.task, self.settings
+        safe = settings["required_safe_factor"]
+        now_ok = incomplete & visible & (reach * open_now >= safe)
+        candidates = np.flatnonzero(incomplete & ~now_ok & (task.hmax > 0))
+        minimum = int(settings.get("arrival_min", 8))
+        # Only a telescope without required work now needs to keep itself free for later.
+        if len(candidates) < minimum or np.count_nonzero(now_ok) >= float(settings.get("arrival_busy", 0.5)) * minimum:
+            return None
+        horizon = min(float(settings.get("arrival_horizon", 3600.0)), left - task.minimum_exposure)
+        if horizon < 300.0:
+            return None
+        ra, dec, flux = task.ra[candidates], task.dec[candidates], task.flux[candidates]
+        model = task.scoring.get("lunar_model")
+        exponent = task.scoring["airmass_exponent"]
+        limit = task.minimum_altitude + float(settings.get("altitude_margin_deg", 0.2))
+        terrain = self.quality.terrain_model
+        arrived = np.zeros(len(candidates), dtype=bool)
+        for offset in np.arange(300.0, horizon + 1.0, 300.0):
+            moment = now + offset
+            altitude, azimuth = altaz(horizontal_vectors(ra, dec, sidereal(moment, task.longitude), task.latitude))
+            up = altitude >= limit
+            if not np.any(up):
+                continue
+            k = lunar_factors(ra, dec, moment, task.latitude, task.longitude, model)
+            k = k / (task.scoring["q0"] * airmass(np.maximum(altitude, 1.0)) ** exponent)
+            ha_future = wrap180(sidereal(moment, task.longitude) - ra)
+            setting = np.where(task.hmax[candidates] >= 180, 1e9, (task.hmax[candidates] - ha_future) / SIDEREAL_RATE)
+            span = np.minimum(np.minimum(task.maximum_exposure, setting), left - offset)
+            factor = flux * k * scale * safety / zero_point * span
+            if terrain is not None:
+                factor = factor * (1.0 - terrain.blocked_probability(azimuth, altitude))
+            factor = factor * self.quality.notice_factor(altitude, azimuth)
+            arrived |= up & (factor >= safe)
+            if np.count_nonzero(arrived) >= minimum:
+                return float(offset)
+        return None
+
     def _cluster_order(self, pool, priority, count: int, extra: int):
         """Pool order: the first anchors by own priority, then by nearby priority sum."""
         task = self.task
@@ -243,6 +288,13 @@ class Planner:
         priority *= np.maximum(0.25, 0.80 ** np.minimum(state.misses, 6))
         priority = np.where(visible & (task.last_night >= night_index), priority, 0)
         self._last_priority = priority
+        cap = None
+        if settings.get("arrival_cap", False):
+            try:
+                cap = self._arrival_cap(now, left, incomplete, visible, reach, ha, scale, safety, zero_point,
+                                        terrain_free)
+            except Exception:  # noqa: BLE001 - planning continues without the look-ahead
+                cap = None
         pool = np.flatnonzero(priority > 1e-8)
         if not len(pool):
             self.last_trace = {"reason": "no_positive_visible_target"}
@@ -291,7 +343,7 @@ class Planner:
                 ca = np.concatenate((ca, ca + 0.12, ca - 0.12))
                 cz = np.tile(cz, 3)
             fields_checked += len(ca)
-            durations = self._durations(rate[near], incomplete[near], left)
+            durations = self._durations(rate[near], incomplete[near], left if cap is None else min(left, cap))
             if not len(durations):
                 continue
             factors = np.minimum(1, durations[:, None] * self._rates(durations, near, rate))
