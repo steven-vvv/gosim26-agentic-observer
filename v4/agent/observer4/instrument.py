@@ -486,13 +486,27 @@ class InstrumentMonitor:
             return None
         slot = self.slot_index(now, night)
         trusted = self.window_trusted and not self.repaired
-        if trusted and slot < self.window[0] - float(self.settings.get("window_margin_slots", 2)):
-            return None
         free = self.free_left()
+        if trusted and slot < self.window[0] - float(self.settings.get("window_margin_slots", 2)):
+            # A card with more faults than the generator's default starts one earlier; only
+            # a clear instrument-like cut (program bands kept) is reported before the window.
+            evidence = self._detect(1.0) if self.settings.get("early_reports", True) else None
+            if evidence is None:
+                return None
+            quiet = all(now - quake["time"] >= float(self.settings.get("early_quake_quiet_hours", 48.0)) * 3600.0
+                        for quake in self.efficiency.quakes)
+            strong = (quiet and evidence["drop"] < -float(self.settings.get("early_drop", 0.5))
+                      and evidence.get("band_llr", 0.0) >= float(self.settings.get("early_band_llr", 3.0))
+                      and evidence.get("band_targets", 0) >= 3)
+            certain = strong and evidence.get("band_llr", 0.0) >= float(self.settings.get("early_paid_llr", 6.0))
+            if not (strong and (free or certain)) or evidence["drop"] < -float(self.settings.get("maximum_fault_drop", 1.8)):
+                return None
+            evidence["kind"] = "early_" + evidence["kind"]
+            return evidence
         evidence = self._detect(1.0)
         if evidence is None and free:
             evidence = self._detect(float(self.settings.get("probe_threshold_scale", 0.6)))
-        if evidence is not None and evidence["drop"] < -float(self.settings.get("maximum_fault_drop", 1.35)):
+        if evidence is not None and evidence["drop"] < -float(self.settings.get("maximum_fault_drop", 1.8)):
             # No fault cuts efficiency this far, an unannounced aftershock can.
             self._hidden_quake(evidence, now, night)
             evidence = None
@@ -584,7 +598,7 @@ class InstrumentMonitor:
         self.segment_start = len(self.records)
 
     def _reject(self, entry: dict) -> None:
-        if entry["kind"] in ("step", "cross_segment", "cross_night") and entry["drop"] < 0 \
+        if entry["kind"].removeprefix("early_") in ("step", "cross_segment", "cross_night") and entry["drop"] < 0 \
                 and entry.get("band_llr", 0.0) > float(self.settings.get("quake_band_llr", 1.0)):
             # An efficiency cut that a report did not repair behaves like a hidden aftershock;
             # program bands that kept their levels show the cut was not in the sky.

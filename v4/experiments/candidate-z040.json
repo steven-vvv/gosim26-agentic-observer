@@ -1,0 +1,1 @@
+{"fault": {"mode": "monitor"}, "quality": {"level_model": true, "terrain_model": true}, "policy": {"adaptive_margin": true, "level_safety_z": 0.4, "required_safe_factor": 0.51}}

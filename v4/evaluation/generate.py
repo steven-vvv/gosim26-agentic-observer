@@ -40,6 +40,7 @@ def specifications(dataset: str, path: Path | None = None):
                 "area_deg2": profile["area_deg2"],
                 "stress": profile["stress"],
                 "wallclock_seconds": 900,
+                **({"event_counts": profile["event_counts"]} if "event_counts" in profile else {}),
             }
         )
     return result
