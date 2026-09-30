@@ -203,7 +203,7 @@ class InstrumentMonitor:
         total = int(self.slot_offsets[-1])
         spread = float(settings.get("window_slots", 200))
         self.window = (total // 2 - spread, total // 2 + spread)
-        fractions = settings.get("probe_fractions", [0.67])
+        fractions = settings.get("probe_fractions", [])
         self.probes = [self.window[0] + float(f) * (self.window[1] - self.window[0]) for f in fractions]
 
     # -- clock --------------------------------------------------------------------
@@ -478,7 +478,7 @@ class InstrumentMonitor:
         midpoint, so inside the window ordinary evidence suffices and after it a report
         cannot be wrong. Before the window, and after a repair, only strong evidence is
         reported, since a fault there needs a card that overrides the fault count. Free
-        false reports (engine revision 2) buy weaker evidence and a timed probe.
+        false reports (engine revision 2) buy weaker evidence (and optional timed probes).
         """
         if self.pending is not None or not self.settings.get("enabled", True):
             return None
