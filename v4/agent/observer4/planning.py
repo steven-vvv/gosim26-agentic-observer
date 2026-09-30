@@ -57,7 +57,12 @@ def fiber_totals(fibers: np.ndarray, gains: np.ndarray, weight: np.ndarray, coun
         # The dense search included zero for every target outside a fiber.
         maxima = np.where(sizes[:, None] < targets, np.maximum(maxima, 0), maxima)
         totals[sorted_labels[starts]] = maxima
-    return np.add.accumulate(totals.reshape(centers, count, -1), axis=1)[:, -1, :]
+    totals = totals.reshape(centers, count, -1)
+    # Sequential sum over fibres, the same order as np.add.accumulate.
+    result = totals[:, 0, :].copy()
+    for fiber in range(1, count):
+        result += totals[:, fiber, :]
+    return result
 
 
 def expected_science_gains(factors: np.ndarray, weights: np.ndarray, best: np.ndarray,
@@ -164,7 +169,9 @@ class Planner:
             self.quality.monitor, predicted = None, None
         zero_point = task.scoring["flux_zero_point"] * task.scoring["exposure_zero_point_seconds"]
         terrain = self.quality.terrain_model
-        track = self._track(now, altitude, azimuth) if (predicted is not None or terrain is not None) else None
+        # Only visible targets can enter a plan, so tracks and profiles cover just them.
+        subset = np.flatnonzero(visible)
+        track = self._track(now, altitude, azimuth, subset) if (predicted is not None or terrain is not None) else None
         self._terrain_profile = None
         if terrain is not None:
             try:
@@ -182,7 +189,7 @@ class Planner:
         else:
             scale, sigma = predicted
             safety = math.exp(-settings.get("level_safety_z", 1.5) * sigma)
-            profile = self._k_profile(now, track)
+            profile = self._k_profile(now, track, subset)
             base_quality = profile[1][1]
             probabilities = self.quality.program_probabilities(
                 base_quality, max(settings.get("program_uncertainty_floor", 0.05), sigma))
@@ -403,27 +410,29 @@ class Planner:
     PROFILE_OFFSETS = (0.0, 300.0, 600.0, 900.0, 1350.0, 1800.0)
     TRACK_TIMES = (0.0, 300.0, 600.0, 900.0, 1350.0, 1800.0, 2700.0, 3600.0)
 
-    def _track(self, now: float, altitude0, azimuth0) -> dict:
-        """Altitude and azimuth of every target at fixed offsets after now."""
+    def _track(self, now: float, altitude0, azimuth0, subset) -> dict:
+        """Altitude and azimuth of the subset at fixed offsets after now; others keep now."""
         task = self.task
-        alt, az = [np.asarray(altitude0)], [np.asarray(azimuth0)]
-        for offset in self.TRACK_TIMES[1:]:
-            a, z = altaz(horizontal_vectors(task.ra, task.dec, sidereal(now + offset, task.longitude), task.latitude))
-            alt.append(a)
-            az.append(z)
-        return {"now": now, "alt": np.array(alt), "az": np.array(az)}
+        alt = np.repeat(np.asarray(altitude0)[None, :], len(self.TRACK_TIMES), axis=0)
+        az = np.repeat(np.asarray(azimuth0)[None, :], len(self.TRACK_TIMES), axis=0)
+        ra, dec = task.ra[subset], task.dec[subset]
+        for j, offset in enumerate(self.TRACK_TIMES[1:], start=1):
+            alt[j, subset], az[j, subset] = altaz(horizontal_vectors(ra, dec, sidereal(now + offset, task.longitude),
+                                                                     task.latitude))
+        return {"now": now, "alt": alt, "az": az}
 
-    def _k_profile(self, now: float, track: dict):
-        """Lunar factor over airmass at exposure-midpoint offsets for every target."""
+    def _k_profile(self, now: float, track: dict, subset):
+        """Lunar factor over airmass at exposure-midpoint offsets for the subset (1 elsewhere)."""
         task = self.task
         exponent = task.scoring["airmass_exponent"]
         model = task.scoring.get("lunar_model")
-        rows = []
+        rows = np.ones((len(self.PROFILE_OFFSETS), len(task.ids)))
+        ra, dec = task.ra[subset], task.dec[subset]
         for j, offset in enumerate(self.PROFILE_OFFSETS):
-            lunar = lunar_factors(task.ra, task.dec, now + max(offset, 60.0), task.latitude, task.longitude, model)
-            rows.append(lunar / (task.scoring["q0"] * airmass(np.maximum(track["alt"][j], 1.0)) ** exponent))
+            lunar = lunar_factors(ra, dec, now + max(offset, 60.0), task.latitude, task.longitude, model)
+            rows[j, subset] = lunar / (task.scoring["q0"] * airmass(np.maximum(track["alt"][j, subset], 1.0)) ** exponent)
         # Midpoint sampling; time-resolved scoring differs only at second order in time.
-        return np.array(self.PROFILE_OFFSETS), np.array(rows)
+        return np.array(self.PROFILE_OFFSETS), rows
 
     def _terrain_track(self, track: dict, terrain) -> dict:
         """Unblocked probability along each envelope target's track."""
