@@ -461,7 +461,11 @@ class Planner:
             relaxed = getattr(task, "revision", 1) >= 2 and settings.get("free_center", True)
             floor = 0.0 if relaxed else task.minimum_altitude + 0.4
             for item in finalists[:refine]:
-                fields_checked += self._refine(item, vectors, glass_margin, lst, relaxed, floor)
+                for _ in range(max(1, int(settings.get("refine_iterations", 1)))):
+                    before = item["merit"]
+                    fields_checked += self._refine(item, vectors, glass_margin, lst, relaxed, floor)
+                    if item["merit"] <= before:
+                        break
             finalists.sort(key=lambda entry: entry["merit"], reverse=True)
         if not finalists:
             self.last_trace = {"reason": "no_profitable_field", "anchors": len(used), "fields": fields_checked}
