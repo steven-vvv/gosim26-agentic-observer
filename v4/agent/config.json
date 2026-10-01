@@ -49,7 +49,8 @@
     "level_model": true,
     "terrain_model": true,
     "sector_prior": true,
-    "sector_model": false
+    "sector_model": false,
+    "terrain_thompson": false
   },
   "fault": {
     "enabled": true,

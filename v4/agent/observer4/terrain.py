@@ -105,8 +105,34 @@ class TerrainModel:
         sector["grid"], sector["grid_version"] = np.clip(grid, 0.0, 1.0), self.updates
         return sector["grid"]
 
+    def draw(self, rng) -> None:
+        """Fix one posterior sample per announced direction (Thompson sampling).
+
+        Planning on a sample explores uncertain edges in proportion to their chance of
+        being open, so the posterior keeps sharpening where the mean would never look.
+        """
+        self._drawn = []
+        for sector in self.sectors:
+            weights = np.exp(sector["log_weight"] - np.max(sector["log_weight"]))
+            weights /= np.sum(weights)
+            self._drawn.append((sector, int(rng.choice(len(weights), p=weights))))
+
+    def release(self) -> None:
+        self._drawn = None
+
+    def _drawn_blocked(self, az, alt):
+        blocked = np.zeros(az.shape, dtype=bool)
+        for sector, i in self._drawn:
+            for j in range(2):
+                if not sector["active"][i, j]:
+                    continue
+                blocked |= _inside(az, sector["center"][i, j], sector["half"][i, j]) & (alt <= sector["top"][i, j])
+        return blocked.astype(float)
+
     def blocked_probability(self, azimuth, altitude):
         az, alt = np.asarray(azimuth, dtype=float), np.asarray(altitude, dtype=float)
+        if getattr(self, "_drawn", None) is not None:
+            return self._drawn_blocked(az, alt)
         free = np.ones(az.shape)
         for sector in self.sectors:
             grid = self._grid(sector)

@@ -140,6 +140,9 @@ class QualityModel:
             try:
                 # A blocked target scores nothing, so the free probability scales expected
                 # gains; fault levels keep the conservative envelope.
+                if self.settings.get("terrain_thompson", False):
+                    self._terrain_draws = getattr(self, "_terrain_draws", 0) + 1
+                    self.terrain_model.draw(np.random.default_rng(20261007 + self._terrain_draws))
                 self.terrain_free = 1.0 - self.terrain_model.blocked_probability(az, alt)
                 clean &= ~self.terrain_model.envelope(az, alt)
             except Exception:  # noqa: BLE001 - fall back to the announced-sector envelope
