@@ -205,6 +205,32 @@ class InstrumentMonitor:
         self.window = (total // 2 - spread, total // 2 + spread)
         fractions = settings.get("probe_fractions", [])
         self.probes = [self.window[0] + float(f) * (self.window[1] - self.window[0]) for f in fractions]
+        self.total_slots = total
+        self.cleared = self.window[0]  # no fault has started before this slot (report results)
+
+    def fallback_slot(self, free: bool) -> float | None:
+        """Report time that maximises the expected value of one report on the window prior.
+
+        With the start uniform on [cleared, end], a report at T is right with probability
+        (T - cleared) / (end - cleared) and then gains the reward plus the repaired
+        efficiency for the rest of the survey; a wrong one costs the penalty unless free.
+        Long surveys give T = end (certain); short ones report earlier.
+        """
+        low, high = float(self.cleared), float(self.window[1])
+        if high <= low:
+            return None
+        reward = float(self.task.scoring.get("reporting", {}).get("correct_reward", 100))
+        penalty = 0.0 if free else -float(self.task.scoring.get("reporting", {}).get("false_penalty", -150))
+        value = float(self.settings.get("repair_value_per_slot", 1.5))
+        margin = float(self.settings.get("fallback_margin_slots", 4))
+        candidates = np.linspace(low, high + margin, 64)
+        right = np.clip((candidates - low) / (high - low), 0.0, 1.0)
+        remaining = np.maximum(0.0, self.total_slots - candidates)
+        expected = right * (reward + value * remaining) - (1.0 - right) * penalty
+        best = int(np.argmax(expected))
+        if expected[best] <= 0:
+            return None
+        return float(candidates[best])
 
     # -- clock --------------------------------------------------------------------
     def slot_index(self, now: float, night: int | None) -> float:
@@ -436,7 +462,8 @@ class InstrumentMonitor:
         reduced = first["signature"] - mild
         earlier = [r for r in self.records[:self.segment_start] if r["level"] is not None
                    and (r["signature"] - mild) == reduced and r["end"] <= first["start"]]
-        if not earlier or first["start"] - earlier[-1]["end"] > 3 * 86400.0:
+        gap_days = (first["start"] - earlier[-1]["end"]) / 86400.0 if earlier else float("inf")
+        if not earlier or gap_days > float(self.settings.get("cross_gap_days", 7.0)):
             return None
         previous = [r for r in earlier if r["night"] == earlier[-1]["night"]][-3:]
         sky_before = float(np.median([r["level"] - self.log_eff(r) for r in previous]))
@@ -445,6 +472,8 @@ class InstrumentMonitor:
                                                     0.30 if same_night else 0.45))
         if ("cold_snap" in first["signature"]) != ("cold_snap" in previous[-1]["signature"]):
             threshold += float(self.settings.get("cold_snap_allowance", 0.12))
+        # Night-to-night sky changes grow with the gap (night AR(1) with correlation ~0.8).
+        threshold += float(self.settings.get("gap_threshold_per_day", 0.08)) * max(0.0, gap_days - 1.0)
         # Compare efficiency-corrected levels; the first record may straddle the change.
         shifted = [dict(r, level=r["level"] - self.log_eff(r)) for r in levels[1:]] if len(levels) > 2 else \
             [dict(r, level=r["level"] - self.log_eff(r)) for r in levels]
@@ -523,10 +552,11 @@ class InstrumentMonitor:
         if evidence is not None and evidence["scale"] < 1.0 and not free:
             evidence = None
         if evidence is None and trusted:
-            fallback_due = slot >= self.window[1] + float(self.settings.get("fallback_margin_slots", 4))
-            if fallback_due and self.settings.get("window_fallback", True) and \
-                    not any(r.get("kind") == "fallback" for r in self.reports):
-                evidence = {"kind": "fallback", "reference": None, "level": self._last_level(), "drop": 0.0}
+            target = self.fallback_slot(free) if self.settings.get("window_fallback", True) else None
+            fallback_due = target is not None and slot >= target
+            if fallback_due and (self.revision >= 2 or not any(r.get("kind") == "fallback" for r in self.reports)):
+                evidence = {"kind": "fallback", "reference": None, "level": self._last_level(), "drop": 0.0,
+                            "slot": round(target, 1)}
             elif free and self.settings.get("free_probes", True):
                 due = [p for p in self.probes if slot >= p and not any(r.get("probe") == p for r in self.reports)]
                 if due:
@@ -565,7 +595,9 @@ class InstrumentMonitor:
             self._confirm(entry)
         else:
             self.false_since_correct += 1
-            if entry["kind"] == "fallback":
+            # A wrong report proves no fault was active then, so the start lies later.
+            self.cleared = max(self.cleared, self.slot_index(entry["time"], entry["night"]))
+            if self.cleared >= self.window[1]:
                 self.window_trusted = False  # the single-fault window does not hold on this card
             self._reject(entry)
 
