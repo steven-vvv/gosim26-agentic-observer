@@ -42,8 +42,10 @@ def terrain_sectors(card: Path) -> list[tuple[float, float, float]]:
 
 
 def oracle_terrain(observer: Observer, sectors) -> None:
-    """Replace the announced-terrain envelope by the true permanent sectors."""
+    """Replace the announced-terrain envelope (or posterior) by the true permanent sectors."""
     quality = observer.quality
+    quality.settings = dict(quality.settings, terrain_model=False)
+    quality.terrain_model = None
     original = quality.direction_factors
 
     def direction_factors(altitude, azimuth):
