@@ -58,8 +58,24 @@ class Diagnostics:
         if self.service is not None and enabled:
             explicit_url = os.environ.get("TELEMETRY_URL")
             explicit_key = os.environ.get("TELEMETRY_TOKEN")
-            url = explicit_url or os.environ.get("OPENAI_BASE_URL") or remote["url"]
-            key = explicit_key or os.environ.get("OPENAI_API_KEY")
+            # The platform's model proxy and the optional telemetry Worker may both
+            # expose OpenAI-compatible URLs.  Only reuse model credentials when the
+            # injected endpoint is the configured telemetry host; otherwise a model
+            # key must never be sent to diagnostics by accident.
+            url = explicit_url
+            key = explicit_key
+            if not explicit_url and not explicit_key:
+                model_url = os.environ.get("OPENAI_BASE_URL")
+                model_key = os.environ.get("OPENAI_API_KEY")
+                try:
+                    telemetry_host = urlsplit(str(remote["url"])).hostname
+                    model_host = urlsplit(model_url).hostname if model_url else None
+                except ValueError:
+                    telemetry_host = model_host = None
+                if model_url and model_key and telemetry_host and model_host == telemetry_host:
+                    url, key = model_url, model_key
+            if explicit_key and not explicit_url:
+                url = remote["url"]
             transport = os.environ.get("TELEMETRY_TRANSPORT") or (
                 "events" if explicit_url and not explicit_url.rstrip("/").endswith("/v1") else remote["transport"]
             )

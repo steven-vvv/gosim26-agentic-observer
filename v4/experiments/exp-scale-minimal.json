@@ -1,0 +1,8 @@
+{
+  "policy": {
+    "anchors": 4,
+    "anchor_pool": 24,
+    "cluster_anchors": 1,
+    "refine_top": 0
+  }
+}

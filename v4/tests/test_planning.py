@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
+from v4.agent.observer4.geometry import parse_utc
 from v4.agent.observer4.planning import Planner, expected_science_gains, fiber_totals, scarcity_multipliers, strategy_settings
 
 
@@ -82,3 +85,54 @@ def test_vectorized_center_setting_time_matches_scalar(latitude):
     expected = np.array([planner._center_up(float(a), float(z), lst) for a, z in zip(alt, az)])
     actual = planner._centers_up(alt, az, lst)
     np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-8)
+
+
+def test_request_gain_uses_public_progress_factor_and_whole_exposure_deadline():
+    planner = object.__new__(Planner)
+    planner.task = SimpleNamespace(index={"T0": 0, "T1": 1, "T2": 2}, minimum_exposure=120)
+    planner.settings = {"request_weight": 1.0}
+    now = parse_utc("2026-10-05T00:00:00Z").timestamp()
+    planner.set_requests([{
+        "target_ids": ["T0", "T1", "T2"], "completed_target_ids": ["T0"],
+        "remaining_count": 1, "deadline_utc": "2026-10-05T00:05:00Z",
+        "completion_factor_threshold": 0.5, "completion_reward": 100.0,
+    }])
+    terms = planner._request_terms(now)
+    np.testing.assert_array_equal(terms[0]["indices"], [1, 2])
+    assert terms[0]["bonus"] == 100.0
+    durations = np.array([120, 300, 330])
+    factors = np.array([[0.9, 0.51, 0.53], [0.9, 0.55, 0.6], [0.9, 0.7, 0.7]])
+    gains = planner._request_gains(terms, np.array([0, 1, 2]), durations, factors, now)
+    np.testing.assert_array_equal(gains, [[0, 0, 100], [0, 100, 100], [0, 0, 0]])
+    assert planner._request_terms(now + 181) == []
+    planner.settings["request_weight"] = 0.0
+    assert planner._request_terms(now) == []
+
+
+def test_scale_profile_only_changes_high_cost_cards():
+    planner = object.__new__(Planner)
+    planner.task = SimpleNamespace(ids=range(50_000), grid=SimpleNamespace(n=25))
+    planner.config = {
+        "scale": {
+            "enabled": True,
+            "cost_threshold": 800_000,
+            "anchor_pool": 32,
+            "anchors": 6,
+            "cluster_anchors": 2,
+            "refine_top": 1,
+            "durations": [450, 600],
+        }
+    }
+    base = {"anchor_pool": 64, "anchors": 12, "cluster_anchors": 4, "refine_top": 3,
+            "durations": [120, 180, 900]}
+    scaled = planner._scaled_settings(base)
+    assert scaled is not base
+    assert scaled["anchor_pool"] == 32
+    assert scaled["anchors"] == 6
+    assert scaled["cluster_anchors"] == 2
+    assert scaled["refine_top"] == 1
+    assert scaled["durations"] == [450, 600]
+    assert base["durations"] == [120, 180, 900]
+
+    planner.task = SimpleNamespace(ids=range(30_000), grid=SimpleNamespace(n=16))
+    assert planner._scaled_settings(base) is base

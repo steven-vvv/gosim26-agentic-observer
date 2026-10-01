@@ -112,6 +112,46 @@ def validate(config: dict) -> None:
         value = config["policy"]["scarcity_weight"]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 2:
             raise ValueError("invalid configuration field: policy.scarcity_weight")
+    if "request_weight" in config["policy"]:
+        value = config["policy"]["request_weight"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 5:
+            raise ValueError("invalid configuration field: policy.request_weight")
+    # The scale profile was added after the first public configs. Keep those
+    # configs loadable while validating every field when the profile exists.
+    if "scale" in config:
+        scale = config["scale"]
+        if not isinstance(scale, dict):
+            raise ValueError("scale configuration must be an object")
+        scale_ranges = {
+            "cost_threshold": (1, 100_000_000),
+            "anchor_pool": (1, 4096),
+            "anchors": (1, 128),
+            "cluster_anchors": (0, 128),
+            "refine_top": (0, 64),
+        }
+        for name, (low, high) in scale_ranges.items():
+            if name not in scale:
+                raise ValueError(f"missing configuration field: scale.{name}")
+            value = scale[name]
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or not low <= value <= high
+            ):
+                raise ValueError(f"invalid configuration field: scale.{name}")
+        if any(type(scale[name]) is not int for name in scale_ranges):
+            raise ValueError("integer configuration required in scale")
+        if type(scale.get("enabled")) is not bool:
+            raise ValueError("boolean configuration required in scale")
+        scale_durations = scale.get("durations")
+        if (
+            not isinstance(scale_durations, list)
+            or not scale_durations
+            or any(type(value) is not int or not 60 <= value <= 3600 for value in scale_durations)
+        ):
+            raise ValueError("scale.durations must contain integer seconds within 60..3600")
+        scale["durations"] = sorted(set(scale_durations))
     for name in ("forecast_guard", "quake_cooldown"):
         if name in config["fault"] and type(config["fault"][name]) is not bool:
             raise ValueError(f"boolean configuration required for fault.{name}")

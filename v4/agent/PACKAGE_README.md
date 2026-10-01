@@ -25,8 +25,9 @@ for that decision and continues.
 ## Deterministic core
 
 - `observer4/planning.py`: joint search over pointing, fibre assignment, exposure time and
-  program; greedy merit per second of science gain, required-target completion and RA
-  uniformity.
+  program; greedy merit per second of science gain, required-target completion, live
+  time-limited request progress and RA uniformity. A request exposure must end by its
+  public deadline; progress is refreshed from each public snapshot.
 - `observer4/instrument.py`: exact per-exposure quality levels from the returned scores,
   earthquake efficiency tracking and instrument-fault detection and reporting.
 - `observer4/quality.py`, `observer4/terrain.py`, `observer4/sectors.py`: sky-quality
@@ -35,3 +36,13 @@ for that decision and continues.
 - `observer4/pointing.py`: pointing-offset estimate from hits and misses.
 - `observer4/state.py`: best-score ledger, including `state_resync` handling.
 - `observer4/opportunity.py`: expected later chances of each required target.
+
+## Scale and observability
+
+Cards whose estimated geometry work (target count multiplied by fibre count) exceeds the
+configured threshold automatically use a smaller candidate search and longer starting
+exposure durations. This keeps the 900-second card budget usable on high-fibre cards while
+leaving the full search for smaller cards. Remote diagnostics require dedicated
+`TELEMETRY_URL` and `TELEMETRY_TOKEN` credentials, or an injected model endpoint whose
+hostname is the configured telemetry host; the model proxy key is never sent to telemetry
+by default.

@@ -91,6 +91,7 @@ class ModelGuidance:
                                     "coverage_start_utc": forecast.get("coverage_start_utc"),
                                     "coverage_end_utc": forecast.get("coverage_end_utc"),
                                     "notices": (forecast.get("notices") or [])[:64]},
+                "active_requests": snapshot.get("active_requests") or [],
             },
             "decision_sequence": sequence,
         }

@@ -7,6 +7,7 @@ import json
 from collections import deque
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import UUID
 
 import numpy as np
 
@@ -108,6 +109,15 @@ def test_weekly_plan_uses_deterministic_fallback_and_only_public_context():
     assert events[-1][0] == "weekly_plan"
 
 
+def test_model_context_includes_only_public_active_request_progress():
+    guide, _ = guidance(None)
+    current = snapshot()
+    request = {"request_id": "R1", "target_ids": ["T0"], "remaining_count": 1,
+               "deadline_utc": "2026-10-04T00:00:00Z", "completion_reward": 100.0}
+    current["active_requests"] = [request]
+    assert guide.context(current, 0, 900, 1)["current_state"]["active_requests"] == [request]
+
+
 def test_weekly_plan_runs_when_model_is_disabled():
     config = load(CONFIG)
     task = SimpleNamespace(
@@ -165,11 +175,13 @@ def test_real_model_client_drives_both_planning_and_action(monkeypatch):
     client = load_client("model_advisor")
     assert client is not None
     requests = []
+    call_ids = []
 
     def transport(request, *, timeout):
         body = json.loads(request.data)
         payload = json.loads(body["messages"][1]["content"])
         requests.append((request.full_url, payload["stage"], timeout))
+        call_ids.append({name.lower(): value for name, value in request.header_items()}["idempotency-key"])
         if payload["stage"] == "weekly_planning":
             advice = {"choice": "balanced", "probabilities": {"balanced": 0.96, "coverage_focus": 0.04}}
         else:
@@ -190,6 +202,8 @@ def test_real_model_client_drives_both_planning_and_action(monkeypatch):
     assert [stage for _, stage, _ in requests] == ["weekly_planning", "action_decision"]
     assert all(url == "http://model.test/v1/chat/completions" for url, _, _ in requests)
     assert all(timeout == 10 for _, _, timeout in requests)
+    assert len(set(call_ids)) == 2
+    assert all(UUID(value).version == 4 for value in call_ids)
 
 
 def test_public_weather_forecast_blocks_fault_report_from_affected_nights():

@@ -100,3 +100,30 @@ def test_incremental_ledger_matches_official_after_invalidation(upstream):
             )
         assert baseline.best() == accelerated.best()
         assert baseline.max_factors() == accelerated.max_factors()
+
+
+def test_incremental_ledger_preserves_exposure_windows_for_requests(upstream):
+    _, official = upstream
+    baseline, accelerated = official.BestLedger(), fast_runner().BestLedger()
+    issued = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    deadline = issued + timedelta(minutes=10)
+    for ledger in (baseline, accelerated):
+        ledger.record(0, "T0", 0.7, 1.0, issued - timedelta(seconds=1), issued + timedelta(minutes=2))
+        ledger.record(1, "T0", 0.6, 0.9, issued, issued + timedelta(minutes=5))
+        ledger.record(2, "T1", 0.8, 1.0, issued + timedelta(minutes=8), deadline + timedelta(seconds=1))
+        ledger.record(3, "T2", 0.8, 1.0, issued + timedelta(minutes=1), deadline)
+    assert accelerated.request_factors(issued, deadline) == baseline.request_factors(issued, deadline) == {
+        "T0": 0.6, "T2": 0.8,
+    }
+    for ledger in (baseline, accelerated):
+        ledger.invalidate_window(1, 2, "loss")
+    assert accelerated.request_factors(issued, deadline) == baseline.request_factors(issued, deadline) == {
+        "T2": 0.8,
+    }
+
+
+def test_accelerated_runner_catches_workflow_termination(upstream):
+    resolve()
+    from challenge import v4_runner
+
+    assert fast_runner().AgentTermination is v4_runner.AgentTermination

@@ -47,8 +47,8 @@ def _ledger_type(base):
             self._best = {}
             self._factors = {}
 
-        def record(self, action_index, target_id, factor, score):
-            super().record(action_index, target_id, factor, score)
+        def record(self, action_index, target_id, factor, score, start_utc=None, end_utc=None):
+            super().record(action_index, target_id, factor, score, start_utc, end_utc)
             self._update(self.entries[-1])
 
         def _update(self, entry):
@@ -78,7 +78,7 @@ def _ledger_type(base):
 @functools.lru_cache(maxsize=1)
 def fast_runner():
     clone = resolve()
-    from challenge import tile_geometry_simulator, v4_fiber_map, v4_scorer
+    from challenge import tile_geometry_simulator, v4_fiber_map, v4_runner, v4_scorer
 
     path = clone / "challenge" / "v4_runner.py"
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -91,6 +91,8 @@ def fast_runner():
     module.__file__ = str(path)
     sys.modules[module.__name__] = module
     exec(compile(ast.fix_missing_locations(tree), str(path), "exec"), module.__dict__)  # noqa: S102
+    # The workflow raises the original class; the accelerated runner must catch it.
+    module.AgentTermination = v4_runner.AgentTermination
     module.BestLedger = _ledger_type(v4_scorer.BestLedger)
     original_altaz = v4_fiber_map.radec_to_altaz
     memo_altaz = functools.lru_cache(maxsize=131072)(original_altaz)

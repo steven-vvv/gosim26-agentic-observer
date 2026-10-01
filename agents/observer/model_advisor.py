@@ -410,6 +410,7 @@ class ModelAdvisor:
             body = self._request_body(stage, options, context)
             encoded = json.dumps(body, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
             request_bytes = len(encoded)
+            call_id = str(uuid.uuid4())
             request = urllib.request.Request(
                 self.url or "",
                 data=encoded,
@@ -418,7 +419,8 @@ class ModelAdvisor:
                     "Content-Type": "application/json",
                     "Accept": "text/event-stream" if self.config.stream else "application/json",
                     "User-Agent": "gosim26-observer/1",
-                    "X-GOSIM26-Request-ID": uuid.uuid4().hex,
+                    "Idempotency-Key": call_id,
+                    "X-GOSIM26-Request-ID": call_id,
                 },
                 method="POST",
             )

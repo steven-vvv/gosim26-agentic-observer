@@ -33,9 +33,13 @@
 uv sync
 uv run python -m v4.evaluation.generate --dataset validation --jobs 4
 uv run python -m v4.evaluation.batch --dataset validation --variants baseline default --jobs 4 --tag local
-uv run python -m v4.evaluation.analyze --runs v4/results/validation-r2/local --reference baseline --variants default --dataset validation
+uv run python -m v4.evaluation.analyze --runs v4/results/validation-r3/local --reference baseline --variants default --dataset validation
 uv run pytest v4/tests
 uv run ruff check v4
 ```
 
 分布变化集使用 `--dataset distribution-shift`；每次配置或源码变更应使用新的 `--tag`，分析时必须完整配对且保持源码和评测引擎一致。提交包通过 `uv run python -m v4.evaluation.package --wheels <wheel目录>` 构建，需提供项目声明版本的 Python 3.12 NumPy `x86_64` 与 `aarch64` wheel。独立验证结果和失效机理见 [研究记录](../notes/2026-09-30-v4-research.md)。
+
+上游公开练习卡 `α`–`δ` 可用 `python3 ../hackathon-survey26/scripts/build-v4-practice-cards.py v4/cards/upstream-practice` 生成；每张卡的全程运行预算为 900 秒。限时观测请求从逐轮公开快照的 `active_requests` 读取，`policy.request_weight` 控制其规划权重（0 表示完整关闭）；对照实验使用 `experiments/exp-request-off.json`。
+
+当前默认搜索参数已按公开大卡的 900 秒预算调整：普通卡使用 64 个优先级候选、4 个聚类锚点、固定曝光时长，不做搜索前中心扩增；最终候选的局部精修仍启用。运行时用目标数 × 光纤数估算几何搜索成本，超过 `policy` 外的 `scale.cost_threshold`（当前 800,000）时自动切换为 32 个候选、6 个锚点、2 个聚类锚点、1 个局部精修候选，并从 450 秒起选曝光时长。这个规模档只针对 β/δ 类高成本卡，避免把 α/γ 的已验证搜索空间压缩。`experiments/exp-scale-fast.json` 保留了中间版配置用于对照；官方与加速引擎的逐卡结果及适用范围见 [Codex 收尾记录](../notes/2026-10-02-v4-codex-handoff.md)。模型调用的真实执行路径与提交包可审查性分别由 `tests/test_runtime.py`、`tests/test_guidance.py`、`tests/test_agent_review.py` 检查。遥测只接受专用 `TELEMETRY_URL`/`TELEMETRY_TOKEN`，或与遥测主机一致的模型代理；不会把平台模型密钥发送到默认遥测端点。

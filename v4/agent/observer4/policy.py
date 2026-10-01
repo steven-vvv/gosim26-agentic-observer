@@ -79,6 +79,7 @@ class Observer:
             self._guarded(self.instrument.report_result, outcome)
             self.emit("report_result", {"correct": bool(outcome.get("correct")), **self.instrument.status()})
         self.quality.messages(snapshot, now)
+        self.planner.set_requests(snapshot.get("active_requests") or [])
         if self.planner.opportunity is not None:
             self.planner.opportunity.forecast(snapshot)
         for message in snapshot.get("new_messages", []):

@@ -145,6 +145,8 @@ def test_remote_failures_preserve_final_report(monkeypatch, capsys):
 
     monkeypatch.delenv("TELEMETRY_DISABLE", raising=False)
     monkeypatch.setenv("OBSERVABILITY_LOCAL_ENABLED", "1")
+    monkeypatch.setenv("TELEMETRY_URL", "https://telemetry.example/v1")
+    monkeypatch.setenv("TELEMETRY_TOKEN", "telemetry-key")
     monkeypatch.setattr("v4.agent.observer4.diagnostics.load_client",
                         lambda _name: SimpleNamespace(TelemetryReporter=FailingReporter))
     diagnostics = Diagnostics(load(ROOT / "v4/agent/config.json"))
@@ -155,6 +157,39 @@ def test_remote_failures_preserve_final_report(monkeypatch, capsys):
     assert diagnostics.errors["telemetry_finish_error"] == 1
     events = [json.loads(line.removeprefix("observer4: ")) for line in capsys.readouterr().err.splitlines()]
     assert sum(event["event"] == "final" for event in events) == 1
+
+
+def test_model_proxy_credentials_are_not_reused_for_telemetry(monkeypatch):
+    class Reporter:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("model proxy credentials must not create a telemetry reporter")
+
+    monkeypatch.delenv("TELEMETRY_URL", raising=False)
+    monkeypatch.delenv("TELEMETRY_TOKEN", raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://model-proxy.example/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "model-key")
+    monkeypatch.setattr("v4.agent.observer4.diagnostics.load_client",
+                        lambda _name: SimpleNamespace(TelemetryReporter=Reporter))
+    diagnostics = Diagnostics(load(ROOT / "v4/agent/config.json"), silent=False)
+    assert diagnostics.reporter is None
+
+
+def test_dedicated_telemetry_credentials_are_used(monkeypatch):
+    calls = []
+
+    class Reporter:
+        def __init__(self, *args, **kwargs):
+            calls.append((args, kwargs))
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://model-proxy.example/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "model-key")
+    monkeypatch.setenv("TELEMETRY_URL", "https://telemetry.example/v1")
+    monkeypatch.setenv("TELEMETRY_TOKEN", "telemetry-key")
+    monkeypatch.setattr("v4.agent.observer4.diagnostics.load_client",
+                        lambda _name: SimpleNamespace(TelemetryReporter=Reporter))
+    diagnostics = Diagnostics(load(ROOT / "v4/agent/config.json"), silent=False)
+    assert diagnostics.reporter is not None
+    assert calls[0][0][:2] == ("https://telemetry.example/v1", "telemetry-key")
 
 
 def test_model_weekly_strategy_survives_a_new_night(publication):

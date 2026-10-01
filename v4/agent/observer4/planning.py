@@ -14,6 +14,7 @@ from .geometry import (
     horizontal_vectors,
     lunar_factors,
     max_hour_angle,
+    parse_utc,
     sidereal,
     to_equatorial,
     wrap180,
@@ -90,7 +91,8 @@ class Planner:
     def __init__(self, task, state, quality, pointing, config: dict):
         self.task, self.state, self.quality, self.pointing = task, state, quality, pointing
         self.config = config
-        self.settings = config["policy"]
+        self.settings = self._scaled_settings(config["policy"])
+        self.scale_profile = self._scale_active()
         task.prepare_neighbors(self.settings["neighbor_radius_deg"])
         weight = self.settings.get("scarcity_weight", 0)
         self.scarcity = (scarcity_multipliers(task.visibility, task.required, task.minimum_exposure, weight)
@@ -110,6 +112,70 @@ class Planner:
         self._plan_seconds = None
         self._plan_anchors = 1.0
         self._exposure_seconds = 900.0
+        self.active_requests = []
+
+    def _scale_active(self) -> bool:
+        profile = self.config.get("scale") or {}
+        cost = len(getattr(self.task, "ids", ())) * int(getattr(getattr(self.task, "grid", None), "n", 0))
+        return bool(profile.get("enabled", False)) and cost >= int(profile.get("cost_threshold", 0))
+
+    def _scaled_settings(self, settings: dict) -> dict:
+        """Reduce geometric search only when the card's estimated work is large.
+
+        The dominant matrix is candidate targets by fibre slots.  A fixed search budget
+        makes high-fibre cards spend the 900-second run in planning, while applying the
+        same reduction to small cards costs score.  The threshold is public configuration
+        so it can be audited and tuned without changing the decision logic.
+        """
+        profile = self.config.get("scale") or {}
+        if not self._scale_active():
+            return settings
+        scaled = dict(settings)
+        for name in ("anchor_pool", "anchors", "cluster_anchors", "refine_top"):
+            if name in profile:
+                scaled[name] = profile[name]
+        if profile.get("durations"):
+            scaled["durations"] = list(profile["durations"])
+        return scaled
+
+    def set_requests(self, active_requests: list[dict]) -> None:
+        self.active_requests = active_requests
+
+    def _request_terms(self, now: float) -> list[dict]:
+        weight = self.settings.get("request_weight", 1.0)
+        if weight <= 0:
+            return []
+        terms = []
+        for request in self.active_requests:
+            remaining = int(request["remaining_count"])
+            deadline = parse_utc(request["deadline_utc"]).timestamp()
+            if remaining <= 0 or deadline - now < self.task.minimum_exposure:
+                continue
+            completed = set(request["completed_target_ids"])
+            indices = np.array(
+                [self.task.index[target_id] for target_id in request["target_ids"]
+                 if target_id not in completed and target_id in self.task.index], dtype=np.int32
+            )
+            if len(indices) < remaining:
+                continue
+            terms.append({
+                "indices": indices,
+                "deadline": deadline,
+                "threshold": min(1.0, float(request["completion_factor_threshold"]) + 0.02),
+                "bonus": float(request["completion_reward"]) / remaining * weight,
+            })
+        return terms
+
+    @staticmethod
+    def _request_gains(terms: list[dict], near: np.ndarray, durations: np.ndarray,
+                       factors: np.ndarray, now: float) -> np.ndarray:
+        gains = np.zeros_like(factors)
+        for term in terms:
+            selected = np.isin(near, term["indices"])
+            if np.any(selected):
+                valid = durations[:, None] <= term["deadline"] - now
+                gains[:, selected] += term["bonus"] * valid * (factors[:, selected] >= term["threshold"])
+        return gains
 
     def _refine(self, item, vectors, glass_margin, lst, relaxed, floor) -> int:
         """Try small centre shifts around a finalist; keep the best field (local search).
@@ -245,7 +311,10 @@ class Planner:
             self._exposure_seconds = (1 - alpha) * self._exposure_seconds + alpha * duration
 
     def set_strategy(self, strategy: str, *, model_selected: bool = False) -> None:
-        self.settings = strategy_settings(self.config["policy"], strategy, model_selected=model_selected)
+        self.settings = self._scaled_settings(
+            strategy_settings(self.config["policy"], strategy, model_selected=model_selected)
+        )
+        self.scale_profile = self._scale_active()
 
     def plan(self, now: float, night_index: int, remaining_wallclock: float = 900.0) -> dict | None:
         self.alternatives = []
@@ -334,7 +403,17 @@ class Planner:
             settings["required_bonus"] * self.scarcity[night_index]
         )
         required = incomplete * (reach >= settings["required_safe_factor"]) * required_bonus
-        priority = (science + required) * urgency * setting_boost * directional * terrain_free
+        request_terms = self._request_terms(now)
+        request_priority = np.zeros(len(task.ids))
+        request_thresholds = np.zeros(len(task.ids))
+        for term in request_terms:
+            indices = term["indices"]
+            span = np.minimum(np.minimum(task.maximum_exposure, setting_seconds[indices]),
+                              min(left, term["deadline"] - now))
+            reachable = np.minimum(1, rate[indices] * span) >= term["threshold"]
+            request_priority[indices] += term["bonus"] * reachable
+            request_thresholds[indices] = np.maximum(request_thresholds[indices], term["threshold"])
+        priority = (science + required + request_priority) * urgency * setting_boost * directional * terrain_free
         priority *= np.maximum(0.25, 0.80 ** np.minimum(state.misses, 6))
         priority = np.where(visible & (task.last_night >= night_index), priority, 0)
         self._last_priority = priority
@@ -403,7 +482,8 @@ class Planner:
                 ca = np.concatenate((ca, ca + 0.12, ca - 0.12))
                 cz = np.tile(cz, 3)
             fields_checked += len(ca)
-            durations = self._durations(rate[near], incomplete[near], left if cap is None else min(left, cap))
+            durations = self._durations(rate[near], incomplete[near], left if cap is None else min(left, cap),
+                                        request_thresholds[near])
             if not len(durations):
                 continue
             factors = np.minimum(1, durations[:, None] * self._rates(durations, near, rate))
@@ -416,10 +496,11 @@ class Planner:
                 )
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
             req_gain = incomplete[near][None, :] * (factors >= settings["required_safe_factor"]) * near_bonus
+            request_gain = self._request_gains(request_terms, near, durations, factors, now)
             fairness = (
                 (state.factor_lower[near][None, :] < threshold) & (factors >= settings["required_safe_factor"])
             ) * uniformity[near]
-            gains = (science_gain + req_gain + fairness) * urgency[near] * setting_boost[near]
+            gains = (science_gain + req_gain + request_gain + fairness) * urgency[near] * setting_boost[near]
             gains = gains * self._terrain_open(durations, near, terrain_free)
             gains = np.where(durations[:, None] <= setting_seconds[near][None, :], gains, 0)
             if not np.any(gains > 0):
@@ -542,10 +623,12 @@ class Planner:
         self.last_trace = {
             "anchors": len(used),
             "fields": fields_checked,
+            "scale_profile": self.scale_profile,
             "assignments": len(selected),
             "merit_per_second": round(self.alternatives[0]["merit"], 6),
             "quality_scale": round(scale, 5),
             "required_assigned": int(np.count_nonzero(incomplete[selected])),
+            "request_assigned": int(np.count_nonzero(request_priority[selected])),
             "program": action["program"],
             "duration_seconds": action["duration_seconds"],
             "visible_targets": int(np.count_nonzero(visible)),
@@ -649,12 +732,16 @@ class Planner:
         hmax = max_hour_angle(dec / RAD, latitude, self.task.minimum_altitude + 0.1)
         return np.where(hmax < 180, (hmax - wrap180(lst - ra)) / SIDEREAL_RATE, 1e9)
 
-    def _durations(self, rate, required, left: float):
+    def _durations(self, rate, required, left: float, request_thresholds=None):
         low, high = self.task.minimum_exposure, min(self.task.maximum_exposure, int(left))
         values = list(self.settings["durations"])
         if self.settings["adaptive_durations"]:
             thresholds = np.where(required, self.settings["required_safe_factor"], 1.0)
             candidates = thresholds / np.maximum(rate, 1e-9)
             values.extend(np.ceil(candidates / 30).astype(np.int64) * 30)
+            if request_thresholds is not None:
+                requested = request_thresholds > 0
+                candidates = request_thresholds[requested] / np.maximum(rate[requested], 1e-9)
+                values.extend(np.ceil(candidates / 30).astype(np.int64) * 30)
         values.append(high)
         return np.array(sorted({int(x) for x in values if low <= x <= high}), dtype=np.int32)
