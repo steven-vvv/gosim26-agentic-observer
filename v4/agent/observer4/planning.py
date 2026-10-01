@@ -331,12 +331,19 @@ class Planner:
         priority = np.where(visible & (task.last_night >= night_index), priority, 0)
         self._last_priority = priority
         cap = None
+        probe = float(settings.get("stale_probe_seconds", 0))
+        if probe > 0 and predicted is not None and predicted[1] > float(settings.get("probe_sigma", 0.06)):
+            # A stale sky estimate (new night or segment) is first measured with a short
+            # exposure; the following exposures then need a smaller safety margin.
+            cap = probe
         if settings.get("arrival_cap", False):
             try:
-                cap = self._arrival_cap(now, left, incomplete, visible, reach, ha, scale, safety, zero_point,
-                                        terrain_free)
+                arrival = self._arrival_cap(now, left, incomplete, visible, reach, ha, scale, safety, zero_point,
+                                            terrain_free)
             except Exception:  # noqa: BLE001 - planning continues without the look-ahead
-                cap = None
+                arrival = None
+            if arrival is not None:
+                cap = arrival if cap is None else min(cap, arrival)
         pool = np.flatnonzero(priority > 1e-8)
         if not len(pool):
             self.last_trace = {"reason": "no_positive_visible_target"}

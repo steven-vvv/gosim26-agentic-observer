@@ -25,6 +25,8 @@
     "cluster_anchors": 8,
     "refine_top": 3,
     "refine_iterations": 1,
+    "stale_probe_seconds": 0,
+    "probe_sigma": 0.06,
     "arrival_cap": false,
     "arrival_min": 8,
     "arrival_busy": 0.5,
