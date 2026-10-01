@@ -186,5 +186,28 @@
         }
       }
     ]
+  },
+  "three-component": {
+    "sealed": true,
+    "count": 24,
+    "seed_base": 4920000,
+    "profiles": [
+      {
+        "nights": 35,
+        "targets": 9400,
+        "area_deg2": 1880,
+        "stress": false,
+        "start_date": "2026-10-01",
+        "components": 3
+      },
+      {
+        "nights": 37,
+        "targets": 9500,
+        "area_deg2": 1900,
+        "stress": true,
+        "start_date": "2026-10-12",
+        "components": 3
+      }
+    ]
   }
 }

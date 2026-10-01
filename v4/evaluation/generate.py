@@ -41,9 +41,54 @@ def specifications(dataset: str, path: Path | None = None):
                 "stress": profile["stress"],
                 "wallclock_seconds": 900,
                 **({"event_counts": profile["event_counts"]} if "event_counts" in profile else {}),
+                **({"components": profile["components"]} if "components" in profile else {}),
             }
         )
     return result
+
+
+def build_with_components(card: Path, spec: dict) -> None:
+    """The organizer bundle builder with an explicit footprint component count.
+
+    The public builder uses two components below 3000 deg2, while the published alpha
+    card has three components on 1880 deg2; this mirrors the builder with the default
+    three-component footprint at any area.
+    """
+    from challenge import v4_bundle
+
+    original = v4_bundle._load
+
+    def load(name: str) -> dict:
+        data = original(name)
+        if name == "v4_catalog_config.json":
+            data["footprint"]["n_components"] = int(spec["components"])
+            weights = data["footprint"]["component_area_weights"][: int(spec["components"])]
+            data["footprint"]["component_area_weights"] = weights
+            data["footprint"]["total_area_deg2"] = 3000.0  # keeps the builder on the default branch
+        return data
+
+    v4_bundle._load = load
+    try:
+        clean = {key: value for key, value in spec.items() if key != "components"}
+        clean["area_deg2"] = 3000.0
+        catalog_area = float(spec["area_deg2"])
+        original_generate = v4_bundle.v4_catalog_generator.generate_catalog
+
+        def generate_catalog(config_path, output_dir):
+            import json as _json
+
+            config = _json.loads(Path(config_path).read_text())
+            config["footprint"]["total_area_deg2"] = catalog_area
+            Path(config_path).write_text(_json.dumps(config))
+            return original_generate(config_path, output_dir)
+
+        v4_bundle.v4_catalog_generator.generate_catalog = generate_catalog
+        try:
+            v4_bundle.build_card_bundle(card, clean)
+        finally:
+            v4_bundle.v4_catalog_generator.generate_catalog = original_generate
+    finally:
+        v4_bundle._load = original
 
 
 def generate(spec: dict, base: Path):
@@ -60,7 +105,10 @@ def generate(spec: dict, base: Path):
     base.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=f".{spec['name']}-", dir=base) as scratch:
         card = Path(scratch) / "card"
-        build_card_bundle(card, spec)
+        if "components" in spec:
+            build_with_components(card, spec)
+        else:
+            build_card_bundle(card, spec)
         with (card / "public" / "v4_night_calendar.csv").open(newline="", encoding="utf-8") as stream:
             actual_nights = sum(1 for _ in csv.DictReader(stream))
         expected_nights = (date.fromisoformat(spec["end_date"]) - date.fromisoformat(spec["start_date"])).days
