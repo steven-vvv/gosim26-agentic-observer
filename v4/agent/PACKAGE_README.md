@@ -29,8 +29,9 @@ for that decision and continues.
   uniformity.
 - `observer4/instrument.py`: exact per-exposure quality levels from the returned scores,
   earthquake efficiency tracking and instrument-fault detection and reporting.
-- `observer4/quality.py`, `observer4/terrain.py`: sky-quality prediction, program-band
-  probabilities, announced weather sectors and a posterior over the terrain sectors.
+- `observer4/quality.py`, `observer4/terrain.py`, `observer4/sectors.py`: sky-quality
+  prediction, program-band probabilities, announced weather sectors and posteriors over the
+  terrain and weather sectors.
 - `observer4/pointing.py`: pointing-offset estimate from hits and misses.
 - `observer4/state.py`: best-score ledger, including `state_resync` handling.
 - `observer4/opportunity.py`: expected later chances of each required target.
