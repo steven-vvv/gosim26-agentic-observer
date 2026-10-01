@@ -315,6 +315,14 @@ class Planner:
             except Exception:  # noqa: BLE001 - keep the deadline urgency
                 self.opportunity = None
         setting_boost = 1.0 + 0.35 * np.maximum(0, ha / np.maximum(1, task.hmax))
+        tonight = float(settings.get("tonight_weight", 0.0))
+        if tonight > 0:
+            # Required targets whose window tonight closes soon lose their chance for the
+            # night; targets that stay up can be done later. Nearer closing, higher urgency.
+            remaining = np.minimum(setting_seconds, left)
+            horizon = float(settings.get("tonight_horizon", 7200.0))
+            closing = np.clip(1.0 - remaining / horizon, 0.0, 1.0)
+            urgency = urgency * np.where(incomplete, 1.0 + tonight * closing, 1.0)
         if settings.get("score_marginal", False):
             science = np.max(expected_science_gains(reach[None, :], task.weight, state.best_score,
                                                     probabilities, mult, mismatch)[:, 0, :], axis=0)
