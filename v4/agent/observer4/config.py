@@ -114,7 +114,7 @@ def validate(config: dict) -> None:
             raise ValueError("invalid configuration field: policy.scarcity_weight")
     if "request_weight" in config["policy"]:
         value = config["policy"]["request_weight"]
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 5:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 20:
             raise ValueError("invalid configuration field: policy.request_weight")
     # The scale profile was added after the first public configs. Keep those
     # configs loadable while validating every field when the profile exists.
