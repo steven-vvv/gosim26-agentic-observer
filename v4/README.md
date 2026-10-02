@@ -9,7 +9,7 @@
 | `evaluation/` | 上游适配、语义等价加速、场景生成、批量评测、打包与验收 | 跟踪 |
 | `experiments/` | 按研究阶段保存数据集规格、策略变体和消融配置 | 跟踪 |
 | `tests/` | 协议、数值一致性、状态重建、稳健性与打包测试 | 跟踪 |
-| `cards/` | 可重新生成的场景，评测器可读真值，参赛代码不可读 | 忽略 |
+| `cards/` | 生成或下载的场景，评测器可读真值，参赛代码不可读 | 忽略 |
 | `results/<stage>/<run-id>/` | 原始日志、动作、评分、运行清单和性能数据 | 忽略 |
 | `dist/` | 可重新构建的提交包及校验清单 | 忽略 |
 
@@ -40,6 +40,8 @@ uv run ruff check v4
 
 分布变化集使用 `--dataset distribution-shift`；每次配置或源码变更应使用新的 `--tag`，分析时必须完整配对且保持源码和评测引擎一致。提交包通过 `uv run python -m v4.evaluation.package --wheels <wheel目录>` 构建，需提供项目声明版本的 Python 3.12 NumPy `x86_64` 与 `aarch64` wheel。独立验证结果和失效机理见 [研究记录](../notes/2026-09-30-v4-research.md)。
 
-上游公开练习卡 `α`–`δ` 可用 `python3 ../hackathon-survey26/scripts/build-v4-practice-cards.py v4/cards/upstream-practice` 生成；每张卡的全程运行预算为 900 秒。限时观测请求从逐轮公开快照的 `active_requests` 读取，`policy.request_weight` 控制其规划权重（0 表示完整关闭）；对照实验使用 `experiments/exp-request-off.json`。
+上游当前登记的练习卡是 `v4-practice-alpha`–`delta`：均为 Paranal、16 根光纤、38 夜、900 秒；目标数分别为 10,000、9,600、9,900、9,400，γ/δ 含数据丢失压力。完整 `config/`、`public/`、`truth/` bundle 从资源页下载；上游仓库只保留 `cards/<slug>/card.json` 事实与 bundle 校验值，不再提供这些卡的生成配置。旧的 `v4/cards/upstream-practice` 大卡结果只作为历史压力测试，不能当作当前练习赛成绩。`build-v4-practice-cards.py` 现在只用于从已有 bundle 提取事实或生成网页，旧的输出目录生成命令已经失效。
 
-当前默认搜索参数已按公开大卡的 900 秒预算调整：普通卡使用 64 个优先级候选、4 个聚类锚点、固定曝光时长，不做搜索前中心扩增；最终候选的局部精修仍启用。运行时用目标数 × 光纤数估算几何搜索成本，超过 `policy` 外的 `scale.cost_threshold`（当前 800,000）时自动切换为 32 个候选、6 个锚点、2 个聚类锚点、1 个局部精修候选，并从 450 秒起选曝光时长。这个规模档只针对 β/δ 类高成本卡，避免把 α/γ 的已验证搜索空间压缩。`experiments/exp-scale-fast.json` 保留了中间版配置用于对照；官方与加速引擎的逐卡结果及适用范围见 [Codex 收尾记录](../notes/2026-10-02-v4-codex-handoff.md)。模型调用的真实执行路径与提交包可审查性分别由 `tests/test_runtime.py`、`tests/test_guidance.py`、`tests/test_agent_review.py` 检查。遥测只接受专用 `TELEMETRY_URL`/`TELEMETRY_TOKEN`，或与遥测主机一致的模型代理；不会把平台模型密钥发送到默认遥测端点。
+限时观测请求从逐轮公开快照的 `active_requests` 读取，`policy.request_weight` 控制其规划权重（0 表示完整关闭）；对照实验使用 `experiments/exp-request-off.json`。
+
+当前默认搜索参数已按旧大卡的 900 秒预算调整：普通卡使用 64 个优先级候选、4 个聚类锚点、固定曝光时长，不做搜索前中心扩增；最终候选的局部精修仍启用。运行时用目标数 × 光纤数估算几何搜索成本，超过 `policy` 外的 `scale.cost_threshold`（当前 800,000）时自动切换为 32 个候选、6 个锚点、2 个聚类锚点、1 个局部精修候选，并从 450 秒起选曝光时长。规模档按输入规模触发，当前登记的四张练习卡均不会触发；旧 β/δ 的大卡压力测试不能替代新练习卡验收。`experiments/exp-scale-fast.json` 保留了中间版配置用于对照；官方与加速引擎的逐卡结果及适用范围见 [Codex 收尾记录](../notes/2026-10-02-v4-codex-handoff.md)。模型调用的真实执行路径与提交包可审查性分别由 `tests/test_runtime.py`、`tests/test_guidance.py`、`tests/test_agent_review.py` 检查。遥测只接受专用 `TELEMETRY_URL`/`TELEMETRY_TOKEN`，或与遥测主机一致的模型代理；不会把平台模型密钥发送到默认遥测端点。
