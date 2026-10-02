@@ -329,6 +329,11 @@ class Planner:
             night.end - night.start for night in task.nights[night_index + 1:])
         plans = max(1.0, 1.15 * left / max(60.0, self._exposure_seconds))
         allowance = (remaining_wallclock - settings["budget_reserve_seconds"] - 20.0) / plans
+        if self._plan_seconds <= allowance:
+            # Plans already fit the budget. Scaling by the per-anchor cost alone would cut the
+            # search after cheap plans with few anchors (end of a night), and the cut would
+            # depend on the machine's timing noise.
+            return base
         per_anchor = self._plan_seconds / max(1, self._plan_anchors)
         if per_anchor <= 0:
             return base
