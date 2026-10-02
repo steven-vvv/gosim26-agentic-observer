@@ -18,6 +18,10 @@
 - [`2026-09-28-public-transfer-research.md`](2026-09-28-public-transfer-research.md)：公开场景策略迁移研究计划。
 - [`2026-09-28-public-transfer-research-report.md`](2026-09-28-public-transfer-research-report.md)：计划执行结果、策略采用与否及排行榜威胁判断。
 
+## 会议与培训
+
+- [`2026-10-02-survey-hackathon-lecture-1.md`](2026-10-02-survey-hackathon-lecture-1.md)：线上讲座第一讲摘要，涵盖巡天基础、曝光权衡、赛题简化和 AI 决策可解释性；未引入新的评分或提交规则。
+
 ## 性能与排程
 
 - [`2026-09-24-performance.md`](2026-09-24-performance.md)：本地模拟与评测提速。
