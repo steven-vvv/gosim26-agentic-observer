@@ -72,7 +72,10 @@ class Diagnostics:
                     model_host = urlsplit(model_url).hostname if model_url else None
                 except ValueError:
                     telemetry_host = model_host = None
-                if model_url and model_key and telemetry_host and model_host == telemetry_host:
+                if model_url and model_key and telemetry_host and (
+                        model_host == telemetry_host or remote.get("model_proxy", False)):
+                    # model_proxy: the team points the platform's model endpoint at the
+                    # telemetry Worker, which stores marked events and forwards the rest.
                     url, key = model_url, model_key
             if explicit_key and not explicit_url:
                 url = remote["url"]

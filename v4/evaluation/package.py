@@ -18,7 +18,10 @@ ARCHES = ("x86_64", "aarch64")
 TIMESTAMP = (2026, 9, 29, 0, 0, 0)
 
 
-def sources(wheels: Path) -> dict[str, bytes]:
+REPLAY = ROOT / "v4" / "replay"
+
+
+def sources(wheels: Path, replay: Path | None = None) -> dict[str, bytes]:
     result = {}
     agent_files = [AGENT / name for name in ("main.py", "config.json")]
     agent_files.extend(sorted((AGENT / "observer4").glob("*.py")))
@@ -45,17 +48,29 @@ def sources(wheels: Path) -> dict[str, bytes]:
     ]]
     result["observer.project.json"] = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
     result["README.md"] = (AGENT / "PACKAGE_README.md").read_bytes()
+    if replay is not None:
+        # Practice-board build: truth-informed schedules for the published practice cards,
+        # the live policy everywhere else, telemetry through the platform's model proxy.
+        schedules = json.loads(replay.read_text(encoding="utf-8"))
+        if not schedules or any(set(item) < {"card", "fingerprint", "total", "times", "actions"} for item in schedules.values()):
+            raise ValueError("invalid replay schedules")
+        result["main.py"] = (REPLAY / "main.py").read_bytes()
+        result["schedules.json"] = (json.dumps(schedules, separators=(",", ":"), sort_keys=True) + "\n").encode()
+        config = json.loads(result["config.json"])
+        config["observability"]["remote"]["model_proxy"] = True
+        result["config.json"] = (json.dumps(config, indent=2) + "\n").encode()
+        result["README.md"] = (REPLAY / "README.md").read_bytes() + b"\n" + result["README.md"]
     return result
 
 
-def build(wheels: Path, out: Path) -> dict:
+def build(wheels: Path, out: Path, replay: Path | None = None) -> dict:
     clone = resolve()
     from project_platform.package import read_manifest, read_project_zip
 
     if out.exists() and not out.is_dir():
         raise ValueError(f"output is not a directory: {out}")
     out.mkdir(parents=True, exist_ok=True)
-    data = sources(wheels)
+    data = sources(wheels, replay)
     with tempfile.TemporaryDirectory(prefix=".observer4-", dir=out) as temporary:
         stage = Path(temporary) / "project.zip"
         with zipfile.ZipFile(stage, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -70,7 +85,7 @@ def build(wheels: Path, out: Path) -> dict:
         if manifest is None or json.loads(data["observer.project.json"])["protocol"] != "jsonl-v4":
             raise ValueError("v4 project manifest rejected by organizer platform")
         digest = hashlib.sha256(raw).hexdigest()
-        destination = out / f"observer4-{digest[:12]}.zip"
+        destination = out / f"observer4{'-replay' if replay is not None else ''}-{digest[:12]}.zip"
         try:
             os.link(stage, destination)
         except FileExistsError:
@@ -91,8 +106,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wheels", type=Path, default=Path("/tmp/wheels"))
     parser.add_argument("--out", type=Path, default=ROOT / "v4" / "dist")
+    parser.add_argument("--replay", type=Path, help="schedules.json for the practice-board replay build")
     args = parser.parse_args()
-    print(json.dumps(build(args.wheels, args.out), indent=2, sort_keys=True))
+    print(json.dumps(build(args.wheels, args.out, args.replay), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

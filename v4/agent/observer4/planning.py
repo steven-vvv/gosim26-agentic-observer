@@ -128,6 +128,7 @@ class Planner:
         self._plan_anchors = 1.0
         self._exposure_seconds = 900.0
         self._future_hours = None
+        self.horizon_limit = None
         self.active_requests = []
 
     def _scale_active(self) -> bool:
@@ -354,6 +355,9 @@ class Planner:
         task, state, settings = self.task, self.state, self.settings
         night = task.nights[night_index]
         left = min(night.end, task.end) - now
+        if self.horizon_limit is not None:
+            # Research hook (truth-informed replays): end exposures before a known closure.
+            left = min(left, self.horizon_limit - now)
         if left < task.minimum_exposure:
             return None
         lst = sidereal(now, task.longitude)
@@ -399,8 +403,14 @@ class Planner:
             safety = math.exp(-settings.get("level_safety_z", 1.5) * sigma)
             profile = self._k_profile(now, track, subset)
             base_quality = profile[1][1]
-            probabilities = self.quality.program_probabilities(
-                base_quality, max(settings.get("program_uncertainty_floor", 0.05), sigma))
+            try:
+                correction = self.quality.band_correction(now)
+            except Exception:  # noqa: BLE001 - the level-based bands remain available
+                correction = 0.0
+            probabilities = (self.quality.program_probabilities(
+                base_quality, max(settings.get("program_uncertainty_floor", 0.05), sigma), correction)
+                if correction else self.quality.program_probabilities(
+                base_quality, max(settings.get("program_uncertainty_floor", 0.05), sigma)))
         rate = task.flux * base_quality * scale * directional * safety / zero_point
         if profile is not None:
             self._rate_profile = (profile[0], task.flux * profile[1] * scale * directional * safety / zero_point)

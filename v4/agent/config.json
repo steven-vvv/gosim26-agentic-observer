@@ -87,7 +87,10 @@
     "terrain_model": true,
     "sector_prior": true,
     "sector_model": false,
-    "terrain_thompson": false
+    "terrain_thompson": false,
+    "band_feedback": false,
+    "band_feedback_hours": 2.0,
+    "band_feedback_llr": 1.0
   },
   "fault": {
     "enabled": true,
@@ -109,7 +112,8 @@
     "quake_band_hours": 3.0,
     "band_paid_llr": 8.0,
     "band_paid_shift": 0.45,
-    "fallback_beyond_cap": true
+    "fallback_beyond_cap": true,
+    "probe_fractions": []
   },
   "observability": {
     "local_enabled": true,
@@ -126,7 +130,8 @@
       "batch_size": 16,
       "queue_size": 512,
       "decision_every": 20,
-      "drain_timeout_seconds": 10.0
+      "drain_timeout_seconds": 10.0,
+      "model_proxy": false
     }
   },
   "model": {

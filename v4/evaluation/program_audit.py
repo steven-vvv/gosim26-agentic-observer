@@ -34,6 +34,7 @@ def audit(card: Path, run: Path) -> dict:
         if row["target_id"] not in best or float(row["score"]) > float(best[row["target_id"]]["score"]):
             best[row["target_id"]] = row
     loss, counts = 0.0, Counter()
+    exposures: dict[int, Counter] = {}
     for target_id, row in best.items():
         decision = decisions[int(row["observe_index"])]
         start = datetime.fromisoformat(decision["start_utc"].replace("Z", "+00:00"))
@@ -47,8 +48,15 @@ def audit(card: Path, run: Path) -> dict:
         declared = decision["program"]
         base = float(row["score"]) / float(row["prog_mult"])
         counts[(declared, band)] += 1
-        loss += base * (float(multipliers[band]) - float(row["prog_mult"]))
-    return {"targets": len(best), "loss": round(loss, 1),
+        lost = base * (float(multipliers[band]) - float(row["prog_mult"]))
+        loss += lost
+        exposure = exposures.setdefault(int(row["observe_index"]), Counter())
+        exposure[band] += 1
+        exposure["_loss"] += lost
+        exposure["_declared_" + declared] = 1
+    mixed = sum(e["_loss"] for e in exposures.values() if sum(1 for b in ("DARK", "BRIGHT", "BACKUP") if e[b]) > 1)
+    return {"targets": len(best), "loss": round(loss, 1), "loss_in_mixed_exposures": round(mixed, 1),
+            "loss_in_uniform_exposures": round(loss - mixed, 1),
             "pairs": {f"{d}->{b}": n for (d, b), n in sorted(counts.items())}}
 
 

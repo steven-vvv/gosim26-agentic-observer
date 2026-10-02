@@ -231,8 +231,27 @@ class QualityModel:
             self.estimate = float(np.median(historical[-200:])) if len(historical) >= 8 else self.settings["prior"]
         return self.estimate
 
-    def program_probabilities(self, base_quality, uncertainty=None):
-        band_quality = np.maximum(1e-6, np.asarray(base_quality) * self.estimate / self.instrument)
+    def band_correction(self, now: float) -> float:
+        """Log sky correction from the program statuses of tonight's latest exposures.
+
+        Statuses fix the band of each hit target; when they contradict the band implied
+        by the level and the efficiency model, the smallest efficiency shift explaining
+        them corrects the sky used for the next program choice.
+        """
+        monitor = getattr(self, "monitor", None)
+        if monitor is None or not self.settings.get("band_feedback", False):
+            return 0.0
+        hours = float(self.settings.get("band_feedback_hours", 2.0)) * 3600.0
+        night = monitor.records[-1]["night"] if monitor.records else None
+        recent = [r for r in monitor.records[-8:] if r["night"] == night and now - r["end"] <= hours
+                  and r["level"] is not None]
+        if not recent:
+            return 0.0
+        shift, gain, _ = monitor.band_shift(recent)
+        return -shift if gain >= float(self.settings.get("band_feedback_llr", 1.0)) else 0.0
+
+    def program_probabilities(self, base_quality, uncertainty=None, correction: float = 0.0):
+        band_quality = np.maximum(1e-6, np.asarray(base_quality) * self.estimate / self.instrument * math.exp(correction))
         thresholds = self.task.scoring["program"]["bands"]
         uncertainty = self.settings["program_uncertainty"] if uncertainty is None else uncertainty
         dark = 1 / (1 + np.exp(np.clip(-np.log(band_quality / thresholds["DARK"]) / uncertainty, -50, 50)))
