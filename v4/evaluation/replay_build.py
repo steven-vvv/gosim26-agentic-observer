@@ -39,11 +39,14 @@ def _plan(card: str, variant: str, base: Path) -> dict:
 def verify(card: str, schedule: dict, out: Path) -> dict:
     resolve()
     import importlib.util
+    import sys
 
     from v4.agent.observer4.config import load
 
     from .run import evaluate
 
+    # In the package main.py sits next to observer4/; in the source tree the agent is in v4/agent.
+    sys.path.insert(0, str(ROOT / "v4" / "agent"))
     spec = importlib.util.spec_from_file_location("observer4_replay_main", ROOT / "v4" / "replay" / "main.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
