@@ -46,8 +46,15 @@ def run(package: Path, cards: list[Path], python: str, out: Path) -> list[dict]:
                 [python, str(runner), "--card", str(card), "--agent", agent, "--agent-cwd", str(project),
                  "--out", str(target), "--quiet"],
                 capture_output=True, text=True, timeout=1500, check=False)
-            lines = [line for line in completed.stdout.splitlines() if line.strip().startswith("{")]
-            summary = json.loads(lines[-1]) if lines else {"error": completed.stderr[-500:]}
+            try:
+                report = json.loads((target / "score_report.json").read_text(encoding="utf-8"))
+                result = json.loads((target / "workflow_result.json").read_text(encoding="utf-8"))
+                summary = {"total": report["total"], "termination_reason": result.get("termination_reason"),
+                           "accounted_wallclock_seconds": result.get("accounted_wallclock_seconds"),
+                           "agent_wallclock_seconds": result.get("agent_wallclock_seconds"),
+                           "decision_requests": result.get("decision_requests")}
+            except (OSError, ValueError, KeyError):
+                summary = {"error": completed.stderr[-500:], "returncode": completed.returncode}
             results.append({"card": card.name, **summary})
             print(json.dumps(results[-1], sort_keys=True), flush=True)
     return results
