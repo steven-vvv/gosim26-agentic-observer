@@ -492,19 +492,24 @@ class InstrumentMonitor:
                 "run": originals}
 
     def band_shift(self, records: list[dict]) -> tuple[float, float, int]:
-        """Maximum-likelihood efficiency shift from program-band statuses, its LLR against no shift.
+        """Efficiency shift implied by program-band statuses, its evidence and surprising records.
 
-        Bands follow the site weather alone, so with the measured level they fix the true
+        Bands follow the site weather alone, so with the measured level they bound the true
         efficiency: a level that fell while the bands kept their place marks an efficiency
         cut, whatever the weather signature, segment or earthquake model did meanwhile.
+        Targets of one exposure share the sky and nearly the same lunar/airmass factor, so
+        each exposure counts once (mean log-likelihood of its statuses). The estimate is the
+        smallest shift that explains nearly all of the gain over no shift, since statuses that
+        sit far inside a band only bound the shift from one side.
         """
         bands = self.task.scoring["program"]["bands"]
         dark, bright = math.log(float(bands["DARK"])), math.log(float(bands["BRIGHT"]))
         sigma = float(self.settings.get("band_sigma", 0.06))
         prior = math.log(float(self.settings.get("instrument_prior", 0.95)))
         grid = np.linspace(-1.4, 0.3, 69)
+        zero = int(np.argmin(np.abs(grid)))
         total = np.zeros(len(grid))
-        count = 0
+        surprising = 0
         for record in records:
             status, k = record.get("status"), record.get("band_k")
             if status is None or k is None or record["level"] is None:
@@ -524,13 +529,16 @@ class InstrumentMonitor:
                 p = 1 - lower
             p = np.clip(p, 0.02, 0.98)
             matched = status[known] > 0.5
-            total += np.sum(np.where(matched[None, :], np.log(p), np.log(1 - p)), axis=1)
-            count += int(np.count_nonzero(known))
-        if not count:
-            return 0.0, 0.0, 0
-        best = int(np.argmax(total))
-        zero = int(np.argmin(np.abs(grid)))
-        return float(grid[best]), float(total[best] - total[zero]), count
+            likelihood = np.where(matched[None, :], p, 1 - p)
+            total += np.mean(np.log(likelihood), axis=1)
+            if float(np.mean(likelihood[zero])) < float(self.settings.get("band_surprise", 0.25)):
+                surprising += 1
+        gain = float(np.max(total) - total[zero])
+        if gain <= 0:
+            return 0.0, 0.0, surprising
+        enough = np.flatnonzero(total >= total[zero] + 0.9 * gain)
+        shift = float(grid[enough[np.argmin(np.abs(grid[enough]))]])
+        return shift, gain, surprising
 
     def _band_records(self, since: float) -> list[dict]:
         hours = float(self.settings.get("band_hours", 6.0)) * 3600.0
@@ -557,9 +565,9 @@ class InstrumentMonitor:
             hours = float(self.settings.get("quake_band_hours", 3.0)) * 3600.0
             if sum(r["end"] - r["start"] for r in after) < hours:
                 continue
-            shift, llr, count = self.band_shift(after[:max(1, len(after))])
+            shift, llr, surprising = self.band_shift(after)
             quake["band_calibrated"] = True
-            if count >= int(self.settings.get("band_count_min", 12)) and llr >= 2.0:
+            if surprising >= int(self.settings.get("band_count_min", 2)) and llr >= 2.0:
                 kept = math.log(max(0.03, 1.0 - quake["d0"])) + shift
                 quake["d0"] = float(np.clip(1.0 - math.exp(min(0.0, kept)), 0.02, 0.97))
                 quake["band_shift"] = round(shift, 3)
@@ -571,13 +579,13 @@ class InstrumentMonitor:
         since = max([float("-inf")] + [r["time"] for r in self.reports] +
                     [q.get("calibrated_at", q["time"]) for q in self.efficiency.quakes])
         records = self._band_records(since)
-        shift, llr, count = self.band_shift(records)
-        if count < int(self.settings.get("band_count_min", 12)):
+        shift, llr, surprising = self.band_shift(records)
+        if surprising < int(self.settings.get("band_count_min", 2)):
             return None
         if shift > -float(self.settings.get("band_shift_min", 0.3)) or llr < scale * float(self.settings.get("band_llr_min", 4.0)):
             return None
         return {"kind": "band", "reference": None, "level": records[-1]["level"], "drop": shift,
-                "band_llr": round(llr, 3), "band_targets": count, "scale": scale}
+                "band_llr": round(llr, 3), "band_targets": surprising, "scale": scale}
 
     def _detect(self, scale: float) -> dict | None:
         evidence = self._step(scale) or self._cross_segment(scale)

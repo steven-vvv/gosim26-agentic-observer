@@ -27,10 +27,10 @@ def sources(wheels: Path) -> dict[str, bytes]:
             raise ValueError(f"unsafe or missing agent source: {path}")
         result[path.relative_to(AGENT).as_posix()] = path.read_bytes()
     for name in ("telemetry", "model_advisor"):
-        path = ROOT / "agents" / "observer" / f"{name}.py"
+        path = AGENT / "observer4" / "llm" / f"{name}.py"
         if path.is_symlink() or not path.is_file():
-            raise ValueError(f"missing shared service: {path}")
-        # Shared clients are part of the agent's own code: the LLM advisor must stay visible
+            raise ValueError(f"missing service client: {path}")
+        # The clients are part of the agent's own code: the LLM advisor must stay visible
         # to the organizers' code review, which skips directories named "vendor".
         result[f"observer4/llm/{name}.py"] = path.read_bytes()
     for arch in ARCHES:

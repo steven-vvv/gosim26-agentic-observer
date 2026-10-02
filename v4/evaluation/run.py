@@ -21,10 +21,6 @@ def source_sha256() -> str:
     for path in sorted((ROOT / "v4" / "agent").rglob("*.py")):
         digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
         digest.update(path.read_bytes())
-    for name in ("telemetry", "model_advisor"):
-        path = ROOT / "agents" / "observer" / f"{name}.py"
-        digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
-        digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
