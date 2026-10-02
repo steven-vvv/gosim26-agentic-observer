@@ -1,0 +1,1 @@
+{"policy": {"science_exponent": 1.0, "request_weight": 1.0, "anchor_pool": 64, "cluster_anchors": 4, "refine_centers": false, "adaptive_durations": false}, "fault": {"band_shift_min": 0.3}}

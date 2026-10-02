@@ -26,10 +26,16 @@ for that decision and continues.
 
 - `observer4/planning.py`: joint search over pointing, fibre assignment, exposure time and
   program; greedy merit per second of science gain, required-target completion, live
-  time-limited request progress and RA uniformity. A request exposure must end by its
-  public deadline; progress is refreshed from each public snapshot.
+  time-limited request progress and RA uniformity. Science gains are convex in the
+  completion factor (`policy.science_exponent`), so partial exposures that a later, longer
+  one would supersede count less. A request exposure must end by its public deadline;
+  progress is refreshed from each public snapshot and weighted by `policy.request_weight`.
 - `observer4/instrument.py`: exact per-exposure quality levels from the returned scores,
-  earthquake efficiency tracking and instrument-fault detection and reporting.
+  earthquake efficiency tracking and instrument-fault detection and reporting. Besides
+  level steps, the detector reads the program-band statuses: bands follow the site weather
+  alone, so with the measured level they bound the true instrument efficiency across
+  weather changes, segment boundaries and earthquakes, and also calibrate each announced
+  shock.
 - `observer4/quality.py`, `observer4/terrain.py`, `observer4/sectors.py`: sky-quality
   prediction, program-band probabilities, announced weather sectors and posteriors over the
   terrain and weather sectors.
@@ -44,5 +50,6 @@ configured threshold automatically use a smaller candidate search and longer sta
 exposure durations. This keeps the 900-second card budget usable on high-fibre cards while
 leaving the full search for smaller cards. Remote diagnostics require dedicated
 `TELEMETRY_URL` and `TELEMETRY_TOKEN` credentials, or an injected model endpoint whose
-hostname is the configured telemetry host; the model proxy key is never sent to telemetry
-by default.
+hostname is the configured telemetry host (or `observability.remote.model_proxy` when the
+team's model endpoint is the telemetry Worker); the model proxy key is never sent to
+telemetry by default.
