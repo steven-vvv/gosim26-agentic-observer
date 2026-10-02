@@ -238,5 +238,11 @@
       "v4-practice-*": "Supabase scenarios bucket, checksums equal cards/<slug>/card.json (2026-10-02)",
       "L1-L4": "hackathon-survey26 examples/_local/cards (2026-10-02, PR #185)"
     }
+  },
+  "family-validation2": {
+    "sealed": true,
+    "count": 64,
+    "seed_base": 7410000,
+    "family": {}
   }
 }
