@@ -75,6 +75,21 @@ def expected_science_gains(factors: np.ndarray, weights: np.ndarray, best: np.nd
     return probabilities[:, None, :] * matching + (1 - probabilities[:, None, :]) * baseline[None, :, :]
 
 
+def science_value(factor: np.ndarray, exponent: float, cap: np.ndarray | None) -> np.ndarray:
+    """Credited science per unit weight for a completion factor.
+
+    Without a cap this is factor ** exponent. With a per-target cap (the factor a typical
+    sky reaches in the longest exposure) a factor below the cap earns cap * (f / cap) **
+    exponent and one above it earns f: an exponent above one then discounts partial
+    exposures that a later, longer exposure would supersede, without penalising faint
+    targets that can never reach a factor of one.
+    """
+    if cap is None:
+        return factor ** exponent
+    ratio = np.minimum(factor / cap, 1.0)
+    return np.where(factor >= cap, factor, cap * ratio ** exponent)
+
+
 def scarcity_multipliers(visibility: np.ndarray, required: np.ndarray, minimum: float, weight: float) -> np.ndarray:
     """Weight required targets with fewer remaining public observing hours."""
     future = np.cumsum(visibility[::-1], axis=0)[::-1]
@@ -112,6 +127,7 @@ class Planner:
         self._plan_seconds = None
         self._plan_anchors = 1.0
         self._exposure_seconds = 900.0
+        self._future_hours = None
         self.active_requests = []
 
     def _scale_active(self) -> bool:
@@ -137,6 +153,23 @@ class Planner:
         if profile.get("durations"):
             scaled["durations"] = list(profile["durations"])
         return scaled
+
+    def _science_exponents(self, night_index: int):
+        """Science exponent, per target when it depends on the remaining public visibility.
+
+        A partial exposure only keeps its value if no later exposure supersedes it. Targets
+        with many visible hours left get the configured (convex) exponent; the exponent
+        falls linearly to one as the remaining hours after tonight shrink to zero.
+        """
+        base = float(self.settings["science_exponent"])
+        horizon = float(self.settings.get("science_horizon_hours", 0.0))
+        if horizon <= 0 or base == 1.0:
+            return base
+        if self._future_hours is None:
+            future = np.cumsum(self.task.visibility[::-1], axis=0)[::-1] / 3600.0
+            self._future_hours = np.vstack((future[1:], np.zeros((1, future.shape[1]))))
+        share = np.clip(self._future_hours[night_index] / horizon, 0.0, 1.0)
+        return 1.0 + (base - 1.0) * share
 
     def set_requests(self, active_requests: list[dict]) -> None:
         self.active_requests = active_requests
@@ -203,7 +236,7 @@ class Planner:
         total = fiber_totals(fibers, gains, geometry_weight, task.grid.n)
         center_limit = self._centers_up(ca, cz, lst) if not relaxed else np.full(len(ca), 1e9)
         total = np.where(durations[None, :] <= center_limit[:, None], total, 0)
-        merit = total / durations[None, :]
+        merit = total / (durations[None, :] + float(settings.get("duration_overhead", 0.0)))
         flat = int(np.argmax(merit))
         center_i, duration_i = np.unravel_index(flat, merit.shape)
         value = float(merit[center_i, duration_i])
@@ -338,6 +371,11 @@ class Planner:
         except Exception:  # noqa: BLE001 - the frozen quality scale remains available
             self.quality.monitor, predicted = None, None
         zero_point = task.scoring["flux_zero_point"] * task.scoring["exposure_zero_point_seconds"]
+        typical = float(settings.get("science_cap_quality", 0.0))
+        science_cap = (np.clip(task.flux * typical * task.maximum_exposure / zero_point, 0.05, 1.0)
+                       if typical > 0 else None)
+        exponent = self._science_exponents(night_index)
+        overhead = float(settings.get("duration_overhead", 0.0))
         terrain = self.quality.terrain_model
         # Only visible targets can enter a plan, so tracks and profiles cover just them.
         subset = np.flatnonzero(visible)
@@ -397,7 +435,7 @@ class Planner:
                                                     probabilities, mult, mismatch)[:, 0, :], axis=0)
         else:
             science = task.weight * np.maximum(
-                0, reach ** settings["science_exponent"] - state.factor_estimate ** settings["science_exponent"]
+                0, science_value(reach, exponent, science_cap) - science_value(state.factor_estimate, exponent, science_cap)
             )
         required_bonus = settings["required_bonus"] if self.scarcity is None else (
             settings["required_bonus"] * self.scarcity[night_index]
@@ -491,8 +529,10 @@ class Planner:
                 science_gain = expected_science_gains(factors, task.weight[near], state.best_score[near],
                                                        probabilities[:, near], mult, mismatch)
             else:
+                cap = science_cap[near] if science_cap is not None else None
+                power = exponent if np.ndim(exponent) == 0 else exponent[near]
                 science_gain = task.weight[near] * np.maximum(
-                    0, factors ** settings["science_exponent"] - state.factor_estimate[near] ** settings["science_exponent"]
+                    0, science_value(factors, power, cap) - science_value(state.factor_estimate[near], power, cap)
                 )
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
             req_gain = incomplete[near][None, :] * (factors >= settings["required_safe_factor"]) * near_bonus
@@ -520,10 +560,10 @@ class Planner:
             center_limit = self._centers_up(ca, cz, lst) if not relaxed else np.full(len(ca), 1e9)
             if settings.get("score_marginal", False):
                 total = np.where(durations[None, None, :] <= center_limit[:, None, None], total, 0)
-                merit = total / durations[None, None, :]
+                merit = total / (durations[None, None, :] + overhead)
             else:
                 total = np.where(durations[None, :] <= center_limit[:, None], total, 0)
-                merit = total / durations[None, :]
+                merit = total / (durations[None, :] + overhead)
             flat = int(np.argmax(merit))
             if settings.get("score_marginal", False):
                 center_i, program_i, duration_i = np.unravel_index(flat, merit.shape)

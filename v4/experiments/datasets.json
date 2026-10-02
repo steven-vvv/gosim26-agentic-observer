@@ -209,5 +209,34 @@
         "components": 3
       }
     ]
+  },
+  "family-train": {
+    "sealed": false,
+    "count": 48,
+    "seed_base": 5170000,
+    "family": {}
+  },
+  "family-validation": {
+    "sealed": true,
+    "count": 64,
+    "seed_base": 6290000,
+    "family": {}
+  },
+  "real": {
+    "sealed": false,
+    "cards": [
+      "v4-practice-alpha",
+      "v4-practice-beta",
+      "v4-practice-gamma",
+      "v4-practice-delta",
+      "L1",
+      "L2",
+      "L3",
+      "L4"
+    ],
+    "sources": {
+      "v4-practice-*": "Supabase scenarios bucket, checksums equal cards/<slug>/card.json (2026-10-02)",
+      "L1-L4": "hackathon-survey26 examples/_local/cards (2026-10-02, PR #185)"
+    }
   }
 }

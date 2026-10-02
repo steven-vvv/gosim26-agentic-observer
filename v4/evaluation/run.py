@@ -29,7 +29,9 @@ def source_sha256() -> str:
 
 
 def baseline_factory(clone: Path):
-    path = clone / "starter_kit_v4" / "agent"
+    # The organizer archived the starter kit on 2026-10-02 (PR #180) without changing it.
+    path = next(candidate for candidate in (clone / "archive" / "starter_kit_v4" / "agent", clone / "starter_kit_v4" / "agent")
+                if candidate.is_dir())
     sys.path.insert(0, str(path))
     spec = importlib.util.spec_from_file_location("gosim4_official_baseline", path / "baseline_agent.py")
     module = importlib.util.module_from_spec(spec)

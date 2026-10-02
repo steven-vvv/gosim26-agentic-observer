@@ -21,6 +21,13 @@ def specifications(dataset: str, path: Path | None = None):
     path = path or ROOT / "v4" / "experiments" / "datasets.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     selected = data[dataset]
+    if "cards" in selected:
+        # Published organizer cards (downloaded bundles), linked under v4/cards by name.
+        return [{"name": name, "card_id": name, "published": True} for name in selected["cards"]]
+    if "family" in selected:
+        from .family import family_specifications
+
+        return family_specifications(dataset, selected, data["generation_revision"])
     result = []
     for i in range(selected["count"]):
         profile = selected["profiles"][i % len(selected["profiles"])]
@@ -105,7 +112,11 @@ def generate(spec: dict, base: Path):
     base.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=f".{spec['name']}-", dir=base) as scratch:
         card = Path(scratch) / "card"
-        if "components" in spec:
+        if "family" in spec:
+            from .family import build_family_card
+
+            build_family_card(card, spec)
+        elif "components" in spec:
             build_with_components(card, spec)
         else:
             build_card_bundle(card, spec)

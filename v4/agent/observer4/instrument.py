@@ -271,6 +271,7 @@ class InstrumentMonitor:
             self.segment_start = 1
         records.append(record)
         self._measure_quakes(record)
+        self._calibrate_quakes()
         if self.pending is not None and record["level"] is not None and self.revision < 2:
             self._verify(record)
 
@@ -437,6 +438,10 @@ class InstrumentMonitor:
                 if split - gap < reference_count:
                     continue
                 reference = [r["level"] for r in levels[:split - gap]][-int(self.settings.get("reference_window", 8)):]
+                if self.settings.get("robust_reference", False) and len(reference) >= 4:
+                    # One outlier (a partly closed slot, a mixed program) must not hide a later step.
+                    middle = float(np.median(reference))
+                    reference.pop(int(np.argmax(np.abs(np.array(reference) - middle))))
                 width = max(reference) - min(reference)
                 if width >= wide:
                     continue
@@ -486,10 +491,98 @@ class InstrumentMonitor:
                 "level": float(np.median([r["level"] + self.log_eff(r) for r in run])), "drop": drop,
                 "run": originals}
 
+    def band_shift(self, records: list[dict]) -> tuple[float, float, int]:
+        """Maximum-likelihood efficiency shift from program-band statuses, its LLR against no shift.
+
+        Bands follow the site weather alone, so with the measured level they fix the true
+        efficiency: a level that fell while the bands kept their place marks an efficiency
+        cut, whatever the weather signature, segment or earthquake model did meanwhile.
+        """
+        bands = self.task.scoring["program"]["bands"]
+        dark, bright = math.log(float(bands["DARK"])), math.log(float(bands["BRIGHT"]))
+        sigma = float(self.settings.get("band_sigma", 0.06))
+        prior = math.log(float(self.settings.get("instrument_prior", 0.95)))
+        grid = np.linspace(-1.4, 0.3, 69)
+        total = np.zeros(len(grid))
+        count = 0
+        for record in records:
+            status, k = record.get("status"), record.get("band_k")
+            if status is None or k is None or record["level"] is None:
+                continue
+            known = np.isfinite(status) & np.isfinite(k) & (k > 0)
+            if not np.any(known):
+                continue
+            sky = record["level"] - prior - self.log_eff(record)
+            q = sky - grid[:, None] + np.log(k[known])[None, :]
+            upper = 1 / (1 + np.exp(-(q - dark) / sigma))
+            lower = 1 / (1 + np.exp(-(q - bright) / sigma))
+            if record["program"] == "DARK":
+                p = upper
+            elif record["program"] == "BRIGHT":
+                p = lower - upper
+            else:
+                p = 1 - lower
+            p = np.clip(p, 0.02, 0.98)
+            matched = status[known] > 0.5
+            total += np.sum(np.where(matched[None, :], np.log(p), np.log(1 - p)), axis=1)
+            count += int(np.count_nonzero(known))
+        if not count:
+            return 0.0, 0.0, 0
+        best = int(np.argmax(total))
+        zero = int(np.argmin(np.abs(grid)))
+        return float(grid[best]), float(total[best] - total[zero]), count
+
+    def _band_records(self, since: float) -> list[dict]:
+        hours = float(self.settings.get("band_hours", 6.0)) * 3600.0
+        records = [r for r in self.records if r["start"] >= since and r["level"] is not None]
+        if not records:
+            return []
+        # The most recent observing hours (exposure time, not wall time).
+        chosen, spent = [], 0.0
+        for record in reversed(records):
+            chosen.append(record)
+            spent += record["end"] - record["start"]
+            if spent >= hours:
+                break
+        return chosen[::-1]
+
+    def _calibrate_quakes(self) -> None:
+        """Set an announced shock's size from the bands of the first exposures after it."""
+        if not self.settings.get("quake_band_calibration", False):
+            return
+        for quake in self.efficiency.quakes:
+            if quake.get("band_calibrated") or quake.get("hidden"):
+                continue
+            after = [r for r in self.records if r["start"] >= quake["time"] and r["level"] is not None]
+            hours = float(self.settings.get("quake_band_hours", 3.0)) * 3600.0
+            if sum(r["end"] - r["start"] for r in after) < hours:
+                continue
+            shift, llr, count = self.band_shift(after[:max(1, len(after))])
+            quake["band_calibrated"] = True
+            if count >= int(self.settings.get("band_count_min", 12)) and llr >= 2.0:
+                kept = math.log(max(0.03, 1.0 - quake["d0"])) + shift
+                quake["d0"] = float(np.clip(1.0 - math.exp(min(0.0, kept)), 0.02, 0.97))
+                quake["band_shift"] = round(shift, 3)
+            quake["calibrated_at"] = after[-1]["end"]
+
+    def _band(self, scale: float) -> dict | None:
+        if not self.settings.get("band_detector", False):
+            return None
+        since = max([float("-inf")] + [r["time"] for r in self.reports] +
+                    [q.get("calibrated_at", q["time"]) for q in self.efficiency.quakes])
+        records = self._band_records(since)
+        shift, llr, count = self.band_shift(records)
+        if count < int(self.settings.get("band_count_min", 12)):
+            return None
+        if shift > -float(self.settings.get("band_shift_min", 0.3)) or llr < scale * float(self.settings.get("band_llr_min", 4.0)):
+            return None
+        return {"kind": "band", "reference": None, "level": records[-1]["level"], "drop": shift,
+                "band_llr": round(llr, 3), "band_targets": count, "scale": scale}
+
     def _detect(self, scale: float) -> dict | None:
         evidence = self._step(scale) or self._cross_segment(scale)
         if evidence is None:
-            return None
+            return self._band(scale)
         run = evidence.pop("run", None)
         if run:
             llr, count = self.band_llr(run, evidence["drop"])
