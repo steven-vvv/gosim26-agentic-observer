@@ -2,7 +2,7 @@
 
 ## 剖析
 
-py-spy 采样（`--subprocesses`，汇总脚本 `tools/pyspy_summary.py`），obs10 × comp-a-s101，官方 runner + CPython 3.14。
+py-spy 采样（`--subprocesses`，汇总脚本 `v3/tools/pyspy_summary.py`），obs10 × comp-a-s101，官方 runner + CPython 3.14。
 runner 与 agent 一问一答、同步交替，墙钟时间 ≈ 两边 CPU 之和，任何一侧省下的时间都直接缩短评测。
 
 | 部分 | CPU | 占比 |
@@ -18,14 +18,14 @@ runner 的开销里有很多“同一时刻对所有天区都相同”却按天�
 
 ## 改动（全部与原结果逐位 / 逐字节相同）
 
-1. **离线试验台 `tools/plan_experiment.py`**：`dual_prices` 只在 [t0 所在时段, 视野末所在时段] 的窗口内、
+1. **离线试验台 `v3/tools/plan_experiment.py`**：`dual_prices` 只在 [t0 所在时段, 视野末所在时段] 的窗口内、
    对窗口内有正价值的天区计算；与 t0 无关的逐格价值按信息设定缓存；`np.add.at` 换成 `np.bincount`。
    窗口外价值恒为 0、无正价值天区的约化收益恒 ≤ 0，都不会被选中；λ 仍在全部时段上更新。
    单个变体约 220 秒 → 约 40 秒（**约 5 倍**）。输出加了“精确 = 总分的 repr”，便于以后再做等价性检查。
 2. **PyPy 3.11**：官方 kit 与 obs10 都是纯标准库。数学函数走同一个 C 数学库、IEEE 运算规则相同，
    dict 保持插入顺序，输出逐字节相同。规划器累计 528 秒 → 23 秒；但 PyPy 的 datetime 是纯 Python 实现，
    runner 只快 1.7 倍。
-3. **`tools/fast_runner.py`**：在进程内给 kit 的六处纯计算加缓存后调用官方 `local_runner.main()`，kit 文件不改。
+3. **`v3/tools/fast_runner.py`**：在进程内给 kit 的六处纯计算加缓存后调用官方 `local_runner.main()`，kit 文件不改。
    每个补丁照抄原函数，只把与天区、与运行状态无关的中间量换成缓存值，浮点运算的内容与结合顺序不变
    （月光因子原式 `1 − a·b·c·d` 从左到右结合，缓存 `(a·b)·c`）。启动时校验 kit 全部源文件的 SHA-256，
    不一致就拒绝运行。CPython 下 runner 本身也快 2.3 倍。
@@ -48,7 +48,7 @@ runner 的开销里有很多“同一时刻对所有天区都相同”却按天�
 ## 用法与注意
 
 - 安装 PyPy：`uv python install pypy@3.11`（约 150 MB，入口 `~/.local/bin/pypy3.11`）。
-- `tools/evaluate.py` 默认用加速 runner + PATH 里的 pypy3.11；`--official` 改用官方 runner，`--python` 指定解释器，
+- `v3/tools/evaluate.py` 默认用加速 runner + PATH 里的 pypy3.11；`--official` 改用官方 runner，`--python` 指定解释器，
   `--verify` 再用官方 runner + 当前 CPython 跑一遍并逐字节比对。kit 更新、改补丁或换解释器之后先跑一次 `--verify`，
   再更新 `fast_runner.py` 里的 `KIT_SHA256`。
 - 内存：PyPy 下每个作业约 1.4–1.6 GB（runner 约 1 GB、agent 约 0.4 GB），官方 CPython runner 约 0.1 GB；
@@ -62,4 +62,4 @@ runner 的开销里有很多“同一时刻对所有天区都相同”却按天�
   但本地评测已由 PyPy 覆盖；平台 CPython 上规划约 530 秒，离 3600 秒时钟很远。需要更多规划预算时再做。
 - 剩下的大头是协议本身：每次决策把几百个候选天区的几何与天气编码成 JSON（一场约 GB 量级），以及逐天区的三角计算。
   缓存消不掉，再压收益有限而风险上升。
-- `tools/upper_bound.py` 每场约 60 秒，未优化。
+- `v3/tools/upper_bound.py` 每场约 60 秒，未优化。

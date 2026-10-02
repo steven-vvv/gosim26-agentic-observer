@@ -4,7 +4,7 @@
 
 ## 配置与生命周期
 
-`agents/observer/observability.config.json` 新增 `termination`；打包器保留这段非机密配置。
+`v3/agents/observer/observability.config.json` 新增 `termination`；打包器保留这段非机密配置。
 
 | 配置 | 行为 |
 | --- | --- |
@@ -30,7 +30,7 @@ stdin 正常 EOF 而未收到 `finish` 时仍生成本地分析与最终投递�
 - 传输层在等待决策响应的全局截止时间耗尽时可能已经强制关闭进程；异常退出、初始化失败及旧服务端状态缺少终止原因时也不能保证通知。因此这里支持的是明确收到 `finish` 的优雅路径，而非依赖结束消息覆盖所有异常。
 - `finish` 不携带最终得分或最终状态快照。Agent 分析报告仍基于已收到的观测、策略和服务记录；正式分数以引擎的 `score_report.json` 为准。
 
-重新 `fetch --prune` 后上游 `main` 仍为 `2400cc0`，工作区干净。本地同步了 `kit/challenge/run_challenge.py`、`kit/local_runner.py` 和 `kit/challenge/challenge_workflow.py`，三个文件均与上游 starter-kit 逐字一致。其中工作流还修正了初始化消息：向 Agent 发布实际生效的墙钟预算，而不是场景默认预算。`kit/challenge/scoring_core.py` 与上游正式引擎评分器逐字一致，工作流也与正式引擎一致。
+重新 `fetch --prune` 后上游 `main` 仍为 `2400cc0`，工作区干净。本地同步了 `v3/kit/challenge/run_challenge.py`、`v3/kit/local_runner.py` 和 `v3/kit/challenge/challenge_workflow.py`，三个文件均与上游 starter-kit 逐字一致。其中工作流还修正了初始化消息：向 Agent 发布实际生效的墙钟预算，而不是场景默认预算。`v3/kit/challenge/scoring_core.py` 与上游正式引擎评分器逐字一致，工作流也与正式引擎一致。
 
 其余源码差异为可选 `sha256-v1` 随机流派生及回放页面模板：前者用于生成场景，不改变从已有 CSV 加载后的评分与状态推进，默认仍使用历史种子算法；后者影响展示。本轮没有整体替换生成器或回放模板。需要新派生方式的场景可使用上游生成器，不能让旧的本地生成器冒充支持新模式。
 
@@ -54,7 +54,7 @@ stdin 正常 EOF 而未收到 `finish` 时仍生成本地分析与最终投递�
 - 这轮完整场景未注入模型/远程凭据，模型调用 0 次、远程投递未启用；不能把 `remote_delivered=false` 当作网络故障，也不能声称本轮重新验证了真实 Worker 或 LLM。远程收尾顺序及失败路径由上表中的本地 HTTP 测试验证；此前真实服务证据见 `2026-09-29-observability-agent-native.md`。
 - 规划仍根据运行时墙钟预算调整，且本轮没有模型网络等待，分数不与此前真实模型运行作算法优劣比较。
 
-运行输出保存在被忽略的 `result_temp/evaluations/2026-09-29/v3-finish/`。上述首次核验使用的正式包为 32,050,010 字节，现已保留为 `dist/observer-observer-project-6f6efeb3.zip`，SHA-256：
+运行输出保存在被忽略的 `v3/result_temp/evaluations/2026-09-29/v3-finish/`。上述首次核验使用的正式包为 32,050,010 字节，现已保留为 `dist/observer-observer-project-6f6efeb3.zip`，SHA-256：
 
 ```text
 6f6efeb39376b51efeb3573deffdd390f38a9df8cfc20c174f475c03650f5bdc
@@ -68,9 +68,9 @@ stdin 正常 EOF 而未收到 `finish` 时仍生成本地分析与最终投递�
 
 | 组件 | 核对结果 |
 | --- | --- |
-| `kit/challenge/scoring_core.py` | 与上游正式 `challenge/scoring_core.py` 逐字一致。 |
-| `kit/challenge/challenge_workflow.py` | 与上游正式工作流逐字一致，包括初始化时发布实际预算、截止时忽略在途响应、只提交合法响应。 |
-| `kit/challenge/run_challenge.py`、`kit/local_runner.py` | 分别与上游正式传输实现和 starter-kit 运行器逐字一致。 |
+| `v3/kit/challenge/scoring_core.py` | 与上游正式 `challenge/scoring_core.py` 逐字一致。 |
+| `v3/kit/challenge/challenge_workflow.py` | 与上游正式工作流逐字一致，包括初始化时发布实际预算、截止时忽略在途响应、只提交合法响应。 |
+| `v3/kit/challenge/run_challenge.py`、`v3/kit/local_runner.py` | 分别与上游正式传输实现和 starter-kit 运行器逐字一致。 |
 | `project_platform/trusted_engine.py`、`project_platform/transport.py` | 直接使用上游源码测试：v3 正常结束在评分确定后发送 `finish`，不要求回复；错误路径仍不保证通知。 |
 | 两份公共 `protocol.py` 与 starter-kit 示例入口 | 原有解析器拒绝 `finish`，示例入口因此会异常退出；现与上游逐字对齐，接受通知后记录摘要并自主退出。Observer 主入口原本已支持该消息。 |
 
@@ -89,7 +89,7 @@ stdin 正常 EOF 而未收到 `finish` 时仍生成本地分析与最终投递�
 - 两份日志均有 587 条遥测事件，`finish_received` / `final` 各一次，协议和策略错误均为 0；最终统计包含全部 303 次响应，`final_response_pending=false`。上游正式传输层发出通知后约 0.065 秒自主退出，退出码 0。
 - 此次模型调用为 0，未连接真实 LLM 或 Worker；远程服务的既有测试证据仍见首次核验记录及可观测性报告。
 
-补充输出与核验脚本位于被忽略的 `result_temp/evaluations/2026-09-29/v3-finish/source-alignment/`，`audit.json` 保存包、运行和退出摘要。动作 CSV 的 SHA-256 为 `70723929dd59f641dd39953690f0cf0f73f4800851eea54e8786dd6363c24c7c`。
+补充输出与核验脚本位于被忽略的 `v3/result_temp/evaluations/2026-09-29/v3-finish/source-alignment/`，`audit.json` 保存包、运行和退出摘要。动作 CSV 的 SHA-256 为 `70723929dd59f641dd39953690f0cf0f73f4800851eea54e8786dd6363c24c7c`。
 
 当前正式包为 `dist/observer-observer-project.zip`，32,050,089 字节，SHA-256：
 
@@ -99,4 +99,4 @@ stdin 正常 EOF 而未收到 `finish` 时仍生成本地分析与最终投递�
 
 ### 再次复核
 
-按组织方源码重新执行 `git fetch --prune origin` 后，上游 `main` 仍为 `2400cc0`，克隆工作区干净。再次逐文件核对，本地 `kit/challenge/{scoring_core,challenge_workflow,run_challenge}.py` 与上游正式引擎及 starter-kit 对应文件 SHA-256 一致；`kit/local_runner.py` 和 `kit/agent/protocol.py` 也分别与上游 starter-kit 一致。上游 `test_graceful_finish.py` 和 `test_participant_protocol.py` 共 11 项通过，本地全套 98 项通过。没有发现需要同步的 v3 引擎或运行时差异，因此此次复核不改 v3 实现或正式包。
+按组织方源码重新执行 `git fetch --prune origin` 后，上游 `main` 仍为 `2400cc0`，克隆工作区干净。再次逐文件核对，本地 `v3/kit/challenge/{scoring_core,challenge_workflow,run_challenge}.py` 与上游正式引擎及 starter-kit 对应文件 SHA-256 一致；`v3/kit/local_runner.py` 和 `v3/kit/agent/protocol.py` 也分别与上游 starter-kit 一致。上游 `test_graceful_finish.py` 和 `test_participant_protocol.py` 共 11 项通过，本地全套 98 项通过。没有发现需要同步的 v3 引擎或运行时差异，因此此次复核不改 v3 实现或正式包。

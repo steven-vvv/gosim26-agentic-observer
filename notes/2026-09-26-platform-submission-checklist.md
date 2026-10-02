@@ -6,7 +6,7 @@
 
 - [x] 当前阶段允许提交完整项目，完整项目使用持久的 JSONL stdin/stdout 进程。
 - [x] 使用根目录 `observer.project.json`，`schema_version=observer-project-v1`、`protocol=jsonl-v2`、`image`、`working_directory`、`build`、`run` 字段。
-- [x] `tools/pack_project.py` 在本地复核平台的 manifest（64 KiB）、ZIP（50 MiB）、展开体积（100 MiB）、文件数量（10,000）、相对路径、`.git`/`.env`、符号链接和大小写冲突规则；校验通过后才替换旧产物。
+- [x] `v3/tools/pack_project.py` 在本地复核平台的 manifest（64 KiB）、ZIP（50 MiB）、展开体积（100 MiB）、文件数量（10,000）、相对路径、`.git`/`.env`、符号链接和大小写冲突规则；校验通过后才替换旧产物。
 - [x] manifest 写入 `PYTHONDONTWRITEBYTECODE=1`，避免运行时把 `__pycache__` 写入可写工作区。
 - [x] `run` 使用 `python3 -u main.py`；stdout 只输出协议响应，诊断和逐步追踪写 stderr。
 - [x] ZIP 不超过 50 MiB；当前带 x86_64/aarch64 wheel 的历史包约 30.5 MiB。
@@ -23,7 +23,7 @@
 
 ## 遥测与逐步追踪
 
-- [x] 默认遥测打包源固定为当前工作副本 `agents/observer`；冻结的 `agents/obs17` 没有客户端，误用时打包器会失败，只有显式 `--no-telemetry` 才允许打历史快照。
+- [x] 默认遥测打包源固定为当前工作副本 `v3/agents/observer`；冻结的 `v3/agents/obs17` 没有客户端，误用时打包器会失败，只有显式 `--no-telemetry` 才允许打历史快照。
 - [x] 后续完整项目打包默认生成不含密钥的 `telemetry.config.json`，默认指向 Worker 的 OpenAI-compatible `/v1` 地址，逐步追踪开关为真。
 - [x] 比赛平台的 `OPENAI_BASE_URL`/`OPENAI_API_KEY` 可同时供模型顾问和共享 Worker 使用：带 `role=tool`、`tool_call_id=gosim26.telemetry`、`name=gosim26.telemetry` 的消息由 Worker 入库，普通请求由 `LLM_UPSTREAM_URL`/`LLM_UPSTREAM_API_KEY` 转发到真实模型。需要隔离时可用 `TELEMETRY_URL`/`TELEMETRY_TOKEN` 覆盖遥测入口；没有专用凭据时逐步追踪仍写 `agent.log`；显式 `--no-telemetry` 可关闭。
 - [x] 共享端点是默认路径；本地直连测试可以把 `OPENAI_BASE_URL` 设为 Worker 并使用其写入令牌。单独注入模型 Key 只有在该 URL 确实指向共享 Worker 时才会产生遥测，普通模型请求不会写入 D1。
@@ -36,14 +36,14 @@
 ## 评测、超时与归档
 
 - [x] 上传前保存 ZIP SHA-256、manifest、源提交、wheel 清单和包内文件清单；生成物仍由 `.gitignore` 排除。
-- [x] 结果下载原样保留在 `result_temp/submissions/<date>/`，实验评测 JSON 归档到 `result_temp/evaluations/<date>/<experiment>/`，日志和 workflow 文件归档到 `result_temp/logs/<date>/`；同时记录 `workflow_result.json`、`decisions.csv`、`score_report.json`、`agent.log` 的哈希。
+- [x] 结果下载原样保留在 `v3/result_temp/submissions/<date>/`，实验评测 JSON 归档到 `v3/result_temp/evaluations/<date>/<experiment>/`，日志和 workflow 文件归档到 `v3/result_temp/logs/<date>/`；同时记录 `workflow_result.json`、`decisions.csv`、`score_report.json`、`agent.log` 的哈希。
 - [x] 每次 batch 记录终止原因、实际墙钟、动作数、分数组成、REQUIRED/FLEXIBLE 缺口和遥测发送统计。
 - [ ] 若再次出现超时，先比较逐步追踪中的 `input_wait_ms` 与 `policy_ms`：前者长期约为秒级而后者为毫秒级，说明瓶颈在评测往返/调度；反之才优化策略。
 - [ ] 只有确认带宽、额度和版本状态后才使用下一次评测额度；同一包重复运行优先于同时改变策略和运行时。
 
 ## 资源管理
 
-- [x] 大型 `dist/`、`result_temp/`、`runs/` 和本地场景不入库。
+- [x] 大型 `dist/`、`v3/result_temp/`、`v3/runs/` 和本地场景不入库。
 - [ ] 长批次前后检查 `df -h`，清理可重建的 ZIP、wheel 缓存和临时日志；保留平台原始下载和必要的哈希记录。
 - [ ] 远程遥测保持有界队列、短超时、有限重试和失败丢弃，网络不可用时不能延长评分路径。
 
@@ -52,8 +52,8 @@
 ```bash
 uv run pytest -q tests
 python -m unittest telemetry-worker/client/test_telemetry_client.py
-python -m py_compile agents/observer/*.py tools/pack_project.py
-uv run python tools/pack_project.py --agent agents/observer --wheels /path/to/numpy-wheels
+python -m py_compile v3/agents/observer/*.py v3/tools/pack_project.py
+uv run python v3/tools/pack_project.py --agent v3/agents/observer --wheels /path/to/numpy-wheels
 unzip -l dist/observer-observer-project.zip | rg 'observer.project.json|telemetry.config.json|\.deps|\.venv|\.env'
 df -h .
 ```

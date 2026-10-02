@@ -41,7 +41,7 @@ JSONL 进程：stdin/stdout 传协议，诊断写 stderr；模型调用可选，
 
 ## 当前候选包
 
-使用 `agents/observer` 重建了完整项目包：
+使用 `v3/agents/observer` 重建了完整项目包：
 
 ```text
 dist/observer-observer-project.zip
@@ -58,7 +58,7 @@ size   32,027,425 bytes (约 30.5 MiB)
 - observer/runner 测试 35 项通过；
 - Python 3.12 编译通过；
 - 完整包的 `initialize` + `decision_request` 协议冒烟通过；
-- 包内代码哈希与 `agents/observer` 当前源文件一致；
+- 包内代码哈希与 `v3/agents/observer` 当前源文件一致；
 - ZIP 完整性检查通过，远低于 50 MiB 上限。
 
 ZIP 和展开目录在 `.gitignore` 中，提交时只记录指纹和来源提交，不把生成物塞进 Git。

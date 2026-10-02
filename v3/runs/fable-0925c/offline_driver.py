@@ -3,7 +3,7 @@
 import sys, time, json
 from pathlib import Path
 import numpy as np
-sys.path.insert(0, '/home/steven/code/GOSIM26/tools')
+sys.path.insert(0, '/home/steven/code/GOSIM26/v3/tools')
 import plan_experiment as pe
 from plan_experiment import dual_prices, realized, jain, rollout_pick
 

@@ -2,7 +2,7 @@
 以及“一批 = A、B 各一场取平均，30 批取最好”的期望。只读 results/，不写仓库。"""
 import glob, json, math, os, random, statistics as st
 
-ROOT = "/home/steven/code/GOSIM26"
+ROOT = "/home/steven/code/GOSIM26/v3"
 W = -20800.0  # 全程等待分（简报实测 −20,300 ~ −21,400；对校准分的影响 ±2 分以内）
 
 

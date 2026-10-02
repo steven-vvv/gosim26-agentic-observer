@@ -91,4 +91,4 @@ PR #100 已合并，其更新说明称已核对线上阶段配置：A–D、900 
 
 当前待办：下载登记练习卡并核对 bundle 校验值，再做官方 runner 整卡验收；正式 A–D 公开后按实际 `initialize` 检查配置；真实 HTTPS 模型端点仍需在平台实测，隐藏决赛前切换为“加密保存”。上游 `docs/competition-format.md` 仍保留 v3 额度表，规则页也有旧的 16/25/9/100 练习光纤句子，卡片参数优先采用登记事实与实际初始化输入，每日额度采用参赛页值。
 
-新锁验收：`uv run pytest -q v4/tests v4/tests/geometry_checks.py tests/test_observer.py` 共 127 项通过；上游 `test_project_model_adapter.py` 与 `test_v4_practice_cards.py` 共 14 项通过；`uv run ruff check v4 agents/observer/model_advisor.py` 与 `git diff --check` 通过。按 `6487062` 重建并由主办方 ZIP/manifest 解析器验收，包仍为 `observer4-8a7419500a93.zip`，SHA-256、体积与前述归档完全一致。本次没有重新下载登记练习卡或重跑平台正式/隐藏评测。
+新锁验收：`uv run pytest -q v4/tests v4/tests/geometry_checks.py v3/tests/test_observer.py` 共 127 项通过；上游 `test_project_model_adapter.py` 与 `test_v4_practice_cards.py` 共 14 项通过；`uv run ruff check v4 v3/agents/observer/model_advisor.py` 与 `git diff --check` 通过。按 `6487062` 重建并由主办方 ZIP/manifest 解析器验收，包仍为 `observer4-8a7419500a93.zip`，SHA-256、体积与前述归档完全一致。本次没有重新下载登记练习卡或重跑平台正式/隐藏评测。

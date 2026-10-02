@@ -12,7 +12,7 @@
 
 ## 不应迁移的方向
 
-- **全知天气/事件/目标排程**：`agents/public_once` 的 `21119.494551`（reference）和 `9882.067113`（fortnight）是练习题真值排程的上限验证，不是未知场景策略。把开始格、需求标签或事件真值放进项目会导致正式运行失效或失去资格。
+- **全知天气/事件/目标排程**：`v3/agents/public_once` 的 `21119.494551`（reference）和 `9882.067113`（fortnight）是练习题真值排程的上限验证，不是未知场景策略。把开始格、需求标签或事件真值放进项目会导致正式运行失效或失去资格。
 - **依赖大量空闲填充的策略**：旧练习题全知方案通过请求重访串、注定中断观测和末期紧排降低等待罚分。旧 92 场在线基线的 `avoidable_wait` 总量仅约 `5.55`，而 `request_miss`、`required_miss`、`flexible_shortfall` 均为 0；正式规模没有同等的空闲罚分头寸，盲目等待或填充会增加错过机会的风险。
 - **长期天气持续性先验**：`plan_persistence=True` 在离线真值实验中有收益，但真实系统测试为负，保持关闭。未来天气的先验只能通过当前公开预报和已观测样本修正，不能读取 reference weather CSV。
 - **固定长远 horizon/lambda 猜测**：`plan_horizon_nights=21/28` 和较大的 `plan_lambda_average` 在小样本中不稳定；必须在固定配对场景上以均值、标准误、完成度和墙钟共同判断，不能按单场最高分采用。
@@ -38,7 +38,7 @@
 
 ## 固定 23 场筛选结果
 
-`/tmp/robust/codexbase` 是固定基线；各实验使用 `tools/robust_batch.py --direct` 的独立 agent 快照，在相同的 3 个本地、8 个旧蒙特卡洛和 12 个新蒙特卡洛场景运行。以下是 `runs/robust-0925/compare2.py` 对 23 场正常结束报告的配对比较；均值是每场相对总分变化，标准误的单位为百分点。
+`/tmp/robust/codexbase` 是固定基线；各实验使用 `v3/tools/robust_batch.py --direct` 的独立 agent 快照，在相同的 3 个本地、8 个旧蒙特卡洛和 12 个新蒙特卡洛场景运行。以下是 `v3/runs/robust-0925/compare2.py` 对 23 场正常结束报告的配对比较；均值是每场相对总分变化，标准误的单位为百分点。
 
 | 实验目录与改动 | 均值 | 标准误 | 变好 | 每场平均分项变化 | 取舍 |
 | --- | ---: | ---: | ---: | --- | --- |
@@ -64,6 +64,6 @@
 
 ## 模型资格与遥测边界
 
-`agents/observer/model_advisor.py` 使用平台注入的 `OPENAI_BASE_URL` / `OPENAI_API_KEY` 调用真正的模型代理。每夜首次可行时分别给出重规划频率和行动候选，模型返回的合法 ID 会改变实际路径；每环节最多四次调用、连续失败三次停用。行动次选还要求与首选优先级差不超过 5%；确定性候选的概率先验随墙钟压力或候选差距变化。遥测默认复用同一个 OpenAI-compatible Worker：带 `role=tool`、`tool_call_id=gosim26.telemetry`、`name=gosim26.telemetry` 的消息由 Worker 入库，不会转发给上游；普通 Chat Completions 才通过 `LLM_UPSTREAM_*` 代理到真实模型。需要隔离时仍可用 `TELEMETRY_URL` / `TELEMETRY_TOKEN` 覆盖遥测入口。`agent.log` 的逐步追踪不依赖远程遥测。平台保存的上游需改成真实大模型，隐藏评测前按官方要求加密保存其密钥。
+`v3/agents/observer/model_advisor.py` 使用平台注入的 `OPENAI_BASE_URL` / `OPENAI_API_KEY` 调用真正的模型代理。每夜首次可行时分别给出重规划频率和行动候选，模型返回的合法 ID 会改变实际路径；每环节最多四次调用、连续失败三次停用。行动次选还要求与首选优先级差不超过 5%；确定性候选的概率先验随墙钟压力或候选差距变化。遥测默认复用同一个 OpenAI-compatible Worker：带 `role=tool`、`tool_call_id=gosim26.telemetry`、`name=gosim26.telemetry` 的消息由 Worker 入库，不会转发给上游；普通 Chat Completions 才通过 `LLM_UPSTREAM_*` 代理到真实模型。需要隔离时仍可用 `TELEMETRY_URL` / `TELEMETRY_TOKEN` 覆盖遥测入口。`agent.log` 的逐步追踪不依赖远程遥测。平台保存的上游需改成真实大模型，隐藏评测前按官方要求加密保存其密钥。
 
 离线单测覆盖两个模型环节确实改变执行路径、非法响应回退及调用上限；尚需使用真实平台模型调用验证响应兼容性、两个环节成功率和墙钟成本。模型关闭时已在 `comp-a-s101` 逐分回归，完整 23 场逐位回归仍可作为下次平台提交前的额外核验。

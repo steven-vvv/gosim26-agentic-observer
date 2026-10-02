@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
-sys.path.insert(0, '/home/steven/code/GOSIM26/agents/observer')
+sys.path.insert(0, '/home/steven/code/GOSIM26/v3/agents/observer')
 from events import open_from_probability, _phi
 def t(s): return datetime.fromisoformat(s.replace("Z", "+00:00"))
 def rows(p): return list(csv.DictReader(open(p, encoding="utf-8-sig")))

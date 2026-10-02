@@ -4,7 +4,7 @@
 
 ## 原始材料
 
-平台下载文件保存在本地 `result_temp/`，目录已加入 `.gitignore`，不作为版本输入。
+平台下载文件保存在本地 `v3/result_temp/`，目录已加入 `.gitignore`，不作为版本输入。
 原始文件保持不改写；以下 SHA-256 用于之后核对下载是否被替换：
 
 | 文件（名称中段省略） | 大小 | SHA-256 |
@@ -123,7 +123,7 @@ TELEMETRY_TRANSPORT=events
 
 ## 第二次旧包评测：180 夜结果
 
-`result_temp/2/` 是上次改动前的完整项目归档，ZIP SHA-256 为
+`v3/result_temp/2/` 是上次改动前的完整项目归档，ZIP SHA-256 为
 `14a45e7a42fdf682eb4e86096f3c9776c9c34f081d470a27d4b831ab3e3f6c86`，日志 SHA-256 为
 `63424d8c0e68eb0bec352e0d26b0d3a3f23de0477d4097466779534ebdab7b1c`。它的结果字段给出：
 
@@ -156,7 +156,7 @@ score total                 5178.334816
 `numpy:null`。这是旧打包路径的问题，会使规划器退回纯 Python，但不是这次 7200 秒超时的
 主因；当前分支的 `.deps` 安装和每决策 trace 正是针对这两个问题的修正。
 
-## 第二版公开测试与遥测路由（`result_temp/3/init`）
+## 第二版公开测试与遥测路由（`v3/result_temp/3/init`）
 
 第二版公开测试确实执行了参赛进程：归档包含 `decisions.csv`、完整的
 `workflow_result.json` 和 137 个已提交动作，终止原因为默认公开测试的

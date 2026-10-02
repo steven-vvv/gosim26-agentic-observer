@@ -1,11 +1,11 @@
 # Fable 审计：dev-reference 全知排程能否超过 21119.494551（2026-09-27）
 
-Fable 5.1 子代理的审计记录，原样保留；脚本已移到 `tools/omni/audit/`，中间产物（截断 CSV、乘子、日志）留在未入库的 `runs/omni/fable/`。审计时未改仓库文件、未联网，CPU 限 1 核（`taskset -c 3`），内存峰值 < 1 GB。
+Fable 5.1 子代理的审计记录，原样保留；脚本已移到 `v3/tools/omni/audit/`，中间产物（截断 CSV、乘子、日志）留在未入库的 `v3/runs/omni/fable/`。审计时未改仓库文件、未联网，CPU 限 1 核（`taskset -c 3`），内存峰值 < 1 GB。
 
 ## 0. 结论
 
 1. **没有找到任何能让 dev-reference 超过 21119.494551 的合法手段。** 官方计分器（旧版分支）对每种合法动作的处理
-   与 `tools/omni/model.py` / `dp.c` / `flow.py` 的建模一致；模型唯一没有包含的官方允许行为是"中途停止（不再发决策）"，
+   与 `v3/tools/omni/model.py` / `dp.c` / `flow.py` 的建模一致；模型唯一没有包含的官方允许行为是"中途停止（不再发决策）"，
    官方评分器对停止后的时间**不判罚**，但对当前解的全部 9147 个前缀实测都不优于全程（截断实测见 §1.3）。
 2. 简报第 1–7 条全部成立；第 8 条"提前结束省不掉什么"结论成立但理由需修正（§2）。另发现 `model.py` 与官方两处语义差异，
    都只在"决策序列没有走到调查末尾"或"末尾多出 observe 行"时显现，对当前提交文件无影响（§2.9）。
@@ -54,7 +54,7 @@ Fable 5.1 子代理的审计记录，原样保留；脚本已移到 `tools/omni/
 
 ### 1.3 "停止"实测（官方评分器）
 
-`tools/omni/audit/prefix_eval.py` 按官方语义对当前解的每个前缀计分，并用 `kit/score_decisions.py` 对三个截断文件复核：
+`v3/tools/omni/audit/prefix_eval.py` 按官方语义对当前解的每个前缀计分，并用 `v3/kit/score_decisions.py` 对三个截断文件复核：
 
 | 截断行数 | 官方总分 | final_cursor | 说明 |
 | ---: | ---: | --- | --- |
@@ -78,7 +78,7 @@ Fable 5.1 子代理的审计记录，原样保留；脚本已移到 `tools/omni/
 7. 成立：隐式与显式等待都走 `_consume_wait`，逐时隙判定。
 8. **结论成立、理由要改**：官方对停止后的时间确实不判罚（§1.3 实测），所以"提前结束省不掉什么"不是规则使然，
    而是当前解的末尾结构使然（最后一块完成后已无计罚等待、请求已拿满、再早停必损失 ≥ 294 分）。
-9. `tools/omni/model.py::Scenario.evaluate` 与官方的两处差异（对当前 decisions.csv 无影响，已实测逐位一致）：
+9. `v3/tools/omni/model.py::Scenario.evaluate` 与官方的两处差异（对当前 decisions.csv 无影响，已实测逐位一致）：
    - 决策用完后 `while k < n_ticks: consume_wait(...)` 把剩余时间按等待判罚，官方不判罚（更悲观）。
    - `if k >= n_ticks: break` 忽略调查结束后的多余决策，官方对多余 observe 行每行罚 100（更乐观）。
    `dp.c`/`gmlns.py` 强制每块天区恰好完成一次（`== 1`），`flow.py` 是 `≤ 1`；放弃天区在不停止的前提下必然更差
@@ -93,7 +93,7 @@ Fable 5.1 子代理的审计记录，原样保留；脚本已移到 `tools/omni/
 - 聚合模型 LP 松弛（`lp_relax.py`，dense 候选）上界 22153.08。
 - `scan.py --loss 30 --pairs`：单块 28319 次 + 成对 64027 次评估无改进（在 21118.89 的旧解上）。
 
-### 3.2 不依赖 Δ 的严格上界：拉格朗日松弛（`tools/omni/audit/lagr_bound.py`）
+### 3.2 不依赖 Δ 的严格上界：拉格朗日松弛（`v3/tools/omni/audit/lagr_bound.py`）
 
 记 A(k) 为格 k 上 `_can_complete_from` 为真的天区，A'(k) 为同一时隙内 k 之前所有格的交集（等待动作从任意
 k0 ≤ k 开始时 A'(k) ⊆ A(k0)），R 为全部"带标签重访 / 注定天气中断"动作区间的并（忽略状态条件，是超集）。
@@ -140,7 +140,7 @@ flexible 缺额 ≥ 0；REQUIRED 缺失已作为"不完成"选项计 −1000）�
 
 ### 3.5 滑窗验证结果
 
-`runs/omni/fable/sweep.log`：`初始 21119.494551` → `第 1 轮结束：21119.494551`。当前解在全部 60 个 6 夜窗口内、
+`v3/runs/omni/fable/sweep.log`：`初始 21119.494551` → `第 1 轮结束：21119.494551`。当前解在全部 60 个 6 夜窗口内、
 窗口内全候选（不限 Δ）下精确最优；该验证覆盖了 ±3–5 夜内任意多块天区的联动重排，包含 §3.3 的成对交换。
 
 ## 4. 复现命令
@@ -148,23 +148,23 @@ flexible 缺额 ≥ 0；REQUIRED 缺失已作为"不完成"选项计 −1000）�
 ```bash
 cd /home/steven/code/GOSIM26
 # 官方评分（全程、截断 8860/8859/8821）
-.venv/bin/python kit/score_decisions.py --scenario kit/scenarios/dev-reference --decisions dist/omni/dev-reference-decisions.csv --out runs/omni/fable/ref_official_report.json
-.venv/bin/python kit/score_decisions.py --scenario kit/scenarios/dev-reference --decisions runs/omni/fable/trunc_8860.csv --out runs/omni/fable/trunc_8860_report.json
+.venv/bin/python v3/kit/score_decisions.py --scenario v3/kit/scenarios/dev-reference --decisions dist/omni/dev-reference-decisions.csv --out v3/runs/omni/fable/ref_official_report.json
+.venv/bin/python v3/kit/score_decisions.py --scenario v3/kit/scenarios/dev-reference --decisions v3/runs/omni/fable/trunc_8860.csv --out v3/runs/omni/fable/trunc_8860_report.json
 # 前缀评分（官方停止语义）
-.venv/bin/python tools/omni/audit/prefix_eval.py kit/scenarios/dev-reference dist/omni/dev-reference-decisions.csv
+.venv/bin/python v3/tools/omni/audit/prefix_eval.py v3/kit/scenarios/dev-reference dist/omni/dev-reference-decisions.csv
 # 全候选严格上界
-.venv/bin/python tools/omni/audit/lagr_bound.py kit/scenarios/dev-reference --iters 300 --save runs/omni/fable/lagr_300.npz
-.venv/bin/python tools/omni/audit/lagr_bound.py kit/scenarios/dev-reference --iters 4000 --beta 1.5 --load runs/omni/fable/lagr_300.npz --save runs/omni/fable/lagr_4300.npz
+.venv/bin/python v3/tools/omni/audit/lagr_bound.py v3/kit/scenarios/dev-reference --iters 300 --save v3/runs/omni/fable/lagr_300.npz
+.venv/bin/python v3/tools/omni/audit/lagr_bound.py v3/kit/scenarios/dev-reference --iters 4000 --beta 1.5 --load v3/runs/omni/fable/lagr_300.npz --save v3/runs/omni/fable/lagr_4300.npz
 # 第 171 夜跨夜成对交换
-.venv/bin/python tools/omni/audit/swap171.py kit/scenarios/dev-reference --night 171 --top 8 --span 3
-.venv/bin/python tools/omni/audit/swap171.py kit/scenarios/dev-reference --night 171 --top 8 --global-top 40
+.venv/bin/python v3/tools/omni/audit/swap171.py v3/kit/scenarios/dev-reference --night 171 --top 8 --span 3
+.venv/bin/python v3/tools/omni/audit/swap171.py v3/kit/scenarios/dev-reference --night 171 --top 8 --global-top 40
 # 滑窗全候选精确 MILP
-.venv/bin/python tools/omni/lns_sweep.py kit/scenarios/dev-reference --init runs/omni/dev-reference/best.npy --out runs/omni/fable/sweep_best.npy --width 6 --step 3 --passes 1 --time-limit 300
+.venv/bin/python v3/tools/omni/lns_sweep.py v3/kit/scenarios/dev-reference --init v3/runs/omni/dev-reference/best.npy --out v3/runs/omni/fable/sweep_best.npy --width 6 --step 3 --passes 1 --time-limit 300
 ```
 
 ## 5. 文件
 
-- `tools/omni/audit/prefix_eval.py`：前缀评分工具（中间产物 prefix_totals.npy 等留在未入库的 runs/omni/fable/）。
+- `v3/tools/omni/audit/prefix_eval.py`：前缀评分工具（中间产物 prefix_totals.npy 等留在未入库的 v3/runs/omni/fable/）。
 - `trunc_{8860,8859,8821}.csv` 与 `*_report.json`：截断文件与官方报告。
 - `ref_official_report.json`：当前解的官方报告。
 - `lagr_bound.py`、`lagr_300.npz`、`lagr_4300.npz`、`lagr_4300.log`：拉格朗日上界。

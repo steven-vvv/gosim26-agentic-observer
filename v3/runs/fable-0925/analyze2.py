@@ -2,7 +2,7 @@
 import glob, json, os, random, statistics as st
 import numpy as np
 
-ROOT = "/home/steven/code/GOSIM26"
+ROOT = "/home/steven/code/GOSIM26/v3"
 W = -20800.0
 
 

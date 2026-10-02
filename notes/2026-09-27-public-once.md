@@ -20,9 +20,9 @@
 复现本次提交包：
 
 ```bash
-python tools/pack_project.py --agent agents/public_once \
-  --public-schedules agents/public_once/public_schedules.json \
-  --telemetry-source agents/observer/telemetry.py
+python v3/tools/pack_project.py --agent v3/agents/public_once \
+  --public-schedules v3/agents/public_once/public_schedules.json \
+  --telemetry-source v3/agents/observer/telemetry.py
 ```
 
 产物为 `dist/observer-public_once-project.zip`。包内无密钥；平台注入的
@@ -42,7 +42,7 @@ python tools/pack_project.py --agent agents/public_once \
   罚分压到 247.65，却让科学收益大幅下降，总分只有 15431.52。这只是限时求解的
   可行解，不构成最优性上界。旧版 scorer 在等待开始时判断是否仍有可观测且未完成
   的天区，然后对整个等待动作计罚；保留有效的请求重访本身不会消除这项罚分。
-- `tools/upper_bound.py` 的分段几何、天气及项目档位价值表适合做离线 oracle、
+- `v3/tools/upper_bound.py` 的分段几何、天气及项目档位价值表适合做离线 oracle、
   回归验证和差距定位；在线只能代入预测分布，不能使用场景真值。
 - 正式包可复用“指纹校验后选择场景策略、否则回退在线策略”的保护方式，以及
   单个启动事件同时写入 `agent.log` 和后台 OpenAI-compatible 遥测的做法。遥测
@@ -60,7 +60,7 @@ python tools/pack_project.py --agent agents/public_once \
 ## 后续全知排程的平台验证（2026-09-27）
 
 Claude 的全知排程在本地追平了两套公开场景的 CSV 榜首；完整项目提交的结果位于
-`result_temp/6`。平台也逐位复现了两场分数和动作序列：
+`v3/result_temp/6`。平台也逐位复现了两场分数和动作序列：
 
 | 场景 | 平台得分 | 决策数 | 平台计入墙钟时间 | 本地同包回放墙钟时间 |
 | --- | ---: | ---: | ---: | ---: |

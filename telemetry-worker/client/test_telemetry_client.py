@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agents" / "observer"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "v3" / "agents" / "observer"))
 
 from telemetry import RunSummary, TelemetryReporter, TerminalStep, runtime_payload
 

@@ -1,6 +1,6 @@
 # 打包方案核查（2026-09-27）
 
-当前完整项目的权威入口是 `tools/pack_project.py`。它生成根目录带
+当前完整项目的权威入口是 `v3/tools/pack_project.py`。它生成根目录带
 `observer.project.json` 的 ZIP，源码、模型配置、遥测配置和入口都在包内；密钥只从平台环境变量读取，
 不进入源码、manifest 或 ZIP。NumPy wheel 是可选层：同时放入 x86_64/aarch64 wheel，构建阶段安装到
 `.deps`；安装失败仍走结果相同的纯 Python 路径。
@@ -22,13 +22,13 @@
 - manifest 固定 `PYTHONDONTWRITEBYTECODE=1`，避免平台运行时制造无意义的缓存文件。
 
 仍然保留的有意取舍：`requirements.txt` 不会被隐式安装；正式包依赖 manifest build 和可选 wheel，缺依赖时明确回退纯 Python。
-`tools/build_portfolio.py` 仍是旧版扁平变体组合器，不含完整项目 manifest/遥测，不能代替正式完整项目打包；后续若重新启用组合提交，
+`v3/tools/build_portfolio.py` 仍是旧版扁平变体组合器，不含完整项目 manifest/遥测，不能代替正式完整项目打包；后续若重新启用组合提交，
 应先把每个变体转换为完整项目并分别跑本地平台预检。`--public-schedules` 只适用于公开场景指纹命中，正式未知场景不能带入真实排程。
 
 复核命令：
 
 ```bash
-uv run pytest -q tests/test_pack_project.py
-uv run ruff check tools/pack_project.py tests/test_pack_project.py
-uv run python tools/pack_project.py --agent agents/observer --wheels /path/to/numpy-wheels
+uv run pytest -q v3/tests/test_pack_project.py
+uv run ruff check v3/tools/pack_project.py v3/tests/test_pack_project.py
+uv run python v3/tools/pack_project.py --agent v3/agents/observer --wheels /path/to/numpy-wheels
 ```

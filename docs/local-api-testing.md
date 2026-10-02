@@ -20,10 +20,10 @@ export OBSERVER_MODEL_NAME='服务商提供的模型标识'
 set -a
 . /home/steven/.config/gosim26-telemetry.env
 set +a
-uv run python tools/smoke_model_api.py
+uv run python v3/tools/smoke_model_api.py
 ```
 
-观测配置集中在 `agents/observer/observability.config.json`，打包时生成同名无密钥配置；`local` 控制 `agent.log`，`remote` 控制 Worker 投递，`events` 控制各类事件，`checkpoint_every` 控制周期采样。`OBSERVABILITY_LOCAL_ENABLED` 和 `OBSERVABILITY_CHECKPOINT_EVERY` 可覆盖本地设置；`TELEMETRY_*` 仍覆盖远程入口。`TELEMETRY_DISABLE=1` 只停远程投递，保留本地诊断。模型流式指标由 `llm.config.json` 的 `stream` 控制：非流式响应无法测得真实首 token 延迟，此时字段为 `null`；上游未返回 usage 时 Token 用量与速率也不估造。
+观测配置集中在 `v3/agents/observer/observability.config.json`，打包时生成同名无密钥配置；`local` 控制 `agent.log`，`remote` 控制 Worker 投递，`events` 控制各类事件，`checkpoint_every` 控制周期采样。`OBSERVABILITY_LOCAL_ENABLED` 和 `OBSERVABILITY_CHECKPOINT_EVERY` 可覆盖本地设置；`TELEMETRY_*` 仍覆盖远程入口。`TELEMETRY_DISABLE=1` 只停远程投递，保留本地诊断。模型流式指标由 `llm.config.json` 的 `stream` 控制：非流式响应无法测得真实首 token 延迟，此时字段为 `null`；上游未返回 usage 时 Token 用量与速率也不估造。
 
 v3 收尾时点也由这份配置管理，正式包默认标记运行器支持上游 `finish` 消息：
 

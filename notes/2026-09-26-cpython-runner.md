@@ -1,7 +1,7 @@
 # CPython 本地评测提速（2026-09-26）
 
-`tools/evaluate.py` 默认改用当前 CPython。实测为 CPython 3.14.7，JIT 关闭、GIL 开启。
-官方 `kit/` 文件不变；`tools/fast_runner.py` 仍在加载前校验 kit SHA-256。
+`v3/tools/evaluate.py` 默认改用当前 CPython。实测为 CPython 3.14.7，JIT 关闭、GIL 开启。
+官方 `v3/kit/` 文件不变；`v3/tools/fast_runner.py` 仍在加载前校验 kit SHA-256。
 
 ## 改动
 

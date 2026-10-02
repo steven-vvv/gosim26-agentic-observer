@@ -17,13 +17,16 @@ dev = [
 ]
 
 [tool.ruff]
-# agents/ 要在平台的 Python 3.12 上运行，入门包也要求兼容 3.9，所以按 3.9 检查语法
+# v3/agents/ 要在平台的 Python 3.12 上运行，入门包也要求兼容 3.9，所以按 3.9 检查语法
 target-version = "py39"
 line-length = 130
 # 原样复制自官方入门包的文件不改动，便于与 kit 更新比对
-extend-exclude = ["agents/*/protocol.py"]
+extend-exclude = ["v3/agents/*/protocol.py"]
+# v3 的脚本和测试以 v3/ 为根导入 tools、agents
+src = [".", "v3"]
 
 [tool.pytest.ini_options]
-# runs/ 下保留有需要位置参数的实验脚本，不应被默认测试收集。
-testpaths = ["tests", "telemetry-worker/client", "v4/tests"]
+# v3/runs/ 下保留有需要位置参数的实验脚本，不应被默认测试收集。v3 测试会导入 v3/kit 自带的 challenge 包，
+# 与 v4 锁定的上游引擎同名冲突，所以单独运行：uv run pytest -q v3/tests
+testpaths = ["telemetry-worker/client", "v4/tests"]
 pythonpath = ["."]
