@@ -106,7 +106,10 @@
     "band_llr_min": 4.0,
     "band_count_min": 2,
     "band_hours": 6.0,
-    "quake_band_hours": 3.0
+    "quake_band_hours": 3.0,
+    "band_paid_llr": 8.0,
+    "band_paid_shift": 0.45,
+    "fallback_beyond_cap": true
   },
   "observability": {
     "local_enabled": true,

@@ -612,11 +612,19 @@ class InstrumentMonitor:
         """
         if self.pending is not None or not self.settings.get("enabled", True):
             return None
-        if len(self.reports) >= int(self.settings.get("monitor_maximum_reports", 6)):
-            return None
         slot = self.slot_index(now, night)
         trusted = self.window_trusted and not self.repaired
         free = self.free_left()
+        if len(self.reports) >= int(self.settings.get("monitor_maximum_reports", 6)):
+            # False reports must not use up the one report that the window's fault is
+            # certain to repay: the fallback stays available until a repair.
+            if not (trusted and self.settings.get("fallback_beyond_cap", True)):
+                return None
+            target = self.fallback_slot(free) if self.settings.get("window_fallback", True) else None
+            if target is None or slot < target:
+                return None
+            return {"kind": "fallback", "reference": None, "level": self._last_level(), "drop": 0.0,
+                    "slot": round(target, 1)}
         early = trusted and slot < self.window[0] - float(self.settings.get("window_margin_slots", 2))
         # After a repair, free reports keep ordinary evidence; paid ones need strong evidence.
         if early or (self.repaired and not free):
@@ -651,6 +659,11 @@ class InstrumentMonitor:
             self._hidden_quake(evidence, now, night)
             evidence = None
         if evidence is not None and evidence["scale"] < 1.0 and not free:
+            evidence = None
+        if evidence is not None and evidence["kind"] == "band" and not free and (
+                evidence["band_llr"] < float(self.settings.get("band_paid_llr", 8.0))
+                or evidence["drop"] > -float(self.settings.get("band_paid_shift", 0.45))):
+            # A paid report needs more than the band evidence that a free one may test.
             evidence = None
         if evidence is None and trusted:
             target = self.fallback_slot(free) if self.settings.get("window_fallback", True) else None
@@ -743,7 +756,10 @@ class InstrumentMonitor:
             self.window_trusted = False
 
     def _reject(self, entry: dict) -> None:
-        if entry["kind"].split("_", 1)[-1] in ("step", "cross_segment", "cross_night") and entry["drop"] < 0 \
+        kind = entry["kind"]
+        for prefix in ("early_", "repeat_"):
+            kind = kind.removeprefix(prefix)
+        if kind in ("step", "cross_segment", "cross_night", "band") and entry["drop"] < 0 \
                 and entry.get("band_llr", 0.0) > float(self.settings.get("quake_band_llr", 1.0)):
             # An efficiency cut that a report did not repair behaves like a hidden aftershock;
             # program bands that kept their levels show the cut was not in the sky.
