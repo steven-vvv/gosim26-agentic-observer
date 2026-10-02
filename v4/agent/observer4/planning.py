@@ -416,7 +416,9 @@ class Planner:
             self._rate_profile = (profile[0], task.flux * profile[1] * scale * directional * safety / zero_point)
         else:
             self._rate_profile = None
-        reach = np.minimum(1, rate * np.minimum(np.minimum(task.maximum_exposure, setting_seconds), left))
+        # Targets that have already set get a negative span; they are masked out below, and a
+        # factor below zero would only produce NaN in the convex science value.
+        reach = np.clip(rate * np.minimum(np.minimum(task.maximum_exposure, setting_seconds), left), 0, 1)
         self._last_reach, self._last_directional = reach, directional * terrain_free
         mult = np.array([task.scoring["program"]["multipliers"][name] for name in PROGRAMS])
         mismatch = task.scoring["program"]["mismatch_multiplier"]
