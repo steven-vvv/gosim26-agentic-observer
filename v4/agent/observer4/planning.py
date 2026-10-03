@@ -546,10 +546,10 @@ class Planner:
                 science_gain = expected_science_gains(factors, task.weight[near], state.best_score[near],
                                                        probabilities[:, near], mult, mismatch)
             else:
-                cap = science_cap[near] if science_cap is not None else None
+                near_cap = science_cap[near] if science_cap is not None else None
                 power = exponent if np.ndim(exponent) == 0 else exponent[near]
                 science_gain = task.weight[near] * np.maximum(
-                    0, science_value(factors, power, cap) - science_value(state.factor_estimate[near], power, cap)
+                    0, science_value(factors, power, near_cap) - science_value(state.factor_estimate[near], power, near_cap)
                 )
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
             req_gain = incomplete[near][None, :] * (factors >= settings["required_safe_factor"]) * near_bonus

@@ -109,7 +109,7 @@ class QualityModel:
         factor = np.ones_like(alt, dtype=float)
         if not self.settings["directional_notices"]:
             return factor
-        for kind, direction in self.notices:
+        for kind, direction in sorted(self.notices):
             if direction not in DIRECTIONS:
                 continue
             factor *= self._sector_factor(kind, direction, alt, az)
@@ -149,13 +149,13 @@ class QualityModel:
                 self.terrain_model = None
                 self.terrain_free = np.ones_like(alt, dtype=float)
         if self.terrain_model is None:
-            for direction in self.terrain:
+            for direction in sorted(self.terrain):
                 if direction in DIRECTIONS:
                     near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 58.0
                     factor[(alt < 50.3) & near] = 0.0
                     clean[(alt < 50.3) & near] = False
         self.notice_clean = np.ones_like(alt, dtype=bool)
-        for kind, direction in self.notices:
+        for kind, direction in sorted(self.notices):
             if direction in DIRECTIONS:
                 # Sector events reach up to 60 deg beyond a centre quantized to 22.5 deg.
                 near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 83.0
@@ -164,7 +164,7 @@ class QualityModel:
             self.local_clean = clean.copy()
             return factor, clean
         self.local_clean = clean.copy()
-        for kind, direction in self.notices:
+        for kind, direction in sorted(self.notices):
             if direction == "ALL":
                 clean[:] = False
                 continue
