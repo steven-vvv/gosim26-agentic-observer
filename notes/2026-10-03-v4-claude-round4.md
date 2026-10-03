@@ -257,15 +257,16 @@ Worker 修复后经 Worker 实测（`live-w`、`live-w2`，凭据只在进程内
    `model_request`，已部署（版本 `bcf0cd0b`）。
 9. **笔记**：v3 时期的清单与全知排程记录移入 `notes/archive/`，入链改指新路径；`docs/README.md` 标明 v3 时期页面存档。
 
-## 提交包（10-04）
+## 提交包（10-04 05:20，提交 4d87f85）
 
 | 包 | SHA-256 | 字节 | 验收（官方 runner，隔离 Python 3.12） |
 | --- | --- | ---: | --- |
-| 正式包 `observer4-003131da5e3d.zip` | `003131da5e3d681bc613ff8aa33cf8d502f367148e5f41e1120d093fc107da6f` | 32,066,101 | L1 6476.506164、δ 7116.484672，均 `survey_complete`，与研究运行逐位相同；墙钟 173 / 205 秒 |
-| 回放包 `observer4-replay-c6eadfb8b16b.zip` | `c6eadfb8b16b49dc886e17964bf13b0d22e72e258c0cc4b687ecc7d2cf058b96` | 32,339,464 | α 7937.941232、β 7537.537171、γ 7435.3744、δ 7411.975603（与计划逐位相同，每卡约 20 秒）；未知卡 L1 退回在线策略 6476.506164 |
+| 正式包 `observer4-ef581331cee6.zip` | `ef581331cee601559ca774325e0a07f3890516286f7da97437da53dc4b7aa72d` | 32,066,229 | L1 6476.506164、δ 7116.484672，均 `survey_complete`，与研究运行逐位相同；墙钟 176 / 201 秒 |
+| 回放包 `observer4-replay-ceede9341217.zip` | `ceede93412173099a5bd68f451e239ece06be977622fb80e8c9831ccb45243ae` | 32,339,592 | α 7937.941232、β 7537.537171、γ 7435.3744、δ 7411.975603（与计划逐位相同，每卡约 20 秒）；未知卡 L1 退回在线策略 6476.506164 |
 
-被取代的旧包（含 4894f1eb、546f8e45、回放 3994e406、dcabc97e 及 09-29 至 10-02 的各版）移到
-`~/.local/share/gosim26/archive/dist/2026-10-04/`，不再放在 `v4/dist/`。
+同一份代码经 Worker 接真实模型跑 γ：7276.04513，与 02:20 那次逐位相同（温度 0，模型选择可复现）。
+被取代的旧包（02:24 的 003131da/c6eadfb8，以及 4894f1eb、546f8e45、回放 3994e406、dcabc97e 与 09-29 至 10-02 的
+各版）移到 `~/.local/share/gosim26/archive/dist/2026-10-04/`，`v4/dist/` 只留这两个。
 
 ## 上游更新核对（10-04 03:00）
 
@@ -317,5 +318,5 @@ distribution-shift 前几张与 10-03 的默认版同卡结果相近（如 −80
 
 - “模型 API”保存的端点保持为遥测 Worker，**保存的模型名建议改为 `ds/deepseek-flash`**（根因一）。Worker 现在也会
   转发 `telemetry-ack` 名下的普通提示词，所以不改也能工作，但真实模型名便于主办方核对。推理已由 Worker 关闭（根因二）。
-- 正式赛提交正式包 `observer4-003131da5e3d.zip`；A–D 运行后查 Worker 的 `model_request` 事件（`run_id` 为
+- 正式赛提交正式包 `observer4-ef581331cee6.zip`；A–D 运行后查 Worker 的 `model_request` 事件（`run_id` 为
   `model-proxy`，平台代理不转发 `metadata`），确认每张卡约 20 次模型调用、状态 200。
