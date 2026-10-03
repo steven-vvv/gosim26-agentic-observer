@@ -219,6 +219,37 @@ def test_real_model_client_drives_both_planning_and_action(monkeypatch):
     assert all(UUID(value).version == 4 for value in call_ids)
 
 
+def test_failure_streak_pauses_model_until_next_weekly_forecast(monkeypatch):
+    client = load_client("model_advisor")
+    outcomes = ["fail", "fail", "ok"]
+    stages = []
+
+    def transport(request, *, timeout):
+        payload = json.loads(json.loads(request.data)["messages"][1]["content"])
+        stages.append(payload["stage"])
+        if outcomes.pop(0) == "fail":
+            raise client.urllib.error.URLError("provider down")
+        advice = {"choice": "science_push", "probabilities": {"steady": 0.3, "required_push": 0.1, "science_push": 0.6}}
+        return io.BytesIO(json.dumps({"choices": [{"message": {"content": json.dumps(advice)}}]}).encode())
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(client.urllib.request, "urlopen", transport)
+    stub, events = guidance(None)
+    guide = ModelGuidance(stub.task, stub.state, stub.quality, stub.pointing,
+                          load(CONFIG), lambda event, payload: events.append((event, payload)))
+
+    assert guide.weekly(snapshot(), 0, 900, 1) == "steady"
+    assert guide.weekly_plan["source"] != "model"
+    assert guide.action(snapshot(), 0, 900, 2, candidates(9.8)) is None
+    assert not guide.available(900)  # two failures in a row pause the model
+    assert guide.action(snapshot(), 1, 900, 3, candidates(9.8)) is None
+    later = dict(snapshot(), latest_forecast={"issued_at_utc": "2026-10-10T00:00:00Z", "notices": []})
+    assert guide.weekly(later, 1, 900, 4) == "science_push"
+    assert guide.available(900)
+    assert stages == ["weekly_planning", "action_decision", "weekly_planning"]
+
+
 def test_advice_parser_repairs_a_stray_quote_after_a_number():
     client = load_client("model_advisor")
     parse = client.ModelAdvisor._json_content

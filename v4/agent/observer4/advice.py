@@ -109,6 +109,12 @@ class ModelGuidance:
         if not issued or issued == self.last_forecast:
             return None
         self.last_forecast = issued
+        streak = getattr(self.advisor, "consecutive_failures", 0)
+        limit = getattr(getattr(self.advisor, "config", None), "max_consecutive_failures", None)
+        if limit is not None and streak >= limit:
+            # A failure streak pauses the model; each new weekly forecast gives it one more try,
+            # and a valid answer resumes both stages.
+            self.advisor.consecutive_failures = limit - 1
         remaining_fraction = (len(self.task.nights) - night) / len(self.task.nights)
         missing_fraction = self.state.required_missing() / max(1, int(np.count_nonzero(self.task.required)))
         # Without a model answer the tuned season policy stays in force.
