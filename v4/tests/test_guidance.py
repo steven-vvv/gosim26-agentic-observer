@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import numpy as np
+import pytest
 
 from v4.agent.observer4.advice import ModelGuidance
 from v4.agent.observer4.config import load
@@ -67,7 +68,7 @@ def guidance(choice=None):
     guide.advisor = FakeAdvisor(choice)
     guide.last_forecast = None
     guide.action_nights = set()
-    guide.weekly_plan = {"strategy": "balanced", "source": "deterministic"}
+    guide.weekly_plan = {"strategy": "steady", "source": "deterministic"}
     return guide, events
 
 
@@ -96,16 +97,20 @@ def candidates(second_merit):
 def test_weekly_plan_uses_deterministic_fallback_and_only_public_context():
     guide, events = guidance(None)
     selected = guide.weekly(snapshot(), 2, 900, 7)
-    assert selected == "coverage_focus"
+    assert selected == "steady"
     assert guide.weekly_plan["source"] == "deterministic"
     assert guide.weekly(snapshot(), 2, 900, 8) is None
     stage, options, context = guide.advisor.requests[0]
     assert stage == "weekly_planning"
-    assert context["deterministic_choice"] == "coverage_focus"
-    assert {option["id"] for option in options} == {"balanced", "coverage_focus"}
-    assert [(row["required_bonus"], row["required_safe_factor"]) for row in options] == [(120, 0.55), (200, 0.52)]
+    assert context["deterministic_choice"] == "steady"
+    assert context["eligible_choices"] == ["steady", "required_push", "science_push"]
+    assert [option["id"] for option in options] == ["steady", "required_push", "science_push"]
+    assert [(row["required_bonus"], row["required_safe_factor"]) for row in options] == [
+        (200, 0.52), (260, 0.55), (150, 0.52)]
+    assert all(option["effect"] for option in options)
     assert context["current_state"]["latest_forecast"]["issued_at_utc"] == snapshot()["latest_forecast"]["issued_at_utc"]
     assert "truth" not in json.dumps(context)
+    assert "prior_probability" not in json.dumps(options)
     assert events[-1][0] == "weekly_plan"
 
 
@@ -132,24 +137,30 @@ def test_weekly_plan_runs_when_model_is_disabled():
     guide.advisor = None
     guide.last_forecast = None
     guide.action_nights = set()
-    guide.weekly_plan = {"strategy": "balanced", "source": "deterministic"}
-    assert guide.weekly(snapshot(), 2, 900, 7) == "coverage_focus"
+    guide.weekly_plan = {"strategy": "steady", "source": "deterministic"}
+    assert guide.weekly(snapshot(), 2, 900, 7) == "steady"
     assert guide.weekly_plan["source"] == "deterministic"
 
 
-def test_deterministic_strategy_recomputes_from_current_required_gap():
+def test_weekly_deficit_alarm_is_evidence_for_the_model():
     guide, _ = guidance(None)
-    assert guide.deterministic_strategy(0) == "coverage_focus"
-    guide.policy = {**guide.policy, "required_bonus": 40, "required_safe_factor": 0.70}
-    assert guide.deterministic_strategy(0) == "balanced"
-    assert guide.deterministic_strategy(2) == "coverage_focus"
+    guide.weekly(snapshot(), 3, 900, 7)
+    assert guide.advisor.requests[0][2]["required_deficit_alarm"] is True
+    assert guide.weekly_plan["strategy"] == "steady"
 
 
-def test_weekly_model_choice_changes_effective_strategy():
-    guide, _ = guidance("balanced")
-    assert guide.weekly(snapshot(), 0, 900, 7) == "balanced"
+@pytest.mark.parametrize("choice", ["required_push", "science_push", "steady"])
+def test_weekly_model_choice_changes_effective_strategy(choice):
+    guide, _ = guidance(choice)
+    assert guide.weekly(snapshot(), 0, 900, 7) == choice
     assert guide.weekly_plan["source"] == "model"
-    assert guide.advisor.requests[0][2]["deterministic_choice"] == "coverage_focus"
+    assert guide.advisor.requests[0][2]["deterministic_choice"] == "steady"
+
+
+def test_weekly_ignores_unknown_model_strategy():
+    guide, _ = guidance("balanced")
+    assert guide.weekly(snapshot(), 0, 900, 7) == "steady"
+    assert guide.weekly_plan["source"] == "deterministic"
 
 
 def test_action_model_can_select_feasible_second_option_once_per_night():
@@ -183,9 +194,10 @@ def test_real_model_client_drives_both_planning_and_action(monkeypatch):
         requests.append((request.full_url, payload["stage"], timeout))
         call_ids.append({name.lower(): value for name, value in request.header_items()}["idempotency-key"])
         if payload["stage"] == "weekly_planning":
-            advice = {"choice": "balanced", "probabilities": {"balanced": 0.96, "coverage_focus": 0.04}}
+            advice = {"choice": "science_push", "probabilities": {"steady": 0.3, "required_push": 0.1, "science_push": 0.6},
+                      "reason": "required targets are on track"}
         else:
-            advice = {"choice": "C1", "probabilities": {"C0": 0.03, "C1": 0.97}}
+            advice = {"choice": "C1", "probabilities": {"C0": 0.45, "C1": 0.55}}
         return io.BytesIO(json.dumps({"choices": [{"message": {"content": json.dumps(advice)}}]}).encode())
 
     monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
@@ -195,8 +207,9 @@ def test_real_model_client_drives_both_planning_and_action(monkeypatch):
     guide = ModelGuidance(stub.task, stub.state, stub.quality, stub.pointing,
                           load(CONFIG), lambda event, payload: events.append((event, payload)))
 
-    assert guide.weekly(snapshot(), 0, 900, 7) == "balanced"
+    assert guide.weekly(snapshot(), 0, 900, 7) == "science_push"
     assert guide.weekly_plan["source"] == "model"
+    assert guide.advisor.last_outcome["model_reason"] == "required targets are on track"
     assert guide.action(snapshot(), 0, 900, 8, candidates(9.8)) == 1
     assert guide.advisor.status()["successes"] == 2
     assert [stage for _, stage, _ in requests] == ["weekly_planning", "action_decision"]
@@ -204,6 +217,15 @@ def test_real_model_client_drives_both_planning_and_action(monkeypatch):
     assert all(timeout == 10 for _, _, timeout in requests)
     assert len(set(call_ids)) == 2
     assert all(UUID(value).version == 4 for value in call_ids)
+
+
+def test_advice_parser_repairs_a_stray_quote_after_a_number():
+    client = load_client("model_advisor")
+    parse = client.ModelAdvisor._json_content
+    reply = '{"choice":"C0","probabilities":{"C0":0.55,"C1":0.45"},"reason":"C1\'s field is close"}'
+    assert parse(reply) == {"choice": "C0", "probabilities": {"C0": 0.55, "C1": 0.45}, "reason": "C1's field is close"}
+    assert parse('```json\n{"choice": "C1", "probabilities": {"C0": 0.4, "C1": 0.6}}\n```')["choice"] == "C1"
+    assert parse('no advice') is None and parse('[1, 2]') is None
 
 
 def test_public_weather_forecast_blocks_fault_report_from_affected_nights():

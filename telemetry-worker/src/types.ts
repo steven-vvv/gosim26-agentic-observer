@@ -14,6 +14,8 @@ export interface Env {
   LLM_UPSTREAM_API_KEY?: string;
   LLM_UPSTREAM_TIMEOUT_MS?: string;
   LLM_MODEL_NAME?: string;
+  /** "true" switches provider reasoning off for every forwarded request. */
+  LLM_DISABLE_THINKING?: string;
 }
 
 export interface NormalizedEvent {

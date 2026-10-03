@@ -9,18 +9,20 @@ credential is included.
 
 The model path is enabled by default (`config.json`, section `model`). On the platform the
 agent reads `OPENAI_BASE_URL` and `OPENAI_API_KEY` and calls the team model through the
-OpenAI-compatible chat API in `observer4/llm/model_advisor.py`. Two stages send the live
-state and the candidate decisions to the model, and the model's validated choice is
-executed:
+OpenAI-compatible chat API in `observer4/llm/model_advisor.py`. Two stages hand the
+decision to the model: the live state and the feasible candidates go to the model, and
+the model's validated choice is executed:
 
 | Stage | Code | What the model decides |
 | --- | --- | --- |
-| Task planning / plan adaptation | `observer4/advice.py`, `ModelGuidance.weekly` | At each new weekly forecast, the survey strategy for the coming nights (`balanced` or `coverage_focus`). The choice sets the planner's required-target bonus and safety factor. |
-| Action decision | `observer4/advice.py`, `ModelGuidance.action` | Which of the two best observations (pointing, fibre assignment, exposure and program) to execute when their estimated merits are close. |
+| Task planning / plan adaptation | `observer4/advice.py`, `ModelGuidance.weekly` | At each new weekly forecast, the survey strategy for the coming week: `steady` (the tuned season policy), `required_push` (required-target bonus +30 % and a safer completion factor) or `science_push` (bonus −25 %). The model weighs the forecast notices, the required-target deficit against the nights left, active requests and the wall clock; its choice sets the planner weights until the next forecast. |
+| Action decision | `observer4/advice.py`, `ModelGuidance.action` | Once per night, when the planner's two best observations are within 3 % of each other, which one to execute, from their pointings, programs, durations and predicted targets (required flags, science weights, prior best scores). |
 
-Every call has a time-out, a per-card call budget and schema validation. If the endpoint
-is missing, slow or returns an invalid answer, the agent keeps the deterministic choice
-for that decision and continues.
+The model is told that the controller's merits and fallback are evidence, not a verdict.
+Every call has a time-out, a per-card call budget (16 per stage, 24 in total), schema
+validation and a circuit breaker after consecutive failures. If the endpoint is missing,
+slow or returns an invalid answer, the tuned policy (`steady`) or the planner's best
+observation is kept for that decision and the run continues.
 
 ## Deterministic core
 
@@ -28,7 +30,9 @@ for that decision and continues.
   program; greedy merit per second of science gain, required-target completion, live
   time-limited request progress and RA uniformity. Science gains are convex in the
   completion factor (`policy.science_exponent`), so partial exposures that a later, longer
-  one would supersede count less. A request exposure must end by its public deadline;
+  one would supersede count less; the convexity fades for targets with few public observing
+  hours left (`policy.science_horizon_hours`), which get no later chance. A request exposure
+  must end by its public deadline;
   progress is refreshed from each public snapshot and weighted by `policy.request_weight`.
 - `observer4/instrument.py`: exact per-exposure quality levels from the returned scores,
   earthquake efficiency tracking and instrument-fault detection and reporting. Besides
@@ -48,7 +52,10 @@ for that decision and continues.
 Cards whose estimated geometry work (target count multiplied by fibre count) exceeds the
 configured threshold automatically use a smaller candidate search and longer starting
 exposure durations. This keeps the 900-second card budget usable on high-fibre cards while
-leaving the full search for smaller cards. Remote diagnostics require dedicated
+leaving the full search for smaller cards. Within a card the planner shrinks its search
+only if the usable wall clock falls below 0.8 of its fair share (the starting budget in
+proportion to the observing time left, `policy.pace_floor`); a normal machine never gets
+there, so the actions do not depend on timing noise. Remote diagnostics require dedicated
 `TELEMETRY_URL` and `TELEMETRY_TOKEN` credentials, or an injected model endpoint whose
 hostname is the configured telemetry host (or `observability.remote.model_proxy` when the
 team's model endpoint is the telemetry Worker); the model proxy key is never sent to

@@ -18,7 +18,7 @@ v3 规则（3600 秒、1600 天区）下的参赛代码、实验和产物。v4 �
 | `v3/tools/oracle.py` | 离线估算最优时机能挽回多少质量 |
 | `v3/tools/plan_experiment.py` | 离线试验台：按官方几何逐次模拟决策，比较各种选择规则（决赛规模每个变体约 40 秒） |
 | `v3/tools/upper_bound.py` | 完美信息上界（拉格朗日对偶）与全知可行排程 |
-| `v3/tools/omni/` | 练习场景的精确全知排程：逐格结果表、官方口径评分、空闲填补 DP（C）、流模型 MILP 与 LNS；见 `notes/2026-09-27-omni-schedule.md` |
+| `v3/tools/omni/` | 练习场景的精确全知排程：逐格结果表、官方口径评分、空闲填补 DP（C）、流模型 MILP 与 LNS；见 `notes/archive/2026-09-27-omni-schedule.md` |
 | `v3/tools/mc_scenarios.py`、`v3/tools/mc_report.py` | 蒙特卡洛：真实决赛天区目录 + 自己的天气种子，汇总得分分布 |
 | `v3/tools/pyspy_summary.py` | 汇总 py-spy 原始采样（按进程列出自身 / 累计耗时） |
 | `v3/tools/trace_summary.py` | 从平台或本地 `agent.log` 汇总输入等待、策略耗时、响应耗时和动作比例（容忍日志截断） |

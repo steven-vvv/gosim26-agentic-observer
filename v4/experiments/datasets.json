@@ -250,5 +250,17 @@
     "count": 48,
     "seed_base": 8530000,
     "family": {}
+  },
+  "family-validation4": {
+    "sealed": true,
+    "count": 48,
+    "seed_base": 9650000,
+    "family": {}
+  },
+  "family-validation5": {
+    "sealed": true,
+    "count": 64,
+    "seed_base": 10770000,
+    "family": {}
   }
 }

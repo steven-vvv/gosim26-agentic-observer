@@ -19,7 +19,7 @@
 今后的评测建议使用以下边界：
 
 ```text
-results/<agent>/<scenario>.json       # 临时精简结果，可随时重跑
+v3/results/<agent>/<scenario>.json       # 临时精简结果，可随时重跑
 v3/runs/<experiment>/                    # 脚本、参数、报告；大输出留在被忽略文件
 v3/result_temp/submissions/<date>/...    # 平台下载包和原始日志
 v3/result_temp/evaluations/<date>/...    # 已归档的评测 JSON

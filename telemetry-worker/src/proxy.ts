@@ -13,6 +13,20 @@ function timeoutMs(env: Env): number {
   return Number.isFinite(value) ? Math.max(500, Math.min(value, 120000)) : 15000;
 }
 
+/**
+ * The provider body: the configured model ID and, when `LLM_DISABLE_THINKING` is
+ * "true", reasoning switched off. A reasoning model otherwise spends the whole
+ * `max_tokens` on hidden reasoning, and the platform proxy forwards no field that
+ * could turn it off.
+ */
+function forwardedBody(body: Record<string, unknown>, env: Env): Record<string, unknown> {
+  const forwarded: Record<string, unknown> = { ...body, model: env.LLM_MODEL_NAME?.trim() || body.model };
+  if (env.LLM_DISABLE_THINKING?.trim().toLowerCase() === "true") {
+    forwarded.thinking = { type: "disabled" };
+  }
+  return forwarded;
+}
+
 /** Forward an ordinary OpenAI request without persisting its prompt. */
 export async function proxyChatCompletion(
   request: Request,
@@ -37,7 +51,7 @@ export async function proxyChatCompletion(
     const upstream = await fetch(upstreamEndpoint(env.LLM_UPSTREAM_URL), {
       method: "POST",
       headers,
-      body: JSON.stringify({ ...body, model: env.LLM_MODEL_NAME?.trim() || body.model }),
+      body: JSON.stringify(forwardedBody(body, env)),
       signal: controller.signal,
     });
     const responseHeaders = new Headers();

@@ -152,14 +152,19 @@ describe("telemetry worker", () => {
     const oldUrl = runtimeEnv.LLM_UPSTREAM_URL;
     const oldKey = runtimeEnv.LLM_UPSTREAM_API_KEY;
     const oldModel = runtimeEnv.LLM_MODEL_NAME;
+    const oldThinking = runtimeEnv.LLM_DISABLE_THINKING;
     runtimeEnv.LLM_UPSTREAM_URL = "https://provider.test/v1";
     runtimeEnv.LLM_UPSTREAM_API_KEY = "provider-secret";
     runtimeEnv.LLM_MODEL_NAME = "ds/deepseek-flash";
+    runtimeEnv.LLM_DISABLE_THINKING = "true";
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe("https://provider.test/v1/chat/completions");
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer provider-secret");
-      const forwarded = JSON.parse(String(init?.body)) as { model: string; messages: Array<{ content: string }> };
+      const forwarded = JSON.parse(String(init?.body)) as {
+        model: string; messages: Array<{ content: string }>; thinking: { type: string };
+      };
       expect(forwarded.model).toBe("ds/deepseek-flash");
+      expect(forwarded.thinking).toEqual({ type: "disabled" });
       expect(forwarded.messages[0].content).toBe("private prompt");
       return new Response(JSON.stringify({ id: "upstream-1", choices: [] }), {
         status: 200,
@@ -184,6 +189,7 @@ describe("telemetry worker", () => {
       runtimeEnv.LLM_UPSTREAM_URL = oldUrl;
       runtimeEnv.LLM_UPSTREAM_API_KEY = oldKey;
       runtimeEnv.LLM_MODEL_NAME = oldModel;
+      runtimeEnv.LLM_DISABLE_THINKING = oldThinking;
     }
   });
 

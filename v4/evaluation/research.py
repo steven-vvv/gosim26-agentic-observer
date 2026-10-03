@@ -132,8 +132,42 @@ class OracleFault(Observer):
         return action
 
 
+class SimulatedAdvisor:
+    """Stand-in for the team model with a fixed choice rule, bounded like the real client.
+
+    ``weekly`` names the weekly strategy (or ``random``) and ``action`` the action candidate
+    (``C0``, ``C1`` or ``random``); random choices are seeded by the decision sequence.
+    """
+
+    enabled = True
+
+    def __init__(self, weekly: str, action: str, *, stage_calls: int = 16, total_calls: int = 24):
+        self.rules = {"weekly_planning": weekly, "action_decision": action}
+        self.stage_limit, self.total_limit = stage_calls, total_calls
+        self.calls: dict[str, int] = {}
+
+    def choose(self, stage, options, context):
+        used = self.calls.get(stage, 0)
+        if used >= self.stage_limit or sum(self.calls.values()) >= self.total_limit:
+            return None
+        self.calls[stage] = used + 1
+        ids = [str(option["id"]) for option in options]
+        rule = self.rules[stage]
+        if rule == "random":
+            return ids[int(np.random.default_rng(int(context.get("decision_sequence", 0))).integers(len(ids)))]
+        return rule if rule in ids else None
+
+    def status(self):
+        return {"simulated": self.rules, "calls": dict(self.calls)}
+
+
 VARIANTS = {
     "default": ({}, None),
+    "model-steady": ({}, ("model", ("steady", "C0"))),
+    "model-required": ({}, ("model", ("required_push", "C0"))),
+    "model-science": ({}, ("model", ("science_push", "C0"))),
+    "model-second": ({}, ("model", ("steady", "C1"))),
+    "model-random": ({}, ("model", ("random", "random"))),
     "no-report": ({"fault": {"enabled": False}}, None),
     "oracle-fault": ({"fault": {"enabled": False}}, ("fault", 0.0)),
     "oracle-fault-1n": ({"fault": {"enabled": False}}, ("fault", 86400.0)),
@@ -169,6 +203,13 @@ def _run(card: Path, output: Path, name: str, source: str, prepared: tuple) -> d
         def factory(publication, record):
             observer = Observer(publication, config, record)
             oracle_sectors(observer, events)
+            return observer
+    elif oracle is not None and oracle[0] == "model":
+        weekly, action = oracle[1]
+
+        def factory(publication, record):
+            observer = Observer(publication, config, record)
+            observer.guidance.advisor = SimulatedAdvisor(weekly, action)
             return observer
     elif oracle is not None and oracle[0] == "terrain":
         sectors = terrain_sectors(card)

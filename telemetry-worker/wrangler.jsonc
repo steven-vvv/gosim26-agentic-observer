@@ -28,6 +28,7 @@
   },
   "vars": {
     "CORS_ORIGIN": "*",
+    "LLM_DISABLE_THINKING": "true",
     "LLM_MODEL_NAME": "ds/deepseek-flash",
     "LLM_UPSTREAM_TIMEOUT_MS": "20000",
     "TELEMETRY_MAX_BATCH": "32",

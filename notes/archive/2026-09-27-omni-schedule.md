@@ -1,6 +1,6 @@
 # 全知排程：两个练习场景追平榜首（2026-09-27）
 
-接着 `notes/2026-09-27-public-once.md`：GPT 版本在 dev-reference 上是 20788.54，比榜首低 330.95；
+接着 `notes/archive/2026-09-27-public-once.md`：GPT 版本在 dev-reference 上是 20788.54，比榜首低 330.95；
 在 dev-fortnight 上是 9872.74，低 9.33。这次用精确模型重做全知排程，两场都**逐位追平练习榜首**：
 
 | 场景 | 本次 | 练习榜首 | GPT 版本 |
@@ -16,10 +16,10 @@ reference 的分项与榜首也完全相同：基础 15469.606253、加成 3853.
 提交方式：
 - **decisions.csv**：Playground 的 `practice` 阶段收结果文件，由 `dist/omni/<场景>-decisions.csv` 重建
   （`v3/tools/omni/export.py` 导出排程后，用官方 runner 回放生成）。
-- **完整项目**：打包命令同 `notes/2026-09-27-public-once.md`，用 Python 3.12 回放，decisions.csv 与上面逐字节相同。
+- **完整项目**：打包命令同 `notes/archive/2026-09-27-public-once.md`，用 Python 3.12 回放，decisions.csv 与上面逐字节相同。
   早期通用 v3 策略曾实测约 1.6–2.1 秒一次，因此当时担心 reference 的 8510 次决策来不及完成。
   后续一次性查表包的平台实测为 37.818 秒/8510 步、2.743 秒/595 步，两场均完成并逐位追平榜首；
-  详情见 `notes/2026-09-27-public-once.md`。两种策略的逐步计算量不同，不能据此单独认定平台整体提速。
+  详情见 `notes/archive/2026-09-27-public-once.md`。两种策略的逐步计算量不同，不能据此单独认定平台整体提速。
 - 排程 JSON 带 `complete=true`：回放时不再用 `_filler` 临时插入重访（全部重访都已在计划里）。
   罚分相同时，DP 优先选决策更少的路径，reference 由此从 9146 次减到 8510 次。
 
@@ -31,7 +31,7 @@ reference 的分项与榜首也完全相同：基础 15469.606253、加成 3853.
   （25.1 万个候选，86 万变量），全程模型零 gap，3 线程 12290 秒，峰值内存约 7.6 GB。
   Δ=30 与 Δ=60 的结果相同。
 - 两个互相独立的榜首队伍交出完全相同的 reference 分数，也说明这很可能就是全局最优。
-- Fable 5.1 审计（`notes/2026-09-27-omni-audit.md`，脚本在 `v3/tools/omni/audit/`）：
+- Fable 5.1 审计（`notes/archive/2026-09-27-omni-audit.md`，脚本在 `v3/tools/omni/audit/`）：
   - 没有找到能超过 21119.494551 的合法手段；
   - 不依赖 Δ 的严格上界是 22340.01，由拉格朗日松弛得到，偏松；
   - 不限 Δ 的实测都没有改进：60 个 6 夜窗口的全候选精确 MILP、第 171 夜跨夜成对交换约 20 万次评估；

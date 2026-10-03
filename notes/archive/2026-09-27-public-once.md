@@ -15,7 +15,7 @@
 两者均已完成该场景下可完成的请求。包内回放的 `decisions.csv` 和
 `score_report.json` 在加速 runner 与官方 runner 之间逐字节相同。对照最高分来自
 先前 CSV 榜单，并非首版 ZIP 已达到的成绩。后续的全知排程和平台提交结果见下文及
-`notes/2026-09-27-omni-schedule.md`。
+`notes/archive/2026-09-27-omni-schedule.md`。
 
 复现本次提交包：
 

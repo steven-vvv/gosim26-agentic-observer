@@ -93,15 +93,12 @@ class Observer:
             budget = float(snapshot.get("wallclock", {}).get("remaining_seconds", self.task.wallclock))
             if night != self.last_night:
                 self.last_night = night
-                strategy = (self.guidance.weekly_plan["strategy"]
-                            if self.guidance.weekly_plan["source"] == "model"
-                            else self.guidance.deterministic_strategy(night))
-                self.planner.set_strategy(strategy, model_selected=self.guidance.weekly_plan["source"] == "model")
+                self.planner.set_strategy(self.guidance.weekly_plan["strategy"])
                 self.emit(
                     "night_plan",
                     {
                         "night": night,
-                        "strategy": strategy,
+                        "strategy": self.guidance.weekly_plan["strategy"],
                         "required_missing_conservative": self.state.required_missing(),
                         "quality": self.quality.status(),
                         "pointing": self.pointing.status(),
@@ -109,7 +106,7 @@ class Observer:
                 )
             strategy = self.guidance.weekly(snapshot, night, budget, self.sequence)
             if strategy is not None:
-                self.planner.set_strategy(strategy, model_selected=self.guidance.weekly_plan["source"] == "model")
+                self.planner.set_strategy(strategy)
             if self.guidance.weekly_plan["source"] == "model":
                 self.decision_source = "model-v4"
             evidence = None
@@ -129,11 +126,7 @@ class Observer:
                 self.quality.zero_observes = 0
                 action = self.wait_for_bulletin(now, night)
             else:
-                planned_at = time.perf_counter()
                 action = self.planner.plan(now, night, budget)
-                self.planner.record_timing(time.perf_counter() - planned_at, self.planner.last_trace.get("anchors", 1),
-                                           action.get("duration_seconds") if action and action.get("action") == "observe"
-                                           else None)
                 self.last_trace = dict(self.planner.last_trace)
                 if action is None:
                     action = self.wait_for_bulletin(now, night)
@@ -233,6 +226,7 @@ class Observer:
             "feedback_contributions": len(self.state.history),
             "pending_result_not_delivered": self.pending is not None,
             "policy_seconds": round(self.decision_seconds, 6),
+            "pacing": self.planner.pacing_status(),
             "quality": self.quality.status(),
             "pointing": self.pointing.status(),
             "instrument": self.instrument.status(),

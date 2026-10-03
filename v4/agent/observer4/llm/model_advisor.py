@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -92,15 +93,20 @@ class ModelAdvisor:
     # prefix in their prompt cache. Current state and candidates are appended
     # in the user message and therefore vary only at the end of the request.
     _SYSTEM_PROMPT = (
-        "You are an advisory component inside the GOSIM26 observer. "
-        "Return JSON only. The deterministic controller has already selected "
-        "the preferred operation. Evaluate the supplied live state, assign a "
-        "probability to every candidate id, and normally preserve that choice. "
-        "Never invent state or candidates. "
-        "Output one object with keys choice (string) and probabilities (object "
-        "mapping every candidate id to a number between 0 and 1). "
-        "The probabilities should sum to 1. If the request is incomplete, "
-        "repeat deterministic_choice and use a conservative distribution."
+        "You are the planning and decision agent of the GOSIM26 survey observer, a telescope "
+        "that observes a target catalogue over many nights. The observer hands you two kinds "
+        "of decisions. weekly_planning: at each new weekly weather forecast, choose the survey "
+        "strategy for the coming week, weighing the forecast notices, the share of required "
+        "targets still missing against the nights left, active observation requests and the "
+        "remaining wall clock. action_decision: choose which of two near-equal candidate "
+        "observations to execute now, comparing pointing, program, duration and predicted "
+        "targets (required targets below the completion threshold matter most, then science "
+        "weight times the gain over the prior best score). Every candidate is feasible. "
+        "deterministic_choice is what the controller would do without you and the merits are "
+        "its estimates: evidence, not a verdict. Decide from the live state. Never invent "
+        "state or candidates. Return JSON only: one object with keys choice (a candidate id), "
+        "probabilities (every candidate id mapped to a number between 0 and 1, summing to 1) "
+        "and reason (one short sentence)."
     )
 
     def __init__(
@@ -222,17 +228,19 @@ class ModelAdvisor:
         text = content.strip()
         if text.startswith("```"):
             text = text.strip("`").removeprefix("json").strip()
-        try:
-            value = json.loads(text)
-        except ValueError:
-            start, end = text.find("{"), text.rfind("}")
-            if start < 0 or end <= start:
-                return None
+        start, end = text.find("{"), text.rfind("}")
+        candidates = [text]
+        if 0 <= start < end:
+            body = text[start : end + 1]
+            # A reply seen in practice closes a number with a stray quote: {"C0":0.55,"C1":0.45"}.
+            candidates += [body, re.sub(r'(:\s*-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)"(\s*[,}\]])', r"\1\2", body)]
+        for candidate in candidates:
             try:
-                value = json.loads(text[start : end + 1])
+                value = json.loads(candidate)
             except ValueError:
-                return None
-        return value if isinstance(value, dict) else None
+                continue
+            return value if isinstance(value, dict) else None
+        return None
 
     @staticmethod
     def _normalise_probabilities(value: Any, ids: Sequence[str]) -> dict[str, float] | None:
@@ -459,10 +467,12 @@ class ModelAdvisor:
             duration_ms = round((time.perf_counter() - started) * 1000, 3)
             completion_tokens = usage.get("completion_tokens") if usage else None
             generation_ttft_ms = metrics["generation_ttft_ms"]
+            reason = parsed.get("reason")
             self.last_outcome = {
                 "stage": stage,
                 "available": True,
                 "choice": choice,
+                "model_reason": reason[:240] if isinstance(reason, str) else None,
                 "deterministic_choice": deterministic,
                 "probabilities": probabilities,
                 "fallback": False,

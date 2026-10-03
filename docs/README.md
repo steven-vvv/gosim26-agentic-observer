@@ -1,5 +1,7 @@
 # 巡天智能体（Agentic Observer）比赛平台页面存档
 
+> 历史存档：`zh/`、`en/` 与 `snapshots/` 是 v3 时期（09-23、09-26）的页面，只作核对用。v4 正式赛规则以上游仓库现行文档和 [`../notes/2026-09-29-upstream-v4.md`](../notes/2026-09-29-upstream-v4.md) 起的 v4 记录为准。
+
 群内新通知另存于 [announcements/2026-09-28-about-competition.md](announcements/2026-09-28-about-competition.md)。它不是下面的平台页面快照；与上游仓库现行文案的差异和待核对事项见 [../notes/2026-09-28-announcement-and-upstream.md](../notes/2026-09-28-announcement-and-upstream.md)。
 
 这里存放 GOSIM 2026 巡天智能体黑客松[比赛平台](https://create.gosim.org/survey26/platform/)的公开页面存档。`zh/` 和 `en/` 是 2026-09-23 的人工校对版；[snapshots/2026-09-26/](snapshots/2026-09-26/) 是 2026-09-26 使用无头 Chromium 渲染后抓取的五页中英文快照（FAQ 全部展开）。每份快照的 front matter 含原始 URL 和 UTC 抓取时间。可用 `uv run --with playwright --with markdownify python v3/tools/snapshot_site.py --out /tmp/gosim-site` 重抓。

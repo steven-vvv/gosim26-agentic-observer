@@ -1,6 +1,6 @@
 # 完整项目首次平台评测归档（2026-09-26）
 
-这是当时提交与诊断的历史记录，其中将平台 `OPENAI_*` 用于遥测的操作建议已过时。当前凭据和模型资格口径见 `notes/2026-09-27-forward-optimizations.md` 与 `notes/2026-09-26-platform-submission-checklist.md`。
+这是当时提交与诊断的历史记录，其中将平台 `OPENAI_*` 用于遥测的操作建议已过时。当前凭据和模型资格口径见 `notes/2026-09-27-forward-optimizations.md` 与 `notes/archive/2026-09-26-platform-submission-checklist.md`（已归档）。
 
 ## 原始材料
 

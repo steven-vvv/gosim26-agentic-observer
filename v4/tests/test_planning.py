@@ -64,14 +64,13 @@ def test_scarcity_uses_only_remaining_public_visibility():
     np.testing.assert_array_equal(scarcity_multipliers(visibility, required, 1.0, 0), np.ones_like(visibility))
 
 
-def test_weekly_model_strategies_change_frozen_policy_but_fallback_preserves_it():
+def test_weekly_strategies_change_required_weights_and_steady_keeps_the_policy():
     policy = {"required_bonus": 200.0, "required_safe_factor": 0.52}
-    assert strategy_settings(policy, "balanced") == policy
-    assert strategy_settings(policy, "coverage_focus") == policy
-    assert strategy_settings(policy, "balanced", model_selected=True) == {
-        "required_bonus": 120.0, "required_safe_factor": 0.55,
-    }
-    assert strategy_settings(policy, "coverage_focus", model_selected=True) == policy
+    assert strategy_settings(policy, "steady") == policy
+    assert strategy_settings(policy, "required_push") == {"required_bonus": 260.0, "required_safe_factor": 0.55}
+    assert strategy_settings(policy, "science_push") == {"required_bonus": 150.0, "required_safe_factor": 0.52}
+    with pytest.raises(ValueError):
+        strategy_settings(policy, "balanced")
 
 
 @pytest.mark.parametrize("latitude", [-70.0, -24.627, 30.0, 70.0])
@@ -136,3 +135,22 @@ def test_scale_profile_only_changes_high_cost_cards():
 
     planner.task = SimpleNamespace(ids=range(30_000), grid=SimpleNamespace(n=16))
     assert planner._scaled_settings(base) is base
+
+
+def test_pacing_cuts_only_below_the_fair_share_floor():
+    planner = object.__new__(Planner)
+    nights = [SimpleNamespace(start=100.0 * k, end=100.0 * k + 50.0) for k in range(10)]
+    planner.task = SimpleNamespace(nights=nights)
+    planner.settings = {"anchors": 20, "budget_reserve_seconds": 5.0, "pace_budget": True, "pace_floor": 0.8}
+    planner._pace_origin = None
+    planner.paced_plans, planner.pace_headroom, planner.pace_headroom_at, planner.paced_nights = 0, None, None, []
+    # Front-loaded spending is fine while the budget stays above 0.8 of its fair share.
+    assert planner._paced_anchors(0.0, 0, 900.0, extra=4) == 24
+    assert planner._paced_anchors(250.0, 2, 520.0, extra=4) == 24
+    # Half the season left: the fair share is 437.5 usable seconds; 0.71 of it keeps 0.775.
+    assert planner._paced_anchors(500.0, 5, 0.71 * 437.5 + 25.0, extra=4) == 18
+    assert planner._paced_anchors(500.0, 5, 0.4 * 437.5 + 25.0, extra=4) == 2
+    assert planner._paced_anchors(500.0, 5, 10.0, extra=4) == 2
+    assert planner.paced_plans == 3
+    planner.settings["pace_budget"] = False
+    assert planner._paced_anchors(500.0, 5, 100.0, extra=4) == 24

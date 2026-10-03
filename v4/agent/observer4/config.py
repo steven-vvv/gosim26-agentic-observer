@@ -65,8 +65,8 @@ def validate(config: dict) -> None:
         },
         "model": {
             "timeout_seconds": (0.2, 30),
-            "max_total_calls": (0, 20),
-            "max_stage_calls": (0, 10),
+            "max_total_calls": (0, 64),
+            "max_stage_calls": (0, 32),
             "max_tokens": (16, 8192),
             "minimum_budget_seconds": (0, 900),
             "max_consecutive_failures": (1, 20),
@@ -112,10 +112,11 @@ def validate(config: dict) -> None:
         value = config["policy"]["scarcity_weight"]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 2:
             raise ValueError("invalid configuration field: policy.scarcity_weight")
-    if "request_weight" in config["policy"]:
-        value = config["policy"]["request_weight"]
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 20:
-            raise ValueError("invalid configuration field: policy.request_weight")
+    for name, (low, high) in {"request_weight": (0, 20), "pace_floor": (0, 1)}.items():
+        if name in config["policy"]:
+            value = config["policy"][name]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
+                raise ValueError(f"invalid configuration field: policy.{name}")
     # The scale profile was added after the first public configs. Keep those
     # configs loadable while validating every field when the profile exists.
     if "scale" in config:

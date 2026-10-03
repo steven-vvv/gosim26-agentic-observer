@@ -24,16 +24,22 @@ from .opportunity import OpportunityModel
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
 
 
-def strategy_settings(policy: dict, strategy: str, *, model_selected: bool = False) -> dict:
+WEEKLY_STRATEGIES = ("steady", "required_push", "science_push")
+
+
+def strategy_settings(policy: dict, strategy: str) -> dict:
+    """Planner settings of a weekly strategy; ``steady`` is the frozen policy itself.
+
+    ``required_push`` raises the required-target completion bonus by 30 % and plans those
+    targets to a safer completion factor; ``science_push`` lowers the bonus by 25 %.
+    """
     settings = dict(policy)
-    if strategy == "coverage_focus":
-        settings["required_bonus"] = max(120.0, settings["required_bonus"])
-        settings["required_safe_factor"] = min(0.55, settings["required_safe_factor"])
-    elif strategy == "balanced":
-        if model_selected:
-            settings["required_bonus"] = min(120.0, settings["required_bonus"])
-            settings["required_safe_factor"] = max(0.55, settings["required_safe_factor"])
-    else:
+    if strategy == "required_push":
+        settings["required_bonus"] = 1.3 * settings["required_bonus"]
+        settings["required_safe_factor"] = max(0.55, settings["required_safe_factor"])
+    elif strategy == "science_push":
+        settings["required_bonus"] = 0.75 * settings["required_bonus"]
+    elif strategy != "steady":
         raise ValueError("unknown weekly strategy")
     return settings
 
@@ -124,9 +130,13 @@ class Planner:
         self.alternatives = []
         self._rate_profile = None
         self._terrain_profile = None
-        self._plan_seconds = None
-        self._plan_anchors = 1.0
-        self._exposure_seconds = 900.0
+        self._pace_origin = None
+        # Diagnostics only: plans whose search the budget cut, and the smallest ratio of
+        # remaining budget to projected need.
+        self.paced_plans = 0
+        self.pace_headroom = None
+        self.pace_headroom_at = None
+        self.paced_nights = []
         self._future_hours = None
         self.horizon_limit = None
         self.active_requests = []
@@ -315,44 +325,52 @@ class Planner:
     def _paced_anchors(self, now: float, night_index: int, remaining_wallclock: float, extra: int = 0) -> int:
         """Anchor count that keeps the remaining plans inside the wall-clock budget.
 
-        Planning time grows with the number of anchor fields; remaining plans are
-        estimated from the observing time left and the recent mean exposure length.
+        Planning time grows with the number of anchor fields and is front-loaded: early
+        exposures are short, so the first nights hold several times their share of plans,
+        and any extrapolation of the early rate overstates the need. The search therefore
+        shrinks only when the usable wall clock falls below a fixed share
+        (``pace_floor``) of the starting budget in proportion to the observing time left,
+        and then steeply. A normal machine never reaches the floor, so the actions do not
+        depend on timing noise.
         """
         settings = self.settings
         base = int(settings["anchors"]) + extra
         if remaining_wallclock < settings["budget_reserve_seconds"] + 15:
+            self.paced_plans += 1
             return min(base, 2)
-        if not settings.get("pace_budget", True) or self._plan_seconds is None:
+        if not settings.get("pace_budget", True):
             return base
         task = self.task
         left = max(0.0, task.nights[night_index].end - now) + sum(
             night.end - night.start for night in task.nights[night_index + 1:])
-        plans = max(1.0, 1.15 * left / max(60.0, self._exposure_seconds))
-        allowance = (remaining_wallclock - settings["budget_reserve_seconds"] - 20.0) / plans
-        if self._plan_seconds <= allowance:
-            # Plans already fit the budget. Scaling by the per-anchor cost alone would cut the
-            # search after cheap plans with few anchors (end of a night), and the cut would
-            # depend on the machine's timing noise.
+        reserve = settings["budget_reserve_seconds"] + 20.0
+        if self._pace_origin is None:
+            self._pace_origin = (max(left, 1.0), max(remaining_wallclock - reserve, 1.0))
+        share = self._pace_origin[1] * min(1.0, left / self._pace_origin[0])
+        if share <= 0:
             return base
-        per_anchor = self._plan_seconds / max(1, self._plan_anchors)
-        if per_anchor <= 0:
+        ratio = (remaining_wallclock - reserve) / share
+        if self.pace_headroom is None or ratio < self.pace_headroom:
+            self.pace_headroom = ratio
+            self.pace_headroom_at = {"night": int(night_index), "remaining": round(remaining_wallclock, 1)}
+        floor = settings.get("pace_floor", 0.8)
+        if ratio >= floor:
             return base
-        return int(np.clip(math.floor(allowance / per_anchor), 2, base))
+        # Anchors are about a quarter of the plan time, so the cut is steep: none at the
+        # floor, the minimum at half of it.
+        count = int(np.clip(math.floor(base * (2.0 * ratio / floor - 1.0)), 2, base))
+        self.paced_plans += count < base
+        if count < base and len(self.paced_nights) < 64:
+            self.paced_nights.append(int(night_index))
+        return count
 
-    def record_timing(self, seconds: float, anchors: int, duration: float | None) -> None:
-        alpha = 0.05
-        if self._plan_seconds is None:
-            self._plan_seconds, self._plan_anchors = seconds, max(1, anchors)
-        else:
-            self._plan_seconds = (1 - alpha) * self._plan_seconds + alpha * seconds
-            self._plan_anchors = (1 - alpha) * self._plan_anchors + alpha * max(1, anchors)
-        if duration:
-            self._exposure_seconds = (1 - alpha) * self._exposure_seconds + alpha * duration
+    def pacing_status(self) -> dict:
+        return {"paced_plans": int(self.paced_plans),
+                "headroom_min": None if self.pace_headroom is None else round(float(self.pace_headroom), 3),
+                "headroom_at": self.pace_headroom_at, "paced_nights": self.paced_nights}
 
-    def set_strategy(self, strategy: str, *, model_selected: bool = False) -> None:
-        self.settings = self._scaled_settings(
-            strategy_settings(self.config["policy"], strategy, model_selected=model_selected)
-        )
+    def set_strategy(self, strategy: str) -> None:
+        self.settings = self._scaled_settings(strategy_settings(self.config["policy"], strategy))
         self.scale_profile = self._scale_active()
 
     def plan(self, now: float, night_index: int, remaining_wallclock: float = 900.0) -> dict | None:

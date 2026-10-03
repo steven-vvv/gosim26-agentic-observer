@@ -196,17 +196,17 @@ def test_model_weekly_strategy_survives_a_new_night(publication):
     events = []
     observer = Observer(publication, load(ROOT / "v4/agent/config.json"),
                         lambda kind, payload: events.append((kind, payload)))
-    observer.guidance.weekly_plan = {"strategy": "coverage_focus", "source": "model"}
+    observer.guidance.weekly_plan = {"strategy": "science_push", "source": "model"}
     observer.respond(decision(now="2026-10-02T00:00:00Z")["payload"])
-    assert observer.planner.settings["required_bonus"] >= 120
-    assert next(payload for kind, payload in events if kind == "night_plan")["strategy"] == "coverage_focus"
+    assert observer.planner.settings["required_bonus"] == pytest.approx(150)
+    assert next(payload for kind, payload in events if kind == "night_plan")["strategy"] == "science_push"
 
 
-def test_model_balanced_weekly_strategy_changes_planner_settings(publication):
+def test_model_weekly_strategy_changes_planner_settings(publication):
     observer = Observer(publication, load(ROOT / "v4/agent/config.json"))
-    observer.guidance.weekly_plan = {"strategy": "balanced", "source": "model"}
+    observer.guidance.weekly_plan = {"strategy": "required_push", "source": "model"}
     observer.respond(decision(now="2026-10-02T00:00:00Z")["payload"])
-    assert observer.planner.settings["required_bonus"] == 120
+    assert observer.planner.settings["required_bonus"] == pytest.approx(260)
     assert observer.planner.settings["required_safe_factor"] == 0.55
     assert observer.decision_source == "model-v4"
 
@@ -218,7 +218,8 @@ def test_jsonl_entrypoint_uses_available_model_proxy(tmp_path, publication, monk
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             requests.append((self.path, json.loads(body["messages"][1]["content"])))
-            advice = {"choice": "balanced", "probabilities": {"balanced": 0.97, "coverage_focus": 0.03}}
+            advice = {"choice": "required_push", "probabilities": {"steady": 0.2, "required_push": 0.7, "science_push": 0.1},
+                      "reason": "many required targets are still missing"}
             response = json.dumps({"choices": [{"message": {"content": json.dumps(advice)}}]}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
