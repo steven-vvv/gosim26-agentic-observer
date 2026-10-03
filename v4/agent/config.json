@@ -1,7 +1,7 @@
 {
   "schema": "gosim26.v4.config.v1",
   "policy": {
-    "anchors": 18,
+    "anchors": 24,
     "anchor_pool": 256,
     "neighbor_radius_deg": 4.2,
     "science_exponent": 1.5,

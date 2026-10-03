@@ -244,5 +244,11 @@
     "count": 64,
     "seed_base": 7410000,
     "family": {}
+  },
+  "family-validation3": {
+    "sealed": true,
+    "count": 48,
+    "seed_base": 8530000,
+    "family": {}
   }
 }
