@@ -54,12 +54,27 @@ def fetch(since: int | None, limit: int, pages: int) -> list[dict]:
     return events
 
 
+def model_proxy_summary(events: list[dict]) -> dict:
+    """Metadata of model requests the Worker forwarded (no prompts are stored)."""
+    rows = []
+    for event in events:
+        if event.get("source") == "model-proxy" and event.get("event_type") == "model_request":
+            payload = event.get("payload") or {}
+            rows.append(json.loads(payload) if isinstance(payload, str) else payload)
+    if not rows:
+        return {"model_requests": 0}
+    latency = sorted(int(row.get("upstream_ms") or 0) for row in rows)
+    return {"model_requests": len(rows), "status": dict(Counter(row.get("status") for row in rows)),
+            "requested_models": dict(Counter(row.get("requested_model") for row in rows)),
+            "upstream_ms_median": latency[len(latency) // 2], "upstream_ms_max": latency[-1]}
+
+
 def summarise(events: list[dict]) -> None:
     runs = defaultdict(list)
     for event in events:
         if event.get("source") == "observer-v4":
             runs[event.get("run_id")].append(event)
-    print(json.dumps({"events": len(events), "observer_v4_runs": len(runs)}))
+    print(json.dumps({"events": len(events), "observer_v4_runs": len(runs), **model_proxy_summary(events)}))
     for run_id, items in sorted(runs.items(), key=lambda kv: min(int(e.get("received_at_ms", 0)) for e in kv[1])):
         kinds = Counter(e.get("event_type") for e in items)
         first = min(int(e.get("received_at_ms", 0)) for e in items) / 1000
