@@ -16,6 +16,8 @@ export interface Env {
   LLM_MODEL_NAME?: string;
   /** "true" switches provider reasoning off for every forwarded request. */
   LLM_DISABLE_THINKING?: string;
+  /** "true" forwards prompts that arrive with model "telemetry-ack" but carry no telemetry. */
+  LLM_FORWARD_UNMARKED?: string;
 }
 
 export interface NormalizedEvent {

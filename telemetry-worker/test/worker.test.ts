@@ -109,16 +109,64 @@ describe("telemetry worker", () => {
     expect(models.status).toBe(200);
     expect((await models.json() as { data: Array<{ id: string }> }).data[0].id).toBe("telemetry-ack");
 
-    const completion = await call("/v1/chat/completions", {
-      method: "POST",
-      headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
-      body: JSON.stringify({ model: "telemetry-ack", messages: [{ role: "user", content: "redacted" }], stream: true }),
+    const oldForward = runtimeEnv.LLM_FORWARD_UNMARKED;
+    runtimeEnv.LLM_FORWARD_UNMARKED = "false";
+    try {
+      const completion = await call("/v1/chat/completions", {
+        method: "POST",
+        headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+        body: JSON.stringify({ model: "telemetry-ack", messages: [{ role: "user", content: "redacted" }], stream: true }),
+      });
+      expect(completion.status).toBe(200);
+      expect(completion.headers.get("content-type")).toContain("text/event-stream");
+      const body = await completion.text();
+      expect(body).toContain("data: [DONE]");
+      expect(body).not.toContain("\n\n data:");
+    } finally {
+      runtimeEnv.LLM_FORWARD_UNMARKED = oldForward;
+    }
+  });
+
+  it("forwards an unmarked telemetry-ack prompt and records only its metadata", async () => {
+    const oldUrl = runtimeEnv.LLM_UPSTREAM_URL;
+    const oldForward = runtimeEnv.LLM_FORWARD_UNMARKED;
+    const runId = `proxy-${crypto.randomUUID()}`;
+    runtimeEnv.LLM_UPSTREAM_URL = "https://provider.test/v1";
+    runtimeEnv.LLM_FORWARD_UNMARKED = "true";
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const forwarded = JSON.parse(String(init?.body)) as { model: string };
+      expect(forwarded.model).toBe("ds/deepseek-flash");
+      return new Response(JSON.stringify({ id: "upstream-2", choices: [] }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
     });
-    expect(completion.status).toBe(200);
-    expect(completion.headers.get("content-type")).toContain("text/event-stream");
-    const body = await completion.text();
-    expect(body).toContain("data: [DONE]");
-    expect(body).not.toContain("\n\n data:");
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const response = await call("/v1/chat/completions", {
+        method: "POST",
+        headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "telemetry-ack",
+          metadata: { run_id: runId },
+          messages: [{ role: "system", content: "advisor" }, { role: "user", content: "secret context" }],
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-gosim26-route")).toBe("llm-proxy");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+      runtimeEnv.LLM_UPSTREAM_URL = oldUrl;
+      runtimeEnv.LLM_FORWARD_UNMARKED = oldForward;
+    }
+    const page = await call(`/v1/telemetry?run_id=${encodeURIComponent(runId)}`, { headers: bearer("read-test-token") });
+    const result = await page.json() as { events: Array<{ event_type: string; payload: Record<string, unknown> }> };
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].event_type).toBe("model_request");
+    expect(result.events[0].payload.status).toBe(200);
+    expect(result.events[0].payload.requested_model).toBe("telemetry-ack");
+    expect(result.events[0].payload.message_count).toBe(2);
+    expect(JSON.stringify(result.events[0].payload)).not.toContain("secret context");
   });
 
   it("consumes the marked tool telemetry message without forwarding it", async () => {

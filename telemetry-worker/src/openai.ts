@@ -147,6 +147,54 @@ function eventFromTelemetry(
   };
 }
 
+interface ProxyRecord {
+  model: string;
+  messages: number;
+  metadata: Record<string, unknown>;
+  network: JsonValue;
+  receivedAt: number;
+}
+
+/** Forward a model request and store one metadata-only event; never the prompt or the reply. */
+async function proxyWithRecord(request: Request, value: Record<string, unknown>, env: Env, record: ProxyRecord): Promise<Response> {
+  let status = 500;
+  try {
+    const response = await proxyChatCompletion(request, value, env);
+    status = response.status;
+    return response;
+  } catch (error) {
+    if (error instanceof RequestError) status = error.status;
+    throw error;
+  } finally {
+    const payload = withServerNetwork({
+      requested_model: record.model,
+      forwarded_model: env.LLM_MODEL_NAME?.trim() || record.model,
+      message_count: record.messages,
+      stream: value.stream === true,
+      thinking_disabled: env.LLM_DISABLE_THINKING?.trim().toLowerCase() === "true",
+      status,
+      upstream_ms: Date.now() - record.receivedAt,
+      metadata: record.metadata,
+    }, record.network);
+    try {
+      const encoded = payloadBytes(payload);
+      await insertEvents(env.DB, [{
+        id: crypto.randomUUID(),
+        run_id: stringValue(record.metadata.run_id) ?? "model-proxy",
+        event_type: "model_request",
+        source: "model-proxy",
+        client_time_ms: null,
+        sequence: null,
+        received_at_ms: record.receivedAt,
+        payload_json: encoded.json,
+        payload_bytes: encoded.bytes,
+      }]);
+    } catch {
+      // The record is diagnostic only; the model answer must not depend on D1.
+    }
+  }
+}
+
 export async function handleChatCompletions(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return jsonResponse({ error: { message: "method not allowed", type: "invalid_request_error" } }, 405);
   if (!(await requireIngestAuth(request, env))) {
@@ -166,9 +214,12 @@ export async function handleChatCompletions(request: Request, env: Env): Promise
   if (candidates && candidates.length > maxBatch(env)) {
     throw new RequestError(413, "batch_too_large", "too many events in one request");
   }
-  if (!candidates && model !== "telemetry-ack") {
-    // Ordinary model traffic shares this endpoint but is never written to D1.
-    return proxyChatCompletion(request, value, env);
+  // A platform proxy that substitutes a saved model name of "telemetry-ack" turns real
+  // prompts into stub requests; LLM_FORWARD_UNMARKED sends those to the provider too.
+  const forwardUnmarked = env.LLM_FORWARD_UNMARKED?.trim().toLowerCase() === "true";
+  if (!candidates && (model !== "telemetry-ack" || forwardUnmarked)) {
+    // Ordinary model traffic shares this endpoint; only its metadata is written to D1.
+    return proxyWithRecord(request, value, env, { model, messages: messages.length, metadata, network, receivedAt });
   }
 
   const events = candidates

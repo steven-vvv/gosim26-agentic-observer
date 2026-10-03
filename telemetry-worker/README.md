@@ -48,7 +48,13 @@ All protected routes accept `Authorization: Bearer <token>` or
   are forwarded to `LLM_UPSTREAM_URL` with `LLM_UPSTREAM_API_KEY`. When
   `LLM_MODEL_NAME` is set, the Worker uses that model ID for every forwarded
   request; the current deployment uses `ds/deepseek-flash` only. Prompts and
-  provider responses are not written to D1. Direct Worker testing may use a
+  provider responses are not written to D1; each forwarded request stores one
+  `model_request` event with metadata only (requested and forwarded model,
+  message count, upstream status and latency). `LLM_DISABLE_THINKING=true` adds
+  `thinking: {"type": "disabled"}` so a reasoning model answers within
+  `max_tokens`; `LLM_FORWARD_UNMARKED=true` also forwards prompts that arrive
+  with model `telemetry-ack` but carry no telemetry (a platform proxy that
+  substitutes that saved model name). Direct Worker testing may use a
   base URL ending in `/v1` or the Worker root, with the ingest token as the
   bearer credential.
 * `GET /v1/models` returns `telemetry-ack` and, when configured, the upstream

@@ -77,6 +77,11 @@ system + user 两条消息）。平台模型代理会用**队伍保存的模型�
 `finish=length`、约 10.5 秒；部署后 7 条（weekly 3 条、action 4 条）全部 `finish=stop`、0.9–1.1 秒、无推理内容，
 回复都是有效 JSON。平台侧仍需把保存的模型名改为 `ds/deepseek-flash`（根因一）。
 
+02:45 再部署一版（`bcf0cd0b`）：每次转发的模型请求在 D1 里只记一条元数据事件 `model_request`（请求与转发的模型名、
+消息数、上游状态码与耗时，不含提示词与回复），平台阶段可据此确认模型调用；`LLM_FORWARD_UNMARKED=true` 让不带遥测内容、
+但模型名是 `telemetry-ack` 的提示词也转发给服务商，即使平台保存的模型名没改，模型环节也能工作（实测两种模型名都在
+约 1.3 秒内返回有效回复，并各记一条元数据）。保存的模型名仍建议改成真实模型名，便于主办方核对。
+
 另：Cloudflare 对默认的 `Python-urllib` User-Agent 返回 403（error 1010）。智能体的模型与遥测客户端都自带
 User-Agent，不受影响；本地探针脚本需要自己设置。
 
@@ -229,7 +234,8 @@ Worker 修复后经 Worker 实测（`live-w`、`live-w2`，凭据只在进程内
 5. **测试**：69 个全部通过（新增解析器修复用例）。
 6. **文档**：`agent/PACKAGE_README.md` 两环节表格与节奏段落。
 7. **数据集**：`family-validation4`（48 张）、`family-validation5`（64 张）。
-8. **Worker**（`telemetry-worker/`）：`LLM_DISABLE_THINKING`，已部署（版本 `7705dff8`）。
+8. **Worker**（`telemetry-worker/`）：`LLM_DISABLE_THINKING`、`LLM_FORWARD_UNMARKED` 与转发请求的元数据事件
+   `model_request`，已部署（版本 `bcf0cd0b`）。
 9. **笔记**：v3 时期的清单与全知排程记录移入 `notes/archive/`，入链改指新路径；`docs/README.md` 标明 v3 时期页面存档。
 
 ## 提交包（10-04）
@@ -244,7 +250,7 @@ Worker 修复后经 Worker 实测（`live-w`、`live-w2`，凭据只在进程内
 
 ## 正式赛前需要队伍在平台上做的事
 
-- “模型 API”保存的端点保持为遥测 Worker，**保存的模型名改为 `ds/deepseek-flash`**（根因一；Worker 对
-  `telemetry-ack` 只回桩应答）。推理已由 Worker 关闭（根因二）。
-- 正式赛提交正式包 `observer4-003131da5e3d.zip`；A–D 运行后用 `v4.evaluation.telemetry_read` 查 Worker 记录的
-  `openai_request` 事件，确认每张卡约 20 次模型调用都已转发。
+- “模型 API”保存的端点保持为遥测 Worker，**保存的模型名建议改为 `ds/deepseek-flash`**（根因一）。Worker 现在也会
+  转发 `telemetry-ack` 名下的普通提示词，所以不改也能工作，但真实模型名便于主办方核对。推理已由 Worker 关闭（根因二）。
+- 正式赛提交正式包 `observer4-003131da5e3d.zip`；A–D 运行后查 Worker 的 `model_request` 事件（`run_id` 为
+  `model-proxy`，平台代理不转发 `metadata`），确认每张卡约 20 次模型调用、状态 200。
