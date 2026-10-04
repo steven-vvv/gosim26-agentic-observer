@@ -53,8 +53,10 @@ request context at 60,000 bytes, leaving room below the upstream 64 KiB request 
 | Action decision | `observer4/advice.py`, `ModelGuidance.action` | Once per night, when the planner's two best observations are within 3 % of each other, which one to execute, from their pointings, programs, durations and predicted targets (required flags, science weights, prior best scores). |
 
 The model is told that the controller's merits and fallback are evidence, not a verdict.
-Every call has a time-out, a per-card call budget (16 per stage, 24 in total), schema
-validation and a circuit breaker after consecutive failures. If the endpoint is missing,
+Every call has a time-out, schema validation and a circuit breaker after consecutive
+failures. The full profile allows 16 calls per stage and 24 in total per card; the
+`formal_conservative` package default allows 8 per stage and 12 in total. A startup
+remote profile can select either budget. If the endpoint is missing,
 slow or returns an invalid answer, the tuned policy (`steady`) or the planner's best
 observation is kept for that decision and the run continues.
 

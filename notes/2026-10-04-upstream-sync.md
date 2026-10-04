@@ -19,13 +19,15 @@
 `temperature`。v4 advisor 已按 Kimi 主机名或模型别名省略该字段，普通 OpenAI 兼容端点仍
 保留配置值，并有回归测试覆盖。另将模型动态请求上下文上限收紧到 60,000 bytes，低于
 上游 64 KiB 请求上限；响应上限 65,536 bytes 仍低于上游 192 KiB。
+包内 README 也已区分 full（每阶段 16、总计 24）和默认 conservative（每阶段 8、总计 12）
+的模型调用预算。
 
 ## 交付物整理
 
 `v4/dist/` 顶层只保留当前交付包和说明：
 
-- `observer4-5dfbe99a357e.zip`
-- SHA-256：`5dfbe99a357eb4a0d2a5ec0923942eeec4c83ef9c57a0a15689cd94def976aa7`
+- `observer4-f7a2a2cf4bf4.zip`
+- SHA-256：`f7a2a2cf4bf45cd1506a8f11612ed74c2ebfa0cf890796d07fe026bbf7f6d087`
 - 默认 `formal_conservative`，启动时可由同 Worker 云控切换 `full`
 
 The package documentation now matches the startup credential behavior: the formal-run
