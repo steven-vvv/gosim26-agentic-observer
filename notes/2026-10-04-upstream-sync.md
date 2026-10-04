@@ -19,9 +19,15 @@
 
 `v4/dist/` 顶层只保留当前交付包和说明：
 
-- `observer4-b18e4cb166dc.zip`
-- SHA-256：`b18e4cb166dc383008ef90fe9eeb7011985a1c37d5de6cfd9e5799f5387b3171`
+- `observer4-68363a9da680.zip`
+- SHA-256：`68363a9da6805d142a22e8b7ebab0d626f251048badc7854da9470f98dfc8311`
 - 默认 `formal_conservative`，启动时可由同 Worker 云控切换 `full`
+
+The package documentation now matches the startup credential behavior: the formal-run
+`TELEMETRY_TOKEN` (or a local `OBSERVER_CONFIG_TOKEN` override) is preferred, while
+`OPENAI_API_KEY` is reused only for a same-host, same-port Worker config endpoint. It
+also documents that the planner uses the runner's normalized fair-clock remainder
+directly and that upstream reserves `OBSERVER_*` team-variable names.
 
 此前的 observer/replay 包保留在 `v4/dist/archive/2026-10-04/`，不再混在可提交包列表中。
 

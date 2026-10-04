@@ -23,12 +23,17 @@ configuration hash.
 
 When `release.remote_config.enabled` is true, startup makes one bounded POST request to
 the configured `/v1/config/resolve` endpoint. `OBSERVER_CONFIG_TOKEN` is preferred and
-`TELEMETRY_TOKEN` is accepted for the same Worker deployment. A response must carry the
+`TELEMETRY_TOKEN` is the supported formal-run variable for the same Worker deployment
+(`OBSERVER_*` names are reserved by the upstream team-egress runtime; the former is a
+local/dev override). A response must carry the
 versioned schema, matching `config_id`, a non-negative revision and a non-expired patch;
 the patch is merged and run through the same local validator. Network errors, expired
 responses and invalid fields fall back to the packaged config and are recorded in the
-runtime event. The endpoint carries configuration metadata only, never model keys or
-prompts.
+runtime event. If neither explicit token is present, the client may reuse
+`OPENAI_API_KEY` only when `OPENAI_BASE_URL` points to the same Worker host and port as
+the config endpoint. This compatibility path sends the key only as the request
+credential; the endpoint still receives configuration metadata, never prompts or model
+requests. A model key is never reused for an unrelated config host.
 
 ## Large language model stages
 
@@ -80,8 +85,10 @@ exposure durations. This keeps the 900-second card budget usable on high-fibre c
 leaving the full search for smaller cards. Within a card the planner shrinks its search
 only if the usable wall clock falls below 0.8 of its fair share (the starting budget in
 proportion to the observing time left, `policy.pace_floor`); a normal machine never gets
-there, so the actions do not depend on timing noise. Remote diagnostics require dedicated
-`TELEMETRY_URL` and `TELEMETRY_TOKEN` credentials, or an injected model endpoint whose
-hostname is the configured telemetry host (or `observability.remote.model_proxy` when the
-team's model endpoint is the telemetry Worker); the model proxy key is never sent to
-telemetry by default.
+there, so the actions do not depend on timing noise. The planner consumes the runner's
+normalized `wallclock.remaining_seconds`; the runner's `speed_factor` and raw CPU fields
+are accounting data and do not need to be reconstructed by the agent. Remote diagnostics
+require dedicated `TELEMETRY_URL` and `TELEMETRY_TOKEN` credentials, or an injected model
+endpoint whose hostname is the configured telemetry host (or
+`observability.remote.model_proxy` when the team's model endpoint is the telemetry
+Worker); the model proxy key is never sent to an unrelated telemetry host.
