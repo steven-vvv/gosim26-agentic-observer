@@ -23,6 +23,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 LOG = logging.getLogger(__name__)
+MODEL_REQUEST_CONTEXT_BYTES = 60_000
 
 
 class AdviceError(ValueError):
@@ -39,7 +40,7 @@ class AdvisorConfig:
     max_stage_calls: int = 4
     max_total_calls: int = 8
     max_consecutive_failures: int = 3
-    max_context_bytes: int = 120_000
+    max_context_bytes: int = MODEL_REQUEST_CONTEXT_BYTES
     max_response_bytes: int = 65_536
     max_tokens: int = 4096
     temperature: float = 0.0
@@ -182,7 +183,11 @@ class ModelAdvisor:
             max_stage_calls=_as_int(pick("OBSERVER_MODEL_MAX_STAGE_CALLS", 4), 4),
             max_total_calls=_as_int(pick("OBSERVER_MODEL_MAX_TOTAL_CALLS", 8), 8),
             max_consecutive_failures=_as_int(pick("OBSERVER_MODEL_MAX_FAILURES", 3), 3),
-            max_context_bytes=_as_int(pick("OBSERVER_MODEL_MAX_CONTEXT_BYTES", 120_000), 120_000, 4_096),
+            max_context_bytes=_as_int(
+                pick("OBSERVER_MODEL_MAX_CONTEXT_BYTES", MODEL_REQUEST_CONTEXT_BYTES),
+                MODEL_REQUEST_CONTEXT_BYTES,
+                4_096,
+            ),
             max_response_bytes=_as_int(pick("OBSERVER_MODEL_MAX_RESPONSE_BYTES", 65_536), 65_536, 1_024),
             max_tokens=min(4_096, _as_int(pick("OBSERVER_MODEL_MAX_TOKENS", 4_096), 4_096, 128)),
             temperature=_as_float(pick("OBSERVER_MODEL_TEMPERATURE", 0.0), 0.0, 0.0, 2.0),

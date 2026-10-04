@@ -4,8 +4,8 @@
 
 当前交付包（2026-10-04）：
 
-- `observer4-8d778cf33802.zip`
+- `observer4-5dfbe99a357e.zip`
 - profile：`formal_conservative`，启动时可由同 Worker 的 `OPENAI_API_KEY` 云控切换为 `full`
-- SHA-256：`8d778cf338025a6441c232355e95dd13275e1eb22cf09f95228c63e99b7a16f6`
+- SHA-256：`5dfbe99a357eb4a0d2a5ec0923942eeec4c83ef9c57a0a15689cd94def976aa7`
 
 历史 observer/replay 包归档于 `archive/2026-10-04/`，不作为当前提交包使用。

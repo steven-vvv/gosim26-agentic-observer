@@ -17,14 +17,15 @@
 
 参考实现还明确了 Kimi Coding Plan 的一个请求约束：`k3`/`kimi-for-coding` 不接受显式
 `temperature`。v4 advisor 已按 Kimi 主机名或模型别名省略该字段，普通 OpenAI 兼容端点仍
-保留配置值，并有回归测试覆盖。
+保留配置值，并有回归测试覆盖。另将模型动态请求上下文上限收紧到 60,000 bytes，低于
+上游 64 KiB 请求上限；响应上限 65,536 bytes 仍低于上游 192 KiB。
 
 ## 交付物整理
 
 `v4/dist/` 顶层只保留当前交付包和说明：
 
-- `observer4-8d778cf33802.zip`
-- SHA-256：`8d778cf338025a6441c232355e95dd13275e1eb22cf09f95228c63e99b7a16f6`
+- `observer4-5dfbe99a357e.zip`
+- SHA-256：`5dfbe99a357eb4a0d2a5ec0923942eeec4c83ef9c57a0a15689cd94def976aa7`
 - 默认 `formal_conservative`，启动时可由同 Worker 云控切换 `full`
 
 The package documentation now matches the startup credential behavior: the formal-run

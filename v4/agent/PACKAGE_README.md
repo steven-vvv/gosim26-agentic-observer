@@ -43,7 +43,9 @@ OpenAI-compatible chat API in `observer4/llm/model_advisor.py`. Two stages hand 
 decision to the model: the live state and the feasible candidates go to the model, and
 the model's validated choice is executed. For the upstream Kimi Coding Plan (`k3` or
 `kimi-for-coding`), the client omits `temperature`, which that endpoint rejects; regular
-OpenAI-compatible endpoints retain the configured value:
+OpenAI-compatible endpoints retain the configured value. The advisor bounds its dynamic
+request context at 60,000 bytes, leaving room below the upstream 64 KiB request cap; its
+65,536-byte response cap is likewise deliberately below the upstream 192 KiB limit:
 
 | Stage | Code | What the model decides |
 | --- | --- | --- |

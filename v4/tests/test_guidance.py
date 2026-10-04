@@ -221,6 +221,7 @@ def test_real_model_client_drives_both_planning_and_action(monkeypatch):
 
 def test_kimi_model_requests_omit_unsupported_temperature():
     client = load_client("model_advisor")
+    assert client.AdvisorConfig().max_context_bytes == 60_000
     config = client.AdvisorConfig(model="team-model", max_tokens=32)
     kimi = client.ModelAdvisor("https://api.kimi.com/coding/v1", "key", config=config)
     generic = client.ModelAdvisor("https://model.example/v1", "key", config=config)
