@@ -76,9 +76,13 @@ def resolve(config: dict, patch: dict | None = None) -> dict:
     return result
 
 
-def load(path: Path, patch: dict | None = None) -> dict:
+def load(path: Path, patch: dict | None = None, *, resolve_profile: bool = True) -> dict:
     config = json.loads(path.read_text(encoding="utf-8"))
     validate(config)
+    if not resolve_profile:
+        if patch:
+            raise ValueError("patches require resolve_profile=True")
+        return config
     return resolve(config, patch)
 
 

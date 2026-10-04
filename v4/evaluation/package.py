@@ -55,7 +55,10 @@ def sources(wheels: Path, replay: Path | None = None, profile: str | None = None
         if profile not in PROFILE_PATCHES:
             raise ValueError(f"unknown release profile: {profile}")
         config = json.loads(result["config.json"])
-        config = resolve_config(config, {"release": {"profile": profile}})
+        # Keep the full baseline in the package.  The entrypoint resolves the
+        # selected profile at startup so remote config can switch back to full.
+        config["release"]["profile"] = profile
+        resolve_config(config)
         result["config.json"] = (json.dumps(config, indent=2) + "\n").encode()
     if replay is not None:
         # Practice-board build: truth-informed schedules for the published practice cards,

@@ -21,11 +21,12 @@ def _digest(config: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _local_status(remote: dict, reason: str, *, attempted: bool = False) -> dict:
+def _local_status(remote: dict, reason: str, *, attempted: bool = False, profile: str = "full") -> dict:
     return {
         "source": "local",
         "remote_attempted": attempted,
         "config_id": remote.get("config_id", "observer4"),
+        "profile": profile,
         "required": bool(remote.get("required", False)),
         "reason": reason,
     }
@@ -47,16 +48,22 @@ def resolve_startup(local: dict) -> tuple[dict, dict]:
     Network failures are deliberately treated as a local-config fallback.  A bad or
     stale remote response cannot prevent the protocol process from starting.
     """
+    local_resolved = resolve(local)
     release = local.get("release", {})
     remote = release.get("remote_config", {}) if isinstance(release, dict) else {}
     if not isinstance(remote, dict) or not remote.get("enabled", False):
-        return local, _local_status(remote if isinstance(remote, dict) else {}, "disabled")
+        return local_resolved, _local_status(
+            remote if isinstance(remote, dict) else {},
+            "disabled",
+            profile=local_resolved.get("release", {}).get("profile", "full"),
+        )
     url = remote.get("url")
     token = os.environ.get("OBSERVER_CONFIG_TOKEN") or os.environ.get("TELEMETRY_TOKEN")
+    local_profile = local_resolved.get("release", {}).get("profile", "full")
     if not isinstance(url, str) or not url.strip():
-        return local, _local_status(remote, "missing_url")
+        return local_resolved, _local_status(remote, "missing_url", profile=local_profile)
     if not token:
-        return local, _local_status(remote, "missing_token")
+        return local_resolved, _local_status(remote, "missing_token", profile=local_profile)
     try:
         parsed = urlsplit(url)
         if parsed.scheme not in {"http", "https"} or parsed.username or parsed.password or parsed.query or parsed.fragment:
@@ -66,7 +73,7 @@ def resolve_startup(local: dict) -> tuple[dict, dict]:
             "schema": SCHEMA,
             "config_id": config_id,
             "profile": local.get("release", {}).get("profile", "full"),
-            "config_sha256": _digest(local),
+            "config_sha256": _digest(local_resolved),
             "agent_version": "observer4-v4",
         }
         request = Request(
@@ -76,6 +83,7 @@ def resolve_startup(local: dict) -> tuple[dict, dict]:
                 "accept": "application/json",
                 "authorization": f"Bearer {token}",
                 "content-type": "application/json",
+                "user-agent": "gosim26-observer4-config/1",
             },
             method="POST",
         )
@@ -107,4 +115,4 @@ def resolve_startup(local: dict) -> tuple[dict, dict]:
         }
         return resolved, status
     except Exception as error:  # noqa: BLE001 - remote config is optional and must not stop a survey
-        return local, _local_status(remote, type(error).__name__, attempted=True)
+        return local_resolved, _local_status(remote, type(error).__name__, attempted=True, profile=local_profile)

@@ -26,10 +26,12 @@ PROTOCOL = "participant-agent-protocol-v4"
 def main():
     path = Path(os.environ.get("GOSIM_V4_CONFIG", str(ROOT / "config.json")))
     try:
-        config = load(path)
+        # Keep the checked-in full baseline intact until remote profile resolution;
+        # otherwise a baked conservative package cannot be switched back to full.
+        config = load(path, resolve_profile=False)
     except Exception as error:  # noqa: BLE001 - config failure must not crash the protocol process
         print("observer4: " + json.dumps({"event": "config_error", "error_type": type(error).__name__}), file=sys.stderr)
-        config = load(ROOT / "config.json")
+        config = load(ROOT / "config.json", resolve_profile=False)
     try:
         config, config_status = resolve_startup(config)
     except Exception as error:  # noqa: BLE001 - a remote client bug must not break the protocol
