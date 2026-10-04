@@ -41,7 +41,9 @@ The model path is enabled by default (`config.json`, section `model`). On the pl
 agent reads `OPENAI_BASE_URL` and `OPENAI_API_KEY` and calls the team model through the
 OpenAI-compatible chat API in `observer4/llm/model_advisor.py`. Two stages hand the
 decision to the model: the live state and the feasible candidates go to the model, and
-the model's validated choice is executed:
+the model's validated choice is executed. For the upstream Kimi Coding Plan (`k3` or
+`kimi-for-coding`), the client omits `temperature`, which that endpoint rejects; regular
+OpenAI-compatible endpoints retain the configured value:
 
 | Stage | Code | What the model decides |
 | --- | --- | --- |

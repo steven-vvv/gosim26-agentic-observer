@@ -219,6 +219,18 @@ def test_real_model_client_drives_both_planning_and_action(monkeypatch):
     assert all(UUID(value).version == 4 for value in call_ids)
 
 
+def test_kimi_model_requests_omit_unsupported_temperature():
+    client = load_client("model_advisor")
+    config = client.AdvisorConfig(model="team-model", max_tokens=32)
+    kimi = client.ModelAdvisor("https://api.kimi.com/coding/v1", "key", config=config)
+    generic = client.ModelAdvisor("https://model.example/v1", "key", config=config)
+    context = {"deterministic_choice": "C0", "decision_sequence": 1}
+    options = [{"id": "C0"}, {"id": "C1"}]
+
+    assert "temperature" not in kimi._request_body("action_decision", options, context)
+    assert generic._request_body("action_decision", options, context)["temperature"] == 0.0
+
+
 def test_failure_streak_pauses_model_until_next_weekly_forecast(monkeypatch):
     client = load_client("model_advisor")
     outcomes = ["fail", "fail", "ok"]

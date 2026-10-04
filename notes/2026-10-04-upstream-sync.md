@@ -15,12 +15,16 @@
 | `482290a` | fair-clock 运行时在各 runner 组织和公开仓库完成批准 | 说明新计时规则已进入组织方运行时 |
 | `efcb372` | 新增标准库 `examples/python-pro`，提供双阶段 LLM 规划、故障检测和 pointing 学习参考实现 | 验证了 `OPENAI_BASE_URL`/`OPENAI_API_KEY` 的模型入口约定；不进入本队提交包 |
 
+参考实现还明确了 Kimi Coding Plan 的一个请求约束：`k3`/`kimi-for-coding` 不接受显式
+`temperature`。v4 advisor 已按 Kimi 主机名或模型别名省略该字段，普通 OpenAI 兼容端点仍
+保留配置值，并有回归测试覆盖。
+
 ## 交付物整理
 
 `v4/dist/` 顶层只保留当前交付包和说明：
 
-- `observer4-68363a9da680.zip`
-- SHA-256：`68363a9da6805d142a22e8b7ebab0d626f251048badc7854da9470f98dfc8311`
+- `observer4-8d778cf33802.zip`
+- SHA-256：`8d778cf338025a6441c232355e95dd13275e1eb22cf09f95228c63e99b7a16f6`
 - 默认 `formal_conservative`，启动时可由同 Worker 云控切换 `full`
 
 The package documentation now matches the startup credential behavior: the formal-run
@@ -33,7 +37,7 @@ directly and that upstream reserves `OBSERVER_*` team-variable names.
 
 ## 核验
 
-- 本仓库 v4：`77 passed`，Ruff 通过。
+- 本仓库 v4：`78 passed`，Ruff 通过。
 - 上游 fair-clock 与 v4 starter-kit 测试通过。
 - 用锁定后的 `efcb372` runner 验收当前包：`screen-000` 正常 `survey_complete`，188 次决策请求。
 - 上游隐藏赛和公共池数据库测试未执行：当前环境没有 `psycopg` 及 Postgres harness，属于环境缺口，不判定为代码失败。

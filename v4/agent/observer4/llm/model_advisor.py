@@ -20,6 +20,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 LOG = logging.getLogger(__name__)
 
@@ -274,9 +275,8 @@ class ModelAdvisor:
         self.context_bytes = len(encoded.encode("utf-8"))
         if self.context_bytes > self.config.max_context_bytes:
             raise AdviceError("context_too_large")
-        return {
+        body = {
             "model": self.model,
-            "temperature": self.config.temperature,
             "top_p": self.config.top_p,
             "max_tokens": self.config.max_tokens,
             "stream": self.config.stream,
@@ -284,7 +284,18 @@ class ModelAdvisor:
                 {"role": "system", "content": self._SYSTEM_PROMPT},
                 {"role": "user", "content": json.dumps(dynamic, ensure_ascii=True, separators=(",", ":"))},
             ],
-        } | ({"stream_options": {"include_usage": True}} if self.config.stream else {})
+        }
+        # Kimi Coding Plan's k3 endpoint rejects an explicit temperature even
+        # when it is the provider default. Keep the regular OpenAI-compatible
+        # request unchanged for every other endpoint.
+        host = urlsplit(self.url or "").hostname
+        kimi_endpoint = host in {"api.kimi.com", "api.kimi.ai"}
+        kimi_model = self.model.strip().lower() in {"k3", "kimi-for-coding"}
+        if not (kimi_endpoint or kimi_model):
+            body["temperature"] = self.config.temperature
+        if self.config.stream:
+            body["stream_options"] = {"include_usage": True}
+        return body
 
     @staticmethod
     def _usage(value: Any) -> dict[str, int] | None:
