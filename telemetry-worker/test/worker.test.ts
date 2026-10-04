@@ -7,6 +7,8 @@ const runtimeEnv = {
   ...env,
   TELEMETRY_INGEST_TOKEN: "ingest-test-token",
   TELEMETRY_READ_TOKEN: "read-test-token",
+  CONFIG_READ_TOKEN: "config-read-test-token",
+  CONFIG_ADMIN_TOKEN: "config-admin-test-token",
   TELEMETRY_MAX_BATCH: "4",
   CORS_ORIGIN: "*",
 } as unknown as Env;
@@ -34,6 +36,14 @@ beforeAll(async () => {
   await runtimeEnv.DB.prepare("CREATE INDEX IF NOT EXISTS telemetry_events_run_time ON telemetry_events(run_id, received_at_ms DESC)").run();
   await runtimeEnv.DB.prepare("CREATE INDEX IF NOT EXISTS telemetry_events_type_time ON telemetry_events(event_type, received_at_ms DESC)").run();
   await runtimeEnv.DB.prepare("CREATE INDEX IF NOT EXISTS telemetry_events_received ON telemetry_events(received_at_ms DESC)").run();
+  await runtimeEnv.DB.prepare(`CREATE TABLE IF NOT EXISTS agent_configs (
+      config_id TEXT PRIMARY KEY,
+      revision INTEGER NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      patch_json TEXT NOT NULL,
+      expires_at_ms INTEGER,
+      updated_at_ms INTEGER NOT NULL
+    )`).run();
 });
 
 describe("telemetry worker", () => {
@@ -53,6 +63,42 @@ describe("telemetry worker", () => {
       headers: bearer("read-test-token"),
     });
     expect(invalidCursor.status).toBe(400);
+  });
+
+  it("publishes versioned startup configuration with separate read and admin access", async () => {
+    await runtimeEnv.DB.prepare("DELETE FROM agent_configs WHERE config_id = ?").bind("observer4").run();
+    const unauthorized = await call("/v1/config", {
+      method: "PUT",
+      headers: { ...bearer("config-read-test-token"), "content-type": "application/json" },
+      body: JSON.stringify({ config_id: "observer4", patch: { release: { profile: "formal_conservative" } } }),
+    });
+    expect(unauthorized.status).toBe(401);
+
+    const published = await call("/v1/config", {
+      method: "PUT",
+      headers: { ...bearer("config-admin-test-token"), "content-type": "application/json" },
+      body: JSON.stringify({ config_id: "observer4", patch: { release: { profile: "formal_conservative" } }, expected_revision: 0 }),
+    });
+    expect(published.status).toBe(200);
+    expect((await published.json() as { revision: number }).revision).toBe(1);
+
+    const resolved = await call("/v1/config/resolve", {
+      method: "POST",
+      headers: { ...bearer("config-read-test-token"), "content-type": "application/json" },
+      body: JSON.stringify({ schema: "gosim26.v4.config-request.v1", config_id: "observer4" }),
+    });
+    expect(resolved.status).toBe(200);
+    const payload = await resolved.json() as { schema: string; revision: number; patch: { release: { profile: string } } };
+    expect(payload.schema).toBe("gosim26.v4.config-response.v1");
+    expect(payload.revision).toBe(1);
+    expect(payload.patch.release.profile).toBe("formal_conservative");
+
+    const conflict = await call("/v1/config", {
+      method: "PUT",
+      headers: { ...bearer("config-admin-test-token"), "content-type": "application/json" },
+      body: JSON.stringify({ config_id: "observer4", patch: {}, expected_revision: 0 }),
+    });
+    expect(conflict.status).toBe(409);
   });
 
   it("stores sanitized batches and pages reads with a cursor", async () => {

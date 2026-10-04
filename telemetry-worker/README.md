@@ -60,6 +60,20 @@ All protected routes accept `Authorization: Bearer <token>` or
 * `GET /v1/models` returns `telemetry-ack` and, when configured, the upstream
   model name; it uses ingest access.
 
+* `POST /v1/config/resolve` returns the current non-expired patch for an agent startup
+  request. It requires `CONFIG_READ_TOKEN`, or `TELEMETRY_INGEST_TOKEN` when the
+  separate read secret is not configured. The request schema is
+  `gosim26.v4.config-request.v1`; the response is
+  `gosim26.v4.config-response.v1` and includes a monotonically increasing revision.
+* `PUT /v1/config` publishes a patch and requires the separate
+  `CONFIG_ADMIN_TOKEN`. Include `config_id`, an object `patch`, and optionally
+  `expected_revision`, `enabled`, and `expires_at_ms`. A stale expected revision is
+  rejected with `409`, so two operators cannot silently overwrite each other.
+
+The config service stores only bounded JSON patches in the `agent_configs` D1 table. The
+agent applies them to its checked-in configuration and runs the same schema validator;
+the Worker does not receive model keys, prompts or decision data through this route.
+
 An event has `run_id`, `event_type`, `source`, optional client timestamp and
 sequence, and a `payload` object. The worker limits request size, batch size,
 payload depth and payload bytes. D1 rows older than the configured retention
@@ -115,6 +129,9 @@ pnpm exec wrangler d1 create gosim26-telemetry
 pnpm run db:migrate:remote
 pnpm exec wrangler secret put TELEMETRY_INGEST_TOKEN
 pnpm exec wrangler secret put TELEMETRY_READ_TOKEN
+pnpm exec wrangler secret put CONFIG_ADMIN_TOKEN
+# Optional: otherwise config reads use TELEMETRY_INGEST_TOKEN.
+pnpm exec wrangler secret put CONFIG_READ_TOKEN
 set +x
 set -a
 source /home/steven/.config/gosim26-telemetry.env

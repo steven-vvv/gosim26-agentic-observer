@@ -131,13 +131,20 @@ class Diagnostics:
             except Exception:  # noqa: BLE001 - remote diagnostics cannot affect decisions
                 self.errors["telemetry_emit"] += 1
 
-    def startup(self, config_hash: str):
+    def startup(self, config_hash: str, config_status: dict | None = None):
         runtime = {
             "python": platform.python_version(),
             "implementation": platform.python_implementation(),
             "machine": platform.machine(),
             "config_sha256": config_hash,
         }
+        if config_status:
+            runtime["config_source"] = config_status.get("source", "local")
+            runtime["config_reason"] = config_status.get("reason", "unknown")
+            runtime["config_remote_attempted"] = bool(config_status.get("remote_attempted", False))
+            for name in ("config_id", "revision", "profile"):
+                if name in config_status:
+                    runtime[f"config_{name}"] = config_status[name]
         if self.service is not None:
             try:
                 runtime.update(self.service.runtime_payload())

@@ -10,6 +10,9 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from v4.agent.observer4.config import PROFILE_PATCHES
+from v4.agent.observer4.config import resolve as resolve_config
+
 from .upstream import ROOT, resolve
 
 AGENT = ROOT / "v4" / "agent"
@@ -21,7 +24,7 @@ TIMESTAMP = (2026, 9, 29, 0, 0, 0)
 REPLAY = ROOT / "v4" / "replay"
 
 
-def sources(wheels: Path, replay: Path | None = None) -> dict[str, bytes]:
+def sources(wheels: Path, replay: Path | None = None, profile: str | None = None) -> dict[str, bytes]:
     result = {}
     agent_files = [AGENT / name for name in ("main.py", "config.json")]
     agent_files.extend(sorted((AGENT / "observer4").glob("*.py")))
@@ -48,6 +51,12 @@ def sources(wheels: Path, replay: Path | None = None) -> dict[str, bytes]:
     ]]
     result["observer.project.json"] = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
     result["README.md"] = (AGENT / "PACKAGE_README.md").read_bytes()
+    if profile is not None:
+        if profile not in PROFILE_PATCHES:
+            raise ValueError(f"unknown release profile: {profile}")
+        config = json.loads(result["config.json"])
+        config = resolve_config(config, {"release": {"profile": profile}})
+        result["config.json"] = (json.dumps(config, indent=2) + "\n").encode()
     if replay is not None:
         # Practice-board build: truth-informed schedules for the published practice cards,
         # the live policy everywhere else, telemetry through the platform's model proxy.
@@ -63,14 +72,14 @@ def sources(wheels: Path, replay: Path | None = None) -> dict[str, bytes]:
     return result
 
 
-def build(wheels: Path, out: Path, replay: Path | None = None) -> dict:
+def build(wheels: Path, out: Path, replay: Path | None = None, profile: str | None = None) -> dict:
     clone = resolve()
     from project_platform.package import read_manifest, read_project_zip
 
     if out.exists() and not out.is_dir():
         raise ValueError(f"output is not a directory: {out}")
     out.mkdir(parents=True, exist_ok=True)
-    data = sources(wheels, replay)
+    data = sources(wheels, replay, profile)
     with tempfile.TemporaryDirectory(prefix=".observer4-", dir=out) as temporary:
         stage = Path(temporary) / "project.zip"
         with zipfile.ZipFile(stage, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -98,6 +107,7 @@ def build(wheels: Path, out: Path, replay: Path | None = None) -> dict:
         "expanded_bytes": sum(len(item.data) for item in files),
         "files": len(files),
         "protocol": "jsonl-v4",
+        "release_profile": profile or "config-default",
         "upstream": clone.name,
     }
 
@@ -107,8 +117,9 @@ def main():
     parser.add_argument("--wheels", type=Path, default=Path("/tmp/wheels"))
     parser.add_argument("--out", type=Path, default=ROOT / "v4" / "dist")
     parser.add_argument("--replay", type=Path, help="schedules.json for the practice-board replay build")
+    parser.add_argument("--profile", choices=tuple(PROFILE_PATCHES), help="release profile to bake into config.json")
     args = parser.parse_args()
-    print(json.dumps(build(args.wheels, args.out, args.replay), indent=2, sort_keys=True))
+    print(json.dumps(build(args.wheels, args.out, args.replay, args.profile), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

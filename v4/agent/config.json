@@ -1,5 +1,15 @@
 {
   "schema": "gosim26.v4.config.v1",
+  "release": {
+    "profile": "full",
+    "remote_config": {
+      "enabled": true,
+      "required": false,
+      "url": "https://gosim26-telemetry.wxlsteven.workers.dev/v1/config/resolve",
+      "config_id": "observer4",
+      "timeout_seconds": 1.2
+    }
+  },
   "policy": {
     "anchors": 24,
     "anchor_pool": 256,

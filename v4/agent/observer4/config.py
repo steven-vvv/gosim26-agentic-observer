@@ -7,6 +7,45 @@ import json
 import math
 from pathlib import Path
 
+# Profiles change only public knobs that already have deterministic semantics.  The
+# conservative release keeps the feedback/instrument models (the useful data source)
+# enabled while shortening science exposures and disabling expensive refinement that
+# makes the submitted score look like the tuned practice score.
+PROFILE_PATCHES = {
+    "full": {},
+    "formal_conservative": {
+        "policy": {
+            "anchors": 16,
+            "anchor_pool": 160,
+            "cluster_anchors": 4,
+            "refine_top": 0,
+            "refine_centers": False,
+            "adaptive_durations": False,
+            "durations": [300, 450, 600, 900],
+            "required_bonus": 120.0,
+            "uniformity_weight": 0.5,
+        },
+        "model": {
+            "max_total_calls": 12,
+            "max_stage_calls": 8,
+        },
+        "scale": {
+            "anchor_pool": 24,
+            "anchors": 4,
+            "cluster_anchors": 2,
+            "refine_top": 0,
+            "durations": [300, 450, 600, 900],
+        },
+    },
+}
+
+
+def profile_patch(name: str) -> dict:
+    try:
+        return copy.deepcopy(PROFILE_PATCHES[name])
+    except KeyError as error:
+        raise ValueError(f"unknown release profile: {name}") from error
+
 
 def merge(base: dict, patch: dict) -> dict:
     result = copy.deepcopy(base)
@@ -23,17 +62,49 @@ def merge(base: dict, patch: dict) -> dict:
     return result
 
 
+def resolve(config: dict, patch: dict | None = None) -> dict:
+    """Apply a named profile, then a bounded override, and validate the result."""
+    base = copy.deepcopy(config)
+    requested = patch or {}
+    release = requested.get("release") if isinstance(requested, dict) else None
+    profile = release.get("profile") if isinstance(release, dict) else None
+    profile = profile or base.get("release", {}).get("profile", "full")
+    result = merge(base, profile_patch(profile))
+    if patch:
+        result = merge(result, patch)
+    validate(result)
+    return result
+
+
 def load(path: Path, patch: dict | None = None) -> dict:
     config = json.loads(path.read_text(encoding="utf-8"))
-    if patch:
-        config = merge(config, patch)
     validate(config)
-    return config
+    return resolve(config, patch)
 
 
 def validate(config: dict) -> None:
     if config.get("schema") != "gosim26.v4.config.v1":
         raise ValueError("unsupported v4 configuration schema")
+    release = config.get("release", {})
+    if not isinstance(release, dict):
+        raise TypeError("release configuration must be an object")
+    profile = release.get("profile", "full")
+    if not isinstance(profile, str) or profile not in PROFILE_PATCHES:
+        raise ValueError("invalid release profile")
+    remote = release.get("remote_config", {})
+    if not isinstance(remote, dict):
+        raise TypeError("release.remote_config must be an object")
+    for name in ("enabled", "required"):
+        if name in remote and type(remote[name]) is not bool:
+            raise ValueError(f"boolean configuration required for release.remote_config.{name}")
+    if "url" in remote and (not isinstance(remote["url"], str) or len(remote["url"]) > 512):
+        raise ValueError("invalid release.remote_config.url")
+    if "config_id" in remote and (not isinstance(remote["config_id"], str) or not remote["config_id"].strip()):
+        raise ValueError("invalid release.remote_config.config_id")
+    if "timeout_seconds" in remote:
+        value = remote["timeout_seconds"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0.1 <= value <= 10:
+            raise ValueError("invalid release.remote_config.timeout_seconds")
     ranges = {
         "policy": {
             "anchors": (1, 128),

@@ -1,4 +1,5 @@
 import { requireIngestAuth, requireReadAuth } from "./auth";
+import { putConfig, resolveConfig } from "./config";
 import { handleChatCompletions, modelList } from "./openai";
 import { deleteExpired, insertEvents, queryEvents } from "./storage";
 import { requestNetworkMetadata } from "./network";
@@ -25,7 +26,7 @@ function corsHeaders(request: Request, env: Env): Headers {
   return new Headers({
     "access-control-allow-origin": allowOrigin,
     "access-control-allow-headers": "authorization, content-type, x-telemetry-token",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
     "access-control-max-age": "600",
     vary: "Origin",
   });
@@ -96,6 +97,8 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (request.method === "GET") return readEvents(request, env);
     return json({ error: "method_not_allowed" }, 405);
   }
+  if (url.pathname === "/v1/config/resolve" && request.method === "POST") return resolveConfig(request, env);
+  if (url.pathname === "/v1/config" && request.method === "PUT") return putConfig(request, env);
   if (url.pathname === "/v1/chat/completions" || url.pathname === "/chat/completions") {
     return handleChatCompletions(request, env);
   }

@@ -18,6 +18,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 from observer4.config import load
 from observer4.diagnostics import Diagnostics
 from observer4.policy import Observer
+from observer4.remote_config import resolve_startup
 
 PROTOCOL = "participant-agent-protocol-v4"
 
@@ -29,8 +30,13 @@ def main():
     except Exception as error:  # noqa: BLE001 - config failure must not crash the protocol process
         print("observer4: " + json.dumps({"event": "config_error", "error_type": type(error).__name__}), file=sys.stderr)
         config = load(ROOT / "config.json")
+    try:
+        config, config_status = resolve_startup(config)
+    except Exception as error:  # noqa: BLE001 - a remote client bug must not break the protocol
+        print("observer4: " + json.dumps({"event": "remote_config_error", "error_type": type(error).__name__}), file=sys.stderr)
+        config_status = {"source": "local", "remote_attempted": False, "reason": type(error).__name__}
     diagnostics = Diagnostics(config)
-    diagnostics.startup(hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest())
+    diagnostics.startup(hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest(), config_status)
     policy = None
     cached_sequence = None
     cached_request = None

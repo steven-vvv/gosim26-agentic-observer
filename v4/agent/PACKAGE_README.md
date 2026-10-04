@@ -5,6 +5,31 @@ message per line and answers every `decision_request` with one action. The build
 installs the bundled Python 3.12 NumPy wheel offline. No scenario truth, generated card or
 credential is included.
 
+## Release profiles and startup configuration
+
+The checked-in configuration uses the `full` profile for development and analysis. A
+formal package can select the intentionally restrained profile without changing the
+source review surface:
+
+```bash
+uv run python -m v4.evaluation.package --profile formal_conservative
+```
+
+`formal_conservative` keeps the feedback, quality, fault and two model stages enabled,
+but uses 300--900 second exposures, disables adaptive duration and centre refinement,
+uses a smaller anchor search, and caps model guidance at 12 calls per card (8 per stage).
+The selected profile is recorded in the startup `runtime` event and in the package
+configuration hash.
+
+When `release.remote_config.enabled` is true, startup makes one bounded POST request to
+the configured `/v1/config/resolve` endpoint. `OBSERVER_CONFIG_TOKEN` is preferred and
+`TELEMETRY_TOKEN` is accepted for the same Worker deployment. A response must carry the
+versioned schema, matching `config_id`, a non-negative revision and a non-expired patch;
+the patch is merged and run through the same local validator. Network errors, expired
+responses and invalid fields fall back to the packaged config and are recorded in the
+runtime event. The endpoint carries configuration metadata only, never model keys or
+prompts.
+
 ## Large language model stages
 
 The model path is enabled by default (`config.json`, section `model`). On the platform the

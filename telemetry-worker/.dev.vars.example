@@ -1,5 +1,9 @@
 TELEMETRY_INGEST_TOKEN=replace-with-a-long-random-ingest-token
 TELEMETRY_READ_TOKEN=replace-with-a-different-long-random-read-token
+# Optional startup-config read token; otherwise the ingest token is accepted for config reads.
+CONFIG_READ_TOKEN=replace-with-a-config-read-token
+# Required by the operator endpoint; never ship this to an agent.
+CONFIG_ADMIN_TOKEN=replace-with-a-config-admin-token
 # Optional ordinary-chat upstream. Keep the provider key in a secret store in production.
 LLM_UPSTREAM_URL=https://api.example.com/v1
 LLM_UPSTREAM_API_KEY=replace-with-an-upstream-key

@@ -5,6 +5,10 @@ export interface Env {
   DB: D1Database;
   TELEMETRY_INGEST_TOKEN?: string;
   TELEMETRY_READ_TOKEN?: string;
+  /** Optional separate credential for startup config reads; ingest is the fallback. */
+  CONFIG_READ_TOKEN?: string;
+  /** Required for changing a config revision. Never expose this to an agent. */
+  CONFIG_ADMIN_TOKEN?: string;
   TELEMETRY_MAX_BATCH?: string;
   TELEMETRY_MAX_BODY_BYTES?: string;
   TELEMETRY_RETENTION_DAYS?: string;

@@ -37,3 +37,11 @@ export async function requireIngestAuth(request: Request, env: Env): Promise<boo
 export async function requireReadAuth(request: Request, env: Env): Promise<boolean> {
   return hasToken(request, env.TELEMETRY_READ_TOKEN);
 }
+
+export async function requireConfigReadAuth(request: Request, env: Env): Promise<boolean> {
+  return hasToken(request, env.CONFIG_READ_TOKEN ?? env.TELEMETRY_INGEST_TOKEN);
+}
+
+export async function requireConfigAdminAuth(request: Request, env: Env): Promise<boolean> {
+  return hasToken(request, env.CONFIG_ADMIN_TOKEN);
+}
