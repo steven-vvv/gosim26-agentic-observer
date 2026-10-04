@@ -1,7 +1,7 @@
 {
   "schema": "gosim26.v4.upstream.v1",
   "repository": "https://github.com/gosimfoundation/hackathon-survey26",
-  "commit": "5020c2c9d5cfc0b3442bfa9c8f7de60d48617c05",
+  "commit": "efcb372c5e30986094ab1bd288b24d1e39274219",
   "relative_clone": "../hackathon-survey26",
   "protocol": "participant-agent-protocol-v4",
   "initialize_schema": "v4-initialize-v1",

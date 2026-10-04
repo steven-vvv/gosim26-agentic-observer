@@ -39,6 +39,7 @@
 - [`2026-09-29-v3-graceful-shutdown.md`](2026-09-29-v3-graceful-shutdown.md)：可配置优雅退出、v3 运行时源码对齐、遥测收尾及正式包整场核验。
 - [`2026-09-28-announcement-and-upstream.md`](2026-09-28-announcement-and-upstream.md)：群通知（正式赛 A–D 调试、E–H 评分、两环节智能体要求）与上游现行文案的核对。
 - [`2026-09-29-upstream-v4.md`](2026-09-29-upstream-v4.md)：上游 v4 任务、阶段切换准备、v3 收尾消息及对当前参赛项目的影响。
+- [`2026-10-04-upstream-sync.md`](2026-10-04-upstream-sync.md)：fair-clock、公共 runner pool、python-pro 上游更新与当前 v4 交付包整理。
 - [`2026-09-29-observability-agent-native.md`](2026-09-29-observability-agent-native.md)：统一可观测性、两个模型决策环节和真实端点稳定性核验。
 - [`2026-09-28-end-to-end-stability.md`](2026-09-28-end-to-end-stability.md)：真实模型、共享 Worker 遥测、故障回退和打包的完整核验。
 - [`2026-09-26-platform-result-analysis.md`](2026-09-26-platform-result-analysis.md)：平台评测结果和遥测核验。
