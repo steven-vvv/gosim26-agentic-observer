@@ -42,6 +42,27 @@ def _read_bounded(response) -> bytes:
     return data
 
 
+def _shared_worker_token(url: str) -> str | None:
+    """Reuse the model key only when the configured OpenAI endpoint is this Worker."""
+    token = os.environ.get("OPENAI_API_KEY")
+    model_url = os.environ.get("OPENAI_BASE_URL")
+    if not token or not model_url:
+        return None
+    try:
+        config_endpoint = urlsplit(url)
+        model_endpoint = urlsplit(model_url)
+        if (
+            config_endpoint.scheme not in {"http", "https"}
+            or model_endpoint.scheme not in {"http", "https"}
+            or config_endpoint.hostname != model_endpoint.hostname
+            or config_endpoint.port != model_endpoint.port
+        ):
+            return None
+    except ValueError:
+        return None
+    return token
+
+
 def resolve_startup(local: dict) -> tuple[dict, dict]:
     """Return a validated startup config and an audit-safe source description.
 
@@ -59,6 +80,8 @@ def resolve_startup(local: dict) -> tuple[dict, dict]:
         )
     url = remote.get("url")
     token = os.environ.get("OBSERVER_CONFIG_TOKEN") or os.environ.get("TELEMETRY_TOKEN")
+    if not token and isinstance(url, str):
+        token = _shared_worker_token(url)
     local_profile = local_resolved.get("release", {}).get("profile", "full")
     if not isinstance(url, str) or not url.strip():
         return local_resolved, _local_status(remote, "missing_url", profile=local_profile)

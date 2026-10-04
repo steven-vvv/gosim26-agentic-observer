@@ -72,6 +72,67 @@ def test_startup_remote_profile_is_validated_and_audited(monkeypatch):
     assert calls[0][0].get_header("User-agent") == "gosim26-observer4-config/1"
 
 
+def test_startup_reuses_same_worker_openai_credentials(monkeypatch):
+    local = json.loads(CONFIG.read_text(encoding="utf-8"))
+    local["release"]["remote_config"]["url"] = "https://config.example.test/v1/config/resolve"
+    response = {
+        "schema": "gosim26.v4.config-response.v1",
+        "config_id": "observer4",
+        "revision": 10,
+        "patch": {"release": {"profile": "full"}},
+    }
+
+    class FakeResponse:
+        headers: ClassVar[dict] = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return json.dumps(response).encode()
+
+    calls = []
+    monkeypatch.delenv("OBSERVER_CONFIG_TOKEN", raising=False)
+    monkeypatch.delenv("TELEMETRY_TOKEN", raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://config.example.test/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "same-worker-key")
+    monkeypatch.setattr(
+        "v4.agent.observer4.remote_config.urlopen",
+        lambda request, timeout: (calls.append((request, timeout)) or FakeResponse()),
+    )
+
+    resolved, status = resolve_startup(local)
+
+    assert resolved["release"]["profile"] == "full"
+    assert status["source"] == "remote"
+    assert status["revision"] == 10
+    assert calls[0][0].get_header("Authorization") == "Bearer same-worker-key"
+
+
+def test_startup_does_not_send_openai_key_to_another_host(monkeypatch):
+    local = json.loads(CONFIG.read_text(encoding="utf-8"))
+    local["release"]["remote_config"]["url"] = "https://config.example.test/v1/config/resolve"
+    calls = []
+    monkeypatch.delenv("OBSERVER_CONFIG_TOKEN", raising=False)
+    monkeypatch.delenv("TELEMETRY_TOKEN", raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "provider-key")
+    monkeypatch.setattr(
+        "v4.agent.observer4.remote_config.urlopen",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    resolved, status = resolve_startup(local)
+
+    assert resolved["release"]["profile"] == "full"
+    assert status["source"] == "local"
+    assert status["reason"] == "missing_token"
+    assert calls == []
+
+
 def test_startup_invalid_remote_patch_falls_back_to_local(monkeypatch):
     local = load(CONFIG, {"observability": {"remote": {"enabled": False}}})
     response = {
