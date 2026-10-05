@@ -190,6 +190,7 @@ class InstrumentMonitor:
         self.free_allowance = int(reporting.get("false_report_free_allowance", 0)) if revision >= 2 else 0
         self.false_since_correct = 0
         self.records: list[dict] = []
+        self._band_cache: dict[int, tuple] = {}
         self.segment_start = 0
         self.pending = None
         self.repaired = False
@@ -502,9 +503,6 @@ class InstrumentMonitor:
         smallest shift that explains nearly all of the gain over no shift, since statuses that
         sit far inside a band only bound the shift from one side.
         """
-        bands = self.task.scoring["program"]["bands"]
-        dark, bright = math.log(float(bands["DARK"])), math.log(float(bands["BRIGHT"]))
-        sigma = float(self.settings.get("band_sigma", 0.06))
         prior = math.log(float(self.settings.get("instrument_prior", 0.95)))
         grid = np.linspace(-1.4, 0.3, 69)
         zero = int(np.argmin(np.abs(grid)))
@@ -514,25 +512,16 @@ class InstrumentMonitor:
             status, k = record.get("status"), record.get("band_k")
             if status is None or k is None or record["level"] is None:
                 continue
-            known = np.isfinite(status) & np.isfinite(k) & (k > 0)
-            if not np.any(known):
-                continue
             sky = record["level"] - prior - self.log_eff(record)
-            q = sky - grid[:, None] + np.log(k[known])[None, :]
-            upper = 1 / (1 + np.exp(-(q - dark) / sigma))
-            lower = 1 / (1 + np.exp(-(q - bright) / sigma))
-            if record["program"] == "DARK":
-                p = upper
-            elif record["program"] == "BRIGHT":
-                p = lower - upper
-            else:
-                p = 1 - lower
-            p = np.clip(p, 0.02, 0.98)
-            matched = status[known] > 0.5
-            likelihood = np.where(matched[None, :], p, 1 - p)
-            total += np.mean(np.log(likelihood), axis=1)
-            if float(np.mean(likelihood[zero])) < float(self.settings.get("band_surprise", 0.25)):
-                surprising += 1
+            # A record never changes once built, so its terms only move with its sky (a quake
+            # calibration shifts it); the identity check guards against a reused id.
+            cached = self._band_cache.get(id(record))
+            if cached is None or cached[0] is not record or cached[1] != sky:
+                cached = (record, sky, *self._band_terms(record, sky, grid, zero))
+                self._band_cache[id(record)] = cached
+            if cached[2] is not None:
+                total += cached[2]
+                surprising += cached[3]
         gain = float(np.max(total) - total[zero])
         if gain <= 0:
             return 0.0, 0.0, surprising
@@ -540,14 +529,42 @@ class InstrumentMonitor:
         shift = float(grid[enough[np.argmin(np.abs(grid[enough]))]])
         return shift, gain, surprising
 
+    def _band_terms(self, record: dict, sky: float, grid: np.ndarray, zero: int):
+        """Mean log-likelihood of one record's statuses on the shift grid and whether they
+        surprise without a shift; (None, False) when no status is known."""
+        status, k = record["status"], record["band_k"]
+        known = np.isfinite(status) & np.isfinite(k) & (k > 0)
+        if not np.any(known):
+            return None, False
+        bands = self.task.scoring["program"]["bands"]
+        dark, bright = math.log(float(bands["DARK"])), math.log(float(bands["BRIGHT"]))
+        sigma = float(self.settings.get("band_sigma", 0.06))
+        q = sky - grid[:, None] + np.log(k[known])[None, :]
+        upper = 1 / (1 + np.exp(-(q - dark) / sigma))
+        lower = 1 / (1 + np.exp(-(q - bright) / sigma))
+        if record["program"] == "DARK":
+            p = upper
+        elif record["program"] == "BRIGHT":
+            p = lower - upper
+        else:
+            p = 1 - lower
+        p = np.clip(p, 0.02, 0.98)
+        matched = status[known] > 0.5
+        likelihood = np.where(matched[None, :], p, 1 - p)
+        surprise = float(np.mean(likelihood[zero])) < float(self.settings.get("band_surprise", 0.25))
+        return np.mean(np.log(likelihood), axis=1), surprise
+
     def _band_records(self, since: float) -> list[dict]:
         hours = float(self.settings.get("band_hours", 6.0)) * 3600.0
-        records = [r for r in self.records if r["start"] >= since and r["level"] is not None]
-        if not records:
-            return []
-        # The most recent observing hours (exposure time, not wall time).
+        # The most recent observing hours (exposure time, not wall time). Records are added
+        # in time order (respond rejects time moving backwards), so the scan from the end
+        # stops at the first record that started before ``since``.
         chosen, spent = [], 0.0
-        for record in reversed(records):
+        for record in reversed(self.records):
+            if not record["start"] >= since:
+                break
+            if record["level"] is None:
+                continue
             chosen.append(record)
             spent += record["end"] - record["start"]
             if spent >= hours:
