@@ -25,6 +25,9 @@ from .opportunity import OpportunityModel
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
 # Priority factor after k recorded misses (k capped at 6): max(0.25, 0.80 ** k), elementwise.
 MISS_FACTORS = np.maximum(0.25, 0.80 ** np.arange(7))
+# fiber_totals adds fibres through a dense (fibre, centre, duration) table up to this many
+# cells (1 MiB); larger tables, mostly empty, cost more than summing nonempty fibres.
+DENSE_FIBER_CELLS = 1 << 17
 
 
 WEEKLY_STRATEGIES = ("steady", "required_push", "science_push")
@@ -78,13 +81,13 @@ def fiber_totals(fibers: np.ndarray, gains: np.ndarray, weight: np.ndarray, coun
     dense reduction over every pair, including its zero floor and summation order. Each
     (centre, fibre) maximum takes its targets in index order, rank by rank (see
     _rank_order), as np.maximum.reduceat did; each centre then adds its fibres in fibre
-    order the same way.
+    order, through a dense (fibre, centre) table when that is small and otherwise over its
+    nonempty fibres only.
     """
     centers, targets = fibers.shape
-    result = np.zeros((centers, gains.shape[0]))
     flat = np.flatnonzero(fibers >= 0)
     if not len(flat):
-        return result
+        return np.zeros((centers, gains.shape[0]))
     labels = flat // targets * count + fibers.ravel()[flat]
     # A stable sort depends only on the keys; 16-bit keys take numpy's radix sort.
     keys = labels.astype(np.int16) if count * centers <= np.iinfo(np.int16).max else labels
@@ -111,6 +114,16 @@ def fiber_totals(fibers: np.ndarray, gains: np.ndarray, weight: np.ndarray, coun
     # holding every target (the longest groups, so a prefix) had none.
     full = int(np.count_nonzero(sizes == targets))
     np.maximum(maxima[full:], 0, out=maxima[full:])
+    if count * centers * gains.shape[0] <= DENSE_FIBER_CELLS:
+        # Sequential sum over fibres, the same order as np.add.accumulate.
+        totals = np.zeros((count * centers, gains.shape[0]))
+        group_labels = labels[starts][groups]
+        totals[group_labels % count * centers + group_labels // count] = maxima
+        totals = totals.reshape(count, centers, -1)
+        result = totals[0].copy()
+        for fiber in range(1, count):
+            result += totals[fiber]
+        return result
     # A centre's groups are contiguous in label order and ordered by fibre. The dense sum
     # also added +0.0 for each empty fibre, which can only turn a -0.0 running sum into
     # +0.0 for good; centres with an empty fibre therefore add a single zero at the end.
@@ -129,6 +142,7 @@ def fiber_totals(fibers: np.ndarray, gains: np.ndarray, weight: np.ndarray, coun
         np.add(sums[:n], part, out=sums[:n])
         start += n
     sums[center_sizes[segments] < count] += 0.0
+    result = np.zeros((centers, gains.shape[0]))
     result[group_centers[center_starts[segments]]] = sums
     return result
 
