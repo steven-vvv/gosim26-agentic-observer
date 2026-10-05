@@ -1,0 +1,1 @@
+{"scale": {"anchor_pool": 96, "anchors": 12, "cluster_anchors": 4, "refine_top": 2}, "policy": {"setting_boost": 0.0}}
