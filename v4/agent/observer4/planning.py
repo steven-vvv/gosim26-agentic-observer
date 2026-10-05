@@ -183,6 +183,14 @@ class Planner:
         share = np.clip(self._future_hours[night_index] / horizon, 0.0, 1.0)
         return 1.0 + (base - 1.0) * share
 
+    def _remaining_hours(self, night_index: int) -> np.ndarray:
+        """Public visible hours of every target from tonight to the end of the season."""
+        if self._future_hours is None:
+            future = np.cumsum(self.task.visibility[::-1], axis=0)[::-1] / 3600.0
+            self._future_hours = np.vstack((future[1:], np.zeros((1, future.shape[1]))))
+        tonight = self.task.visibility[night_index] / 3600.0
+        return self._future_hours[night_index] + tonight
+
     def set_requests(self, active_requests: list[dict]) -> None:
         self.active_requests = active_requests
 
@@ -532,6 +540,16 @@ class Planner:
         threshold = float(task.scoring["required"]["observed_factor_threshold"])
         incomplete = task.required & (state.factor_lower < threshold)
         urgency = 1.0 + settings["deadline_weight"] / np.maximum(1, task.last_night - night_index + 1)
+        season = float(settings.get("season_weight", 0.0))
+        if season > 0:
+            # Long seasons: a target whose remaining public visible hours are few, compared with
+            # the typical target, has fewer later chances; this ranks it ahead while it lasts.
+            future = self._remaining_hours(night_index)
+            alive = future > 0
+            if np.any(alive):
+                typical = float(np.median(future[alive]))
+                scarce = np.clip(typical / np.maximum(future, 1.0), 1.0, 4.0) - 1.0
+                urgency = urgency * (1.0 + season * np.where(alive, scarce, 0.0))
         if self.opportunity is not None and self.instrument is not None:
             try:
                 chances = self.opportunity.urgency(night_index, self.instrument.sky_levels(), threshold,
