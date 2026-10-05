@@ -1,0 +1,6 @@
+{
+  "policy": {
+    "rollout_top": 2,
+    "rollout_weight": 0.35
+  }
+}

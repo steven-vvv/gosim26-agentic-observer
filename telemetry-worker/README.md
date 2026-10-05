@@ -65,6 +65,11 @@ All protected routes accept `Authorization: Bearer <token>` or
   separate read secret is not configured. The request schema is
   `gosim26.v4.config-request.v1`; the response is
   `gosim26.v4.config-response.v1` and includes a monotonically increasing revision.
+* `POST /v1/config/public/resolve` is an optional unauthenticated startup route enabled by
+  `CONFIG_PUBLIC_READ=true`. It is restricted to `CONFIG_PUBLIC_ID` (default `observer4`)
+  and returns only the approved `release.profile` selector (`full` or
+  `formal_conservative`). It never exposes arbitrary stored patch fields; the authenticated
+  route remains the one to use for complete patches.
 * `PUT /v1/config` publishes a patch and requires the separate
   `CONFIG_ADMIN_TOKEN`. Include `config_id`, an object `patch`, and optionally
   `expected_revision`, `enabled`, and `expires_at_ms`. A stale expected revision is

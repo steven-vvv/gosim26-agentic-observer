@@ -24,7 +24,12 @@ TIMESTAMP = (2026, 9, 29, 0, 0, 0)
 REPLAY = ROOT / "v4" / "replay"
 
 
-def sources(wheels: Path, replay: Path | None = None, profile: str | None = None) -> dict[str, bytes]:
+def sources(
+    wheels: Path,
+    replay: Path | None = None,
+    profile: str | None = None,
+    locked_full: bool = False,
+) -> dict[str, bytes]:
     result = {}
     agent_files = [AGENT / name for name in ("main.py", "config.json")]
     agent_files.extend(sorted((AGENT / "observer4").glob("*.py")))
@@ -54,10 +59,21 @@ def sources(wheels: Path, replay: Path | None = None, profile: str | None = None
     if profile is not None:
         if profile not in PROFILE_PATCHES:
             raise ValueError(f"unknown release profile: {profile}")
+        if locked_full and profile != "full":
+            raise ValueError("--locked-full can only be combined with the full profile")
         config = json.loads(result["config.json"])
         # Keep the full baseline in the package.  The entrypoint resolves the
         # selected profile at startup so remote config can switch back to full.
         config["release"]["profile"] = profile
+        resolve_config(config)
+        result["config.json"] = (json.dumps(config, indent=2) + "\n").encode()
+    if locked_full:
+        config = json.loads(result["config.json"])
+        config["release"]["profile"] = "full"
+        remote = dict(config["release"].get("remote_config", {}))
+        remote["enabled"] = False
+        remote["locked"] = True
+        config["release"]["remote_config"] = remote
         resolve_config(config)
         result["config.json"] = (json.dumps(config, indent=2) + "\n").encode()
     if replay is not None:
@@ -75,14 +91,20 @@ def sources(wheels: Path, replay: Path | None = None, profile: str | None = None
     return result
 
 
-def build(wheels: Path, out: Path, replay: Path | None = None, profile: str | None = None) -> dict:
+def build(
+    wheels: Path,
+    out: Path,
+    replay: Path | None = None,
+    profile: str | None = None,
+    locked_full: bool = False,
+) -> dict:
     clone = resolve()
     from project_platform.package import read_manifest, read_project_zip
 
     if out.exists() and not out.is_dir():
         raise ValueError(f"output is not a directory: {out}")
     out.mkdir(parents=True, exist_ok=True)
-    data = sources(wheels, replay, profile)
+    data = sources(wheels, replay, profile, locked_full)
     with tempfile.TemporaryDirectory(prefix=".observer4-", dir=out) as temporary:
         stage = Path(temporary) / "project.zip"
         with zipfile.ZipFile(stage, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -97,7 +119,12 @@ def build(wheels: Path, out: Path, replay: Path | None = None, profile: str | No
         if manifest is None or json.loads(data["observer.project.json"])["protocol"] != "jsonl-v4":
             raise ValueError("v4 project manifest rejected by organizer platform")
         digest = hashlib.sha256(raw).hexdigest()
-        destination = out / f"observer4{'-replay' if replay is not None else ''}-{digest[:12]}.zip"
+        variant = "observer4"
+        if replay is not None:
+            variant += "-replay"
+        if locked_full:
+            variant += "-full-locked"
+        destination = out / f"{variant}-{digest[:12]}.zip"
         try:
             os.link(stage, destination)
         except FileExistsError:
@@ -110,7 +137,7 @@ def build(wheels: Path, out: Path, replay: Path | None = None, profile: str | No
         "expanded_bytes": sum(len(item.data) for item in files),
         "files": len(files),
         "protocol": "jsonl-v4",
-        "release_profile": profile or "config-default",
+        "release_profile": "full-locked" if locked_full else (profile or "config-default"),
         "upstream": clone.name,
     }
 
@@ -121,8 +148,15 @@ def main():
     parser.add_argument("--out", type=Path, default=ROOT / "v4" / "dist")
     parser.add_argument("--replay", type=Path, help="schedules.json for the practice-board replay build")
     parser.add_argument("--profile", choices=tuple(PROFILE_PATCHES), help="release profile to bake into config.json")
+    parser.add_argument(
+        "--locked-full",
+        action="store_true",
+        help="build the full profile with remote configuration permanently locked out",
+    )
     args = parser.parse_args()
-    print(json.dumps(build(args.wheels, args.out, args.replay, args.profile), indent=2, sort_keys=True))
+    if args.locked_full and args.profile not in (None, "full"):
+        parser.error("--locked-full can only be combined with --profile full")
+    print(json.dumps(build(args.wheels, args.out, args.replay, args.profile, args.locked_full), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

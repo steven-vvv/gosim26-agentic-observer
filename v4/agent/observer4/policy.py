@@ -50,6 +50,9 @@ class Observer:
                 "targets": len(self.task.ids),
                 "nights": len(self.task.nights),
                 "required": int(self.task.required.sum()),
+                "fibers": self.task.grid.n,
+                "fiber_grid_side": self.task.grid.side,
+                "fiber_contract": {"expected": 16, "matches": self.task.grid.n == 16},
                 "wallclock_seconds": self.task.wallclock,
             },
         )

@@ -28,6 +28,8 @@
   },
   "vars": {
     "CORS_ORIGIN": "*",
+    "CONFIG_PUBLIC_READ": "true",
+    "CONFIG_PUBLIC_ID": "observer4",
     "LLM_DISABLE_THINKING": "true",
     "LLM_FORWARD_UNMARKED": "true",
     "LLM_MODEL_NAME": "ds/deepseek-flash",

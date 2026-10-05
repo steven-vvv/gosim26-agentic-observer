@@ -5,8 +5,9 @@
     "remote_config": {
       "enabled": true,
       "required": false,
-      "url": "https://gosim26-telemetry.wxlsteven.workers.dev/v1/config/resolve",
+      "url": "https://gosim26-telemetry.wxlsteven.workers.dev/v1/config/public/resolve",
       "config_id": "observer4",
+      "auth": "public",
       "timeout_seconds": 1.2
     }
   },
@@ -65,6 +66,8 @@
     "margin_floor_deg": 0.012,
     "pace_budget": true,
     "pace_floor": 0.8,
+    "rollout_top": 0,
+    "rollout_weight": 0.0,
     "level_safety_z": 1.5,
     "program_uncertainty_floor": 0.05
   },

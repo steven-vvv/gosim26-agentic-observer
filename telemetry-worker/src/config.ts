@@ -6,6 +6,7 @@ const RESPONSE_SCHEMA = "gosim26.v4.config-response.v1";
 const REQUEST_SCHEMA = "gosim26.v4.config-request.v1";
 const CONFIG_ID = /^[A-Za-z0-9._:-]{1,96}$/;
 const MAX_PATCH_BYTES = 64 * 1024;
+const PUBLIC_PROFILES = new Set(["full", "formal_conservative"]);
 
 interface ConfigRow {
   config_id: string;
@@ -62,12 +63,42 @@ function response(row: ConfigRow): Response {
   }), { headers: { "content-type": "application/json; charset=utf-8" } });
 }
 
-export async function resolveConfig(request: Request, env: Env): Promise<Response> {
-  if (!(await requireConfigReadAuth(request, env))) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
+function publicResponse(row: ConfigRow): Response {
+  let patch: unknown;
+  try {
+    patch = JSON.parse(row.patch_json);
+  } catch {
+    throw new Error("stored configuration patch is invalid JSON");
+  }
+  const object = objectValue(patch);
+  const release = objectValue(object?.release);
+  const profile = release?.profile;
+  if (typeof profile !== "string" || !PUBLIC_PROFILES.has(profile)) {
+    throw new RequestError(503, "public_config_unavailable", "public configuration has no approved release profile");
+  }
+  return new Response(JSON.stringify({
+    schema: RESPONSE_SCHEMA,
+    config_id: row.config_id,
+    revision: row.revision,
+    // The public route deliberately exposes only the bounded profile selector;
+    // arbitrary stored fields never become a public credential leak.
+    patch: { release: { profile } },
+    expires_at_ms: row.expires_at_ms,
+    updated_at_ms: row.updated_at_ms,
+  }), { headers: { "content-type": "application/json; charset=utf-8" } });
+}
+
+async function findConfig(request: Request, env: Env, publicOnly: boolean): Promise<ConfigRow> {
+  if (publicOnly && env.CONFIG_PUBLIC_READ !== "true") {
+    throw new RequestError(404, "not_found", "configuration is not available");
+  }
   const body = objectValue(await readJson(request, env));
   if (!body) throw new RequestError(400, "invalid_request", "config request must be an object");
   if (body.schema !== REQUEST_SCHEMA) throw new RequestError(400, "unsupported_schema", "unsupported configuration request schema");
   const id = configId(body.config_id ?? "observer4");
+  if (publicOnly && id !== (env.CONFIG_PUBLIC_ID ?? "observer4")) {
+    throw new RequestError(404, "config_not_found", "configuration is not available");
+  }
   const row = await env.DB.prepare(
     "SELECT config_id, revision, enabled, patch_json, expires_at_ms, updated_at_ms FROM agent_configs WHERE config_id = ?",
   ).bind(id).first<ConfigRow>();
@@ -75,7 +106,16 @@ export async function resolveConfig(request: Request, env: Env): Promise<Respons
   if (row.expires_at_ms !== null && row.expires_at_ms <= Date.now()) {
     throw new RequestError(410, "config_expired", "configuration has expired");
   }
-  return response(row);
+  return row;
+}
+
+export async function resolveConfig(request: Request, env: Env): Promise<Response> {
+  if (!(await requireConfigReadAuth(request, env))) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
+  return response(await findConfig(request, env, false));
+}
+
+export async function resolvePublicConfig(request: Request, env: Env): Promise<Response> {
+  return publicResponse(await findConfig(request, env, true));
 }
 
 export async function putConfig(request: Request, env: Env): Promise<Response> {

@@ -37,6 +37,7 @@ def test_formal_profile_reduces_exposure_and_model_budgets_without_disabling_mod
 
 def test_startup_remote_profile_is_validated_and_audited(monkeypatch):
     local = load(CONFIG, {"observability": {"remote": {"enabled": False}}})
+    local["release"]["remote_config"]["auth"] = "token"
     response = {
         "schema": "gosim26.v4.config-response.v1",
         "config_id": "observer4",
@@ -72,9 +73,61 @@ def test_startup_remote_profile_is_validated_and_audited(monkeypatch):
     assert calls[0][0].get_header("User-agent") == "gosim26-observer4-config/1"
 
 
+def test_startup_public_profile_does_not_send_credentials(monkeypatch):
+    local = json.loads(CONFIG.read_text(encoding="utf-8"))
+    response = {
+        "schema": "gosim26.v4.config-response.v1",
+        "config_id": "observer4",
+        "revision": 11,
+        "patch": {"release": {"profile": "formal_conservative"}},
+    }
+
+    class FakeResponse:
+        headers: ClassVar[dict] = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return json.dumps(response).encode()
+
+    calls = []
+    monkeypatch.delenv("OBSERVER_CONFIG_TOKEN", raising=False)
+    monkeypatch.delenv("TELEMETRY_TOKEN", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "v4.agent.observer4.remote_config.urlopen",
+        lambda request, timeout: (calls.append((request, timeout)) or FakeResponse()),
+    )
+    resolved, status = resolve_startup(local)
+
+    assert resolved["release"]["profile"] == "formal_conservative"
+    assert status["source"] == "remote"
+    assert calls[0][0].get_header("Authorization") is None
+
+
+def test_locked_full_config_never_attempts_remote(monkeypatch):
+    local = json.loads(CONFIG.read_text(encoding="utf-8"))
+    local["release"]["remote_config"]["locked"] = True
+    calls = []
+    monkeypatch.setattr("v4.agent.observer4.remote_config.urlopen", lambda *args, **kwargs: calls.append(args))
+
+    resolved, status = resolve_startup(local)
+
+    assert resolved["release"]["profile"] == "full"
+    assert status["source"] == "local"
+    assert status["reason"] == "remote_locked"
+    assert status["remote_attempted"] is False
+    assert calls == []
+
+
 def test_startup_reuses_same_worker_openai_credentials(monkeypatch):
     local = json.loads(CONFIG.read_text(encoding="utf-8"))
     local["release"]["remote_config"]["url"] = "https://config.example.test/v1/config/resolve"
+    local["release"]["remote_config"]["auth"] = "token"
     response = {
         "schema": "gosim26.v4.config-response.v1",
         "config_id": "observer4",
@@ -115,6 +168,7 @@ def test_startup_reuses_same_worker_openai_credentials(monkeypatch):
 def test_startup_does_not_send_openai_key_to_another_host(monkeypatch):
     local = json.loads(CONFIG.read_text(encoding="utf-8"))
     local["release"]["remote_config"]["url"] = "https://config.example.test/v1/config/resolve"
+    local["release"]["remote_config"]["auth"] = "token"
     calls = []
     monkeypatch.delenv("OBSERVER_CONFIG_TOKEN", raising=False)
     monkeypatch.delenv("TELEMETRY_TOKEN", raising=False)
@@ -209,3 +263,13 @@ def test_formal_package_keeps_full_baseline_for_startup_switching(tmp_path):
     assert packaged["policy"]["anchors"] == 24
     assert packaged["policy"]["durations"][-1] == 3600
     assert packaged["model"]["max_total_calls"] == 24
+
+
+def test_locked_full_package_disables_remote_override(tmp_path):
+    for arch in ARCHES:
+        (tmp_path / f"numpy-{VERSION}-cp312-cp312-test_{arch}.whl").write_bytes(b"wheel placeholder")
+    packaged = json.loads(sources(tmp_path, locked_full=True)["config.json"])
+
+    assert packaged["release"]["profile"] == "full"
+    assert packaged["release"]["remote_config"]["enabled"] is False
+    assert packaged["release"]["remote_config"]["locked"] is True

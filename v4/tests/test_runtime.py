@@ -258,3 +258,29 @@ def test_public_feedback_samples_are_json_serializable(publication):
     )
     assert samples[0]["matched"] is True
     assert json.loads(json.dumps(samples))[0]["normalized"] == pytest.approx(1.2)
+
+
+def test_initialize_records_runtime_fiber_contract(publication):
+    events = []
+    Observer(publication, load(ROOT / "v4/agent/config.json"), lambda event, payload: events.append((event, payload)))
+    payload = next(payload for event, payload in events if event == "initialize")
+    assert payload["fibers"] == 16
+    assert payload["fiber_grid_side"] == 4
+    assert payload["fiber_contract"] == {"expected": 16, "matches": True}
+
+
+def test_rollout_profile_is_bounded_and_audited(publication):
+    config = load(ROOT / "v4/agent/config.json", {
+        "policy": {"rollout_top": 2, "rollout_weight": 0.35},
+        "observability": {"remote": {"enabled": False}},
+    })
+    observer = Observer(publication, config)
+    observer.planner.alternatives = [
+        {"merit": 1.0, "future": 4.0},
+        {"merit": 1.2, "future": 0.1},
+    ]
+    observer.planner._rollout_candidate = lambda candidate, *_args: candidate["future"]
+    status = observer.planner._apply_rollout(observer.task.start, 0, 900)
+    assert status["rollout_candidates"] == 2
+    assert status["rollout_failures"] == 0
+    assert observer.planner.alternatives[0]["merit"] == 1.0

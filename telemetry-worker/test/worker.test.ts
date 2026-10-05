@@ -9,6 +9,8 @@ const runtimeEnv = {
   TELEMETRY_READ_TOKEN: "read-test-token",
   CONFIG_READ_TOKEN: "config-read-test-token",
   CONFIG_ADMIN_TOKEN: "config-admin-test-token",
+  CONFIG_PUBLIC_READ: "true",
+  CONFIG_PUBLIC_ID: "observer4",
   TELEMETRY_MAX_BATCH: "4",
   CORS_ORIGIN: "*",
 } as unknown as Env;
@@ -77,7 +79,11 @@ describe("telemetry worker", () => {
     const published = await call("/v1/config", {
       method: "PUT",
       headers: { ...bearer("config-admin-test-token"), "content-type": "application/json" },
-      body: JSON.stringify({ config_id: "observer4", patch: { release: { profile: "formal_conservative" } }, expected_revision: 0 }),
+      body: JSON.stringify({
+        config_id: "observer4",
+        patch: { release: { profile: "formal_conservative" }, private_key: "never-publish" },
+        expected_revision: 0,
+      }),
     });
     expect(published.status).toBe(200);
     expect((await published.json() as { revision: number }).revision).toBe(1);
@@ -92,6 +98,21 @@ describe("telemetry worker", () => {
     expect(payload.schema).toBe("gosim26.v4.config-response.v1");
     expect(payload.revision).toBe(1);
     expect(payload.patch.release.profile).toBe("formal_conservative");
+
+    const publicResolved = await call("/v1/config/public/resolve", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ schema: "gosim26.v4.config-request.v1", config_id: "observer4" }),
+    });
+    expect(publicResolved.status).toBe(200);
+    const publicPayload = await publicResolved.json() as {
+      revision: number;
+      patch: { release: { profile: string }; private_key?: string };
+    };
+    expect(publicPayload.revision).toBe(1);
+    expect(publicPayload.patch.release.profile).toBe("formal_conservative");
+    expect(publicPayload.patch.private_key).toBeUndefined();
+    expect(JSON.stringify(publicPayload)).not.toContain("never-publish");
 
     const conflict = await call("/v1/config", {
       method: "PUT",

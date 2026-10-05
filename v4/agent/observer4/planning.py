@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 
 import numpy as np
@@ -373,6 +374,88 @@ class Planner:
         self.settings = self._scaled_settings(strategy_settings(self.config["policy"], strategy))
         self.scale_profile = self._scale_active()
 
+    def _rollout_requests(self, pending: dict) -> list[dict]:
+        """Apply the candidate's likely request completions to a private forecast copy."""
+        additions = {}
+        for row in pending.get("targets", []):
+            factor = float(row.get("predicted_factor", 0.0))
+            additions[self.task.ids[int(row["index"])]] = factor
+        result = []
+        for request in self.active_requests:
+            completed = set(request.get("completed_target_ids", []))
+            threshold = float(request.get("completion_factor_threshold", 1.0))
+            newly_completed = {target_id for target_id, factor in additions.items()
+                               if factor >= threshold and target_id in request.get("target_ids", [])}
+            completed.update(newly_completed)
+            updated = dict(request)
+            updated["completed_target_ids"] = sorted(completed)
+            if "remaining_count" in updated:
+                updated["remaining_count"] = max(0, int(updated["remaining_count"]) - len(newly_completed))
+            result.append(updated)
+        return result
+
+    def _rollout_candidate(self, candidate: dict, now: float, night_index: int,
+                           remaining_wallclock: float) -> float:
+        """Estimate the best next merit after one candidate without changing live state."""
+        pending = candidate["pending"]
+        state = copy.deepcopy(self.state)
+        state.task = self.task
+        program = self.task.scoring["program"]
+        multiplier = float(program["multipliers"][pending["program"]])
+        mismatch = float(program["mismatch_multiplier"])
+        for row in pending.get("targets", []):
+            index = int(row["index"])
+            factor = float(np.clip(row.get("predicted_factor", 0.0), 0.0, 1.0))
+            probability = float(np.clip(row.get("matched_probability", 0.0), 0.0, 1.0))
+            expected_multiplier = mismatch + probability * (multiplier - mismatch)
+            state.best_score[index] = max(state.best_score[index], self.task.weight[index] * factor * expected_multiplier)
+            state.factor_lower[index] = max(
+                state.factor_lower[index], factor * expected_multiplier / max(multiplier, mismatch, 1e-9)
+            )
+            state.factor_estimate[index] = max(state.factor_estimate[index], factor)
+            state.attempts[index] += 1
+
+        quality = copy.deepcopy(self.quality)
+        quality.task = self.task
+        pointing = copy.deepcopy(self.pointing)
+        pointing.task = self.task
+        config = copy.deepcopy(self.config)
+        # Keep the currently selected weekly settings, but never recurse into rollout.
+        config["policy"] = dict(self.settings, rollout_top=0, rollout_weight=0.0)
+        planner = Planner(self.task, state, quality, pointing, config)
+        if self.instrument is not None:
+            planner.instrument = copy.deepcopy(self.instrument)
+            planner.instrument.task = self.task
+        planner.set_requests(self._rollout_requests(pending))
+        next_budget = max(0.0, float(remaining_wallclock) - float(pending["duration"]))
+        next_action = planner.plan(now + float(pending["duration"]), night_index, next_budget)
+        if next_action is None:
+            return 0.0
+        return float(planner.last_trace.get("merit_per_second", 0.0))
+
+    def _apply_rollout(self, now: float, night_index: int, remaining_wallclock: float) -> dict:
+        """Rerank the two deterministic finalists using an optional one-step forecast."""
+        top = int(self.settings.get("rollout_top", 0))
+        weight = float(self.settings.get("rollout_weight", 0.0))
+        status = {"rollout_top": top, "rollout_weight": round(weight, 4), "rollout_candidates": 0,
+                  "rollout_failures": 0}
+        if top < 2 or weight <= 0 or len(self.alternatives) < 2:
+            return status
+        for candidate in self.alternatives[:min(top, len(self.alternatives))]:
+            try:
+                future = self._rollout_candidate(candidate, now, night_index, remaining_wallclock)
+            except Exception:  # noqa: BLE001 - research-only look-ahead must never stop a run
+                future = 0.0
+                status["rollout_failures"] += 1
+            candidate["rollout_future_merit"] = round(future, 6)
+            candidate["rollout_score"] = candidate["merit"] + weight * future
+            status["rollout_candidates"] += 1
+        self.alternatives.sort(
+            key=lambda item: (float(item.get("rollout_score", item["merit"])), float(item["merit"])),
+            reverse=True,
+        )
+        return status
+
     def plan(self, now: float, night_index: int, remaining_wallclock: float = 900.0) -> dict | None:
         self.alternatives = []
         task, state, settings = self.task, self.state, self.settings
@@ -692,6 +775,7 @@ class Planner:
                 break
         if not self.alternatives:
             return None
+        rollout_status = self._apply_rollout(now, night_index, remaining_wallclock)
         action = self.alternatives[0]["action"]
         self.pending = self.alternatives[0]["pending"]
         selected = np.array([row["index"] for row in self.pending["targets"]], dtype=np.int32)
@@ -707,6 +791,7 @@ class Planner:
             "program": action["program"],
             "duration_seconds": action["duration_seconds"],
             "visible_targets": int(np.count_nonzero(visible)),
+            **rollout_status,
         }
         return action
 

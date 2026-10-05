@@ -7,6 +7,10 @@ export interface Env {
   TELEMETRY_READ_TOKEN?: string;
   /** Optional separate credential for startup config reads; ingest is the fallback. */
   CONFIG_READ_TOKEN?: string;
+  /** Opt-in public, profile-only startup configuration reads. */
+  CONFIG_PUBLIC_READ?: string;
+  /** Config id exposed by the public profile-only endpoint. */
+  CONFIG_PUBLIC_ID?: string;
   /** Required for changing a config revision. Never expose this to an agent. */
   CONFIG_ADMIN_TOKEN?: string;
   TELEMETRY_MAX_BATCH?: string;

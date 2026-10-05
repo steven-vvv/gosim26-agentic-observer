@@ -72,6 +72,12 @@ def resolve_startup(local: dict) -> tuple[dict, dict]:
     local_resolved = resolve(local)
     release = local.get("release", {})
     remote = release.get("remote_config", {}) if isinstance(release, dict) else {}
+    if isinstance(remote, dict) and remote.get("locked", False):
+        return local_resolved, _local_status(
+            remote,
+            "remote_locked",
+            profile=local_resolved.get("release", {}).get("profile", "full"),
+        )
     if not isinstance(remote, dict) or not remote.get("enabled", False):
         return local_resolved, _local_status(
             remote if isinstance(remote, dict) else {},
@@ -79,13 +85,16 @@ def resolve_startup(local: dict) -> tuple[dict, dict]:
             profile=local_resolved.get("release", {}).get("profile", "full"),
         )
     url = remote.get("url")
-    token = os.environ.get("OBSERVER_CONFIG_TOKEN") or os.environ.get("TELEMETRY_TOKEN")
-    if not token and isinstance(url, str):
+    auth_mode = remote.get("auth", "token")
+    token = None if auth_mode == "public" else (
+        os.environ.get("OBSERVER_CONFIG_TOKEN") or os.environ.get("TELEMETRY_TOKEN")
+    )
+    if auth_mode != "public" and not token and isinstance(url, str):
         token = _shared_worker_token(url)
     local_profile = local_resolved.get("release", {}).get("profile", "full")
     if not isinstance(url, str) or not url.strip():
         return local_resolved, _local_status(remote, "missing_url", profile=local_profile)
-    if not token:
+    if auth_mode != "public" and not token:
         return local_resolved, _local_status(remote, "missing_token", profile=local_profile)
     try:
         parsed = urlsplit(url)
@@ -99,15 +108,17 @@ def resolve_startup(local: dict) -> tuple[dict, dict]:
             "config_sha256": _digest(local_resolved),
             "agent_version": "observer4-v4",
         }
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "user-agent": "gosim26-observer4-config/1",
+        }
+        if token:
+            headers["authorization"] = f"Bearer {token}"
         request = Request(
             url,
             data=json.dumps(request_payload, separators=(",", ":"), allow_nan=False).encode("utf-8"),
-            headers={
-                "accept": "application/json",
-                "authorization": f"Bearer {token}",
-                "content-type": "application/json",
-                "user-agent": "gosim26-observer4-config/1",
-            },
+            headers=headers,
             method="POST",
         )
         timeout = float(remote.get("timeout_seconds", 1.2))

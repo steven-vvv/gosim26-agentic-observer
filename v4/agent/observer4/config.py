@@ -98,9 +98,11 @@ def validate(config: dict) -> None:
     remote = release.get("remote_config", {})
     if not isinstance(remote, dict):
         raise TypeError("release.remote_config must be an object")
-    for name in ("enabled", "required"):
+    for name in ("enabled", "required", "locked"):
         if name in remote and type(remote[name]) is not bool:
             raise ValueError(f"boolean configuration required for release.remote_config.{name}")
+    if "auth" in remote and remote["auth"] not in {"token", "public"}:
+        raise ValueError("release.remote_config.auth must be 'token' or 'public'")
     if "url" in remote and (not isinstance(remote["url"], str) or len(remote["url"]) > 512):
         raise ValueError("invalid release.remote_config.url")
     if "config_id" in remote and (not isinstance(remote["config_id"], str) or not remote["config_id"].strip()):
@@ -192,6 +194,13 @@ def validate(config: dict) -> None:
             value = config["policy"][name]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
                 raise ValueError(f"invalid configuration field: policy.{name}")
+    for name, (low, high) in {"rollout_top": (0, 2), "rollout_weight": (0, 2)}.items():
+        if name in config["policy"]:
+            value = config["policy"][name]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
+                raise ValueError(f"invalid configuration field: policy.{name}")
+    if "rollout_top" in config["policy"] and type(config["policy"]["rollout_top"]) is not int:
+        raise ValueError("integer configuration required in policy.rollout_top")
     # The scale profile was added after the first public configs. Keep those
     # configs loadable while validating every field when the profile exists.
     if "scale" in config:

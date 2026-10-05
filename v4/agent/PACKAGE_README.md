@@ -21,8 +21,21 @@ uses a smaller anchor search, and caps model guidance at 12 calls per card (8 pe
 The selected profile is recorded in the startup `runtime` event and in the package
 configuration hash.
 
+For a package that must stay at full strength and cannot be changed by a cloud profile,
+build the locked variant:
+
+```bash
+uv run python -m v4.evaluation.package --locked-full
+```
+
+It bakes `full`, sets `remote_config.locked=true` and disables the startup request. The
+runtime records `remote_locked`, so the absence of a network request is auditable.
+
 When `release.remote_config.enabled` is true, startup makes one bounded POST request to
-the configured `/v1/config/resolve` endpoint. `OBSERVER_CONFIG_TOKEN` is preferred and
+the configured endpoint. The checked-in full package uses the Worker's public,
+profile-only `/v1/config/public/resolve` route, so it does not need a token; only `full`
+and `formal_conservative` can be returned there. A private endpoint may instead use
+`auth: "token"`, in which case `OBSERVER_CONFIG_TOKEN` is preferred and
 `TELEMETRY_TOKEN` is the supported formal-run variable for the same Worker deployment
 (`OBSERVER_*` names are reserved by the upstream team-egress runtime; the former is a
 local/dev override). A response must carry the
@@ -33,7 +46,8 @@ runtime event. If neither explicit token is present, the client may reuse
 `OPENAI_API_KEY` only when `OPENAI_BASE_URL` points to the same Worker host and port as
 the config endpoint. This compatibility path sends the key only as the request
 credential; the endpoint still receives configuration metadata, never prompts or model
-requests. A model key is never reused for an unrelated config host.
+requests. A model key is never reused for an unrelated config host. A locked package skips
+this entire path before parsing credentials.
 
 ## Large language model stages
 
@@ -82,6 +96,12 @@ observation is kept for that decision and the run continues.
 - `observer4/pointing.py`: pointing-offset estimate from hits and misses.
 - `observer4/state.py`: best-score ledger, including `state_resync` handling.
 - `observer4/opportunity.py`: expected later chances of each required target.
+
+The official v4 cards publish the instrument geometry in `initialize`, including 16 fibres
+(`grid_side=4`, `n_fibers=16`). The agent reads those values at runtime and uses the actual
+grid size in planning; the initialize telemetry also records `fibers`, `fiber_grid_side`
+and a 16-fibre contract match flag. Historical large-fibre stress cards are not the current
+registered card contract.
 
 ## Scale and observability
 
