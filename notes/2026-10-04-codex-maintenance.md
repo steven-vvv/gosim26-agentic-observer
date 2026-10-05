@@ -2,7 +2,7 @@
 
 ## 同步状态
 
-- 当前工作分支为 `codex`，以 `041c634` 为同步基线；云控修复和交付提交为 `370daa0`，正式榜复评记录提交为 `6787bda`，因此 `codex` 目前领先本地 `main`、`claude` 两个提交。
+- 当前工作分支为 `codex`，以 `041c634` 为同步基线；云控修复、正式榜复评及维护记录均已提交，`codex` 当前包含本轮全部维护提交并领先本地 `main`、`claude`。
 - 上游 `../hackathon-survey26` 已从 `8cbf8adc4b18d5f059cc77a71210717e91ecc052` 快进到 `d293dea69b78d15fa8549b73ba242af301abe2b4`，与 `v4/evaluation/upstream.lock.json` 一致，工作树干净。
 - 本次上游 12 个提交主要涉及平台阶段管理、CLI、示例和运行环境；`challenge/` 与 `starter_kit_v4/` 无差异，v4 协议和计分实现没有直接变化。
 - 上游新增的 `--no-model` 仅用于线上/练习项目评测，隐藏决赛不会设置该开关；因此对当前 formal/full 包没有直接影响。实践期默认值、团队变量和 egress 调整属于平台层行为，已纳入同步但无需改动 v4 agent。
