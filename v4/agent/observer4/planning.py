@@ -261,6 +261,14 @@ class Planner:
         share = np.clip(self._future_hours[night_index] / horizon, 0.0, 1.0)
         return 1.0 + (base - 1.0) * share
 
+    def _remaining_hours(self, night_index: int) -> np.ndarray:
+        """Public visible hours of every target from tonight to the end of the season."""
+        if self._future_hours is None:
+            future = np.cumsum(self.task.visibility[::-1], axis=0)[::-1] / 3600.0
+            self._future_hours = np.vstack((future[1:], np.zeros((1, future.shape[1]))))
+        tonight = self.task.visibility[night_index] / 3600.0
+        return self._future_hours[night_index] + tonight
+
     def set_requests(self, active_requests: list[dict]) -> None:
         self.active_requests = active_requests
 
@@ -606,6 +614,16 @@ class Planner:
         threshold = float(task.scoring["required"]["observed_factor_threshold"])
         incomplete = task.required & (state.factor_lower < threshold)
         urgency = 1.0 + settings["deadline_weight"] / np.maximum(1, task.last_night - night_index + 1)
+        season = float(settings.get("season_weight", 0.0))
+        if season > 0:
+            # Long seasons: a target whose remaining public visible hours are few, compared with
+            # the typical target, has fewer later chances; this ranks it ahead while it lasts.
+            future = self._remaining_hours(night_index)
+            alive = future > 0
+            if np.any(alive):
+                typical = float(np.median(future[alive]))
+                scarce = np.clip(typical / np.maximum(future, 1.0), 1.0, 4.0) - 1.0
+                urgency = urgency * (1.0 + season * np.where(alive, scarce, 0.0))
         if self.opportunity is not None and self.instrument is not None:
             try:
                 chances = self.opportunity.urgency(night_index, self.instrument.sky_levels(), threshold,
@@ -613,7 +631,15 @@ class Planner:
                 urgency = np.where(task.required, chances, urgency)
             except Exception:  # noqa: BLE001 - keep the deadline urgency
                 self.opportunity = None
-        setting_boost = 1.0 + 0.35 * np.maximum(0, ha / np.maximum(1, task.hmax))
+        setting_boost = 1.0 + float(settings.get("setting_boost", 0.35)) * np.maximum(0, ha / np.maximum(1, task.hmax))
+        rising = float(settings.get("rising_weight", 0.0))
+        if rising > 0:
+            # A rising target that transits before the night ends is cheaper to expose later
+            # tonight (lower airmass); discount it by how far it still is from the meridian.
+            transit = now - ha / SIDEREAL_RATE
+            later = (ha < 0) & (transit <= min(night.end, task.end))
+            setting_boost = setting_boost * np.where(
+                later, 1.0 - rising * np.clip(-ha / np.maximum(1, task.hmax), 0.0, 1.0), 1.0)
         tonight = float(settings.get("tonight_weight", 0.0))
         if tonight > 0:
             # Required targets whose window tonight closes soon lose their chance for the
@@ -629,6 +655,16 @@ class Planner:
             # Elementwise, so the anchor search reuses its entries for each neighbourhood.
             estimate_value = science_value(state.factor_estimate, exponent, science_cap)
             science = task.weight * np.maximum(0, science_value(reach, exponent, science_cap) - estimate_value)
+        upgrade = float(settings.get("upgrade_weight", 0.0))
+        if upgrade > 0:
+            # A complete target scored under a mismatched or weaker program can still gain the
+            # multiplier difference; valued linearly in score and scaled down, so it only wins
+            # when new completions are scarce (long seasons).
+            top_multiplier = float(np.max(mult))
+            expected_top = np.max(expected_mult, axis=0)
+            complete = state.factor_estimate >= float(settings.get("upgrade_factor", 0.95))
+            linear = np.maximum(0, task.weight * expected_top * reach - state.best_score) / top_multiplier
+            science = np.where(complete, np.maximum(science, upgrade * linear), science)
         required_bonus = settings["required_bonus"] if self.scarcity is None else (
             settings["required_bonus"] * self.scarcity[night_index]
         )
@@ -733,6 +769,11 @@ class Planner:
                 science_gain -= estimate_value[near]
                 np.maximum(0, science_gain, out=science_gain)
                 science_gain *= task.weight[near]
+                if upgrade > 0:
+                    linear = np.maximum(
+                        0, task.weight[near] * expected_top[near] * factors - state.best_score[near]) / top_multiplier
+                    science_gain = np.where(complete[near][None, :], np.maximum(science_gain, upgrade * linear),
+                                            science_gain)
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
             safe = factors >= settings["required_safe_factor"]
             req_gain = incomplete[near][None, :] * safe * near_bonus
