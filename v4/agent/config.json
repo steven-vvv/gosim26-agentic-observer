@@ -73,6 +73,7 @@
     "upgrade_weight": 0.0,
     "upgrade_factor": 0.95,
     "season_weight": 0.0,
+    "window_weight": 0.0,
     "level_safety_z": 1.5,
     "program_uncertainty_floor": 0.05
   },

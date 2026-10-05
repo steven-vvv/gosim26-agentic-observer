@@ -21,6 +21,7 @@ from .geometry import (
     wrap180,
 )
 from .opportunity import OpportunityModel
+from .structure import card_structure
 
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
 # Priority factor after k recorded misses (k capped at 6): max(0.25, 0.80 ** k), elementwise.
@@ -191,7 +192,7 @@ class Planner:
     def __init__(self, task, state, quality, pointing, config: dict):
         self.task, self.state, self.quality, self.pointing = task, state, quality, pointing
         self.config = config
-        self.structure = self._card_structure()
+        self.structure = card_structure(task, config.get("structure") or {})
         self.settings = self._scaled_settings(config["policy"])
         self.scale_profile = self._scale_active()
         task.prepare_neighbors(self.settings["neighbor_radius_deg"])
@@ -225,34 +226,6 @@ class Planner:
         profile = self.config.get("scale") or {}
         cost = len(getattr(self.task, "ids", ())) * int(getattr(getattr(self.task, "grid", None), "n", 0))
         return bool(profile.get("enabled", False)) and cost >= int(profile.get("cost_threshold", 0))
-
-    def _card_structure(self) -> dict:
-        """Public season structure of the card, and the policy overrides it selects.
-
-        ``late_share``: fraction of targets with more than ``late_fraction`` of their public
-        visible hours in the last third of the season (a region that only rises late). The
-        nightly setting boost then keeps the earlier region busy when the late one finally
-        rises. ``fiber_hours``: fibre hours of the whole season per target; a season rich in
-        time can afford re-exposures for a better program multiplier.
-        """
-        switch = self.config.get("structure") or {}
-        task = self.task
-        visibility = np.asarray(getattr(task, "visibility", np.zeros((0, 0))))
-        result = {"late_share": None, "fiber_hours": None, "overrides": {}}
-        if not switch.get("enabled", False) or visibility.size == 0:
-            return result
-        nights = visibility.shape[0]
-        total = visibility.sum(axis=0)
-        late = visibility[nights - nights // 3:].sum(axis=0)
-        share = float(np.mean(late > float(switch.get("late_fraction", 0.6)) * np.maximum(total, 1e-9)))
-        hours = sum(night.end - night.start for night in task.nights) / 3600.0
-        fiber_hours = task.grid.n * hours / max(1, len(task.ids))
-        overrides = {}
-        if share >= float(switch.get("late_share_threshold", 1.0)):
-            overrides.update(switch.get("late_overrides", {}))
-        if fiber_hours >= float(switch.get("rich_fiber_hours", 1e9)):
-            overrides.update(switch.get("rich_overrides", {}))
-        return {"late_share": round(share, 4), "fiber_hours": round(fiber_hours, 3), "overrides": overrides}
 
     def _scaled_settings(self, settings: dict) -> dict:
         """Reduce geometric search only when the card's estimated work is large.
@@ -655,6 +628,18 @@ class Planner:
                 typical = float(np.median(future[alive]))
                 scarce = np.clip(typical / np.maximum(future, 1.0), 1.0, 4.0) - 1.0
                 urgency = urgency * (1.0 + season * np.where(alive, scarce, 0.0))
+        window = float(settings.get("window_weight", 0.0))
+        if window > 0:
+            # Remaining chances in nights: visible hours left this season over tonight's. A
+            # target that will be gone after a few such nights ranks ahead of one with many
+            # left; a region that mostly rises later in the season is not urgent before then.
+            tonight = task.visibility[night_index] / 3600.0
+            nights_left = self._remaining_hours(night_index) / np.maximum(tonight, 0.25)
+            up = tonight > 0
+            if np.any(up):
+                typical = float(np.median(nights_left[up]))
+                scarce = np.clip(typical / np.maximum(nights_left, 1.0), 1.0, 4.0) - 1.0
+                urgency = urgency * (1.0 + window * np.where(up, scarce, 0.0))
         if self.opportunity is not None and self.instrument is not None:
             try:
                 chances = self.opportunity.urgency(night_index, self.instrument.sky_levels(), threshold,
