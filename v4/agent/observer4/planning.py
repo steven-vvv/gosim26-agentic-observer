@@ -60,56 +60,89 @@ def _rank_order(starts: np.ndarray, sizes: np.ndarray):
     return starts[segments][slots] + np.repeat(np.arange(len(per_rank)), per_rank), segments, per_rank.tolist()
 
 
+def _segments(keys: np.ndarray):
+    """First index and length of each run of equal values in ``keys`` (not empty)."""
+    boundary = np.empty(len(keys), dtype=bool)
+    boundary[0] = True
+    np.not_equal(keys[1:], keys[:-1], out=boundary[1:])
+    starts = np.flatnonzero(boundary)
+    return starts, np.diff(starts, append=len(keys))
+
+
 def fiber_totals(fibers: np.ndarray, gains: np.ndarray, weight: np.ndarray, count: int) -> np.ndarray:
     """Sum the best target per fiber for each candidate center and duration.
 
     Only centre-target pairs inside a fibre are reduced; the result is bitwise equal to the
     dense reduction over every pair, including its zero floor and summation order. Each
     (centre, fibre) maximum takes its targets in index order, rank by rank (see
-    _rank_order), as np.maximum.reduceat did.
+    _rank_order), as np.maximum.reduceat did; each centre then adds its fibres in fibre
+    order the same way.
     """
     centers, targets = fibers.shape
-    totals = np.zeros((count * centers, gains.shape[0]))
+    result = np.zeros((centers, gains.shape[0]))
     flat = np.flatnonzero(fibers >= 0)
-    if len(flat):
-        labels = flat // targets * count + fibers.ravel()[flat]
-        # A stable sort depends only on the keys; 16-bit keys take numpy's radix sort.
-        keys = labels.astype(np.int16) if count * centers <= np.iinfo(np.int16).max else labels
-        order = np.argsort(keys, kind="stable")
-        labels = labels[order]
-        boundary = np.empty(len(labels), dtype=bool)
-        boundary[0] = True
-        np.not_equal(labels[1:], labels[:-1], out=boundary[1:])
-        starts = np.flatnonzero(boundary)
-        sizes = np.diff(starts, append=len(labels))
-        rows, groups, per_rank = _rank_order(starts, sizes)
-        pairs = flat[order[rows]]
-        target = pairs % targets
-        pair_weight = weight.ravel()[pairs][:, None]
-        table = np.ascontiguousarray(gains.T)
-        first = per_rank[0]
-        maxima = table[target[:first]]
-        maxima *= pair_weight[:first]
-        buffer = np.empty_like(maxima)
-        start = first
-        for n in per_rank[1:]:
-            part = buffer[:n]
-            table.take(target[start:start + n], axis=0, out=part)
-            part *= pair_weight[start:start + n]
-            np.maximum(maxima[:n], part, out=maxima[:n])
-            start += n
-        # The dense search included zero for every target outside a fiber; only fibres
-        # holding every target (the longest groups, so a prefix) had none.
-        full = int(np.count_nonzero(sizes == targets))
-        np.maximum(maxima[full:], 0, out=maxima[full:])
-        group_labels = labels[starts][groups]
-        totals[group_labels % count * centers + group_labels // count] = maxima
-    totals = totals.reshape(count, centers, -1)
-    # Sequential sum over fibres, the same order as np.add.accumulate.
-    result = totals[0].copy()
-    for fiber in range(1, count):
-        result += totals[fiber]
+    if not len(flat):
+        return result
+    labels = flat // targets * count + fibers.ravel()[flat]
+    # A stable sort depends only on the keys; 16-bit keys take numpy's radix sort.
+    keys = labels.astype(np.int16) if count * centers <= np.iinfo(np.int16).max else labels
+    order = np.argsort(keys, kind="stable")
+    labels = labels[order]
+    starts, sizes = _segments(labels)
+    rows, groups, per_rank = _rank_order(starts, sizes)
+    pairs = flat[order[rows]]
+    target = pairs % targets
+    pair_weight = weight.ravel()[pairs][:, None]
+    table = np.ascontiguousarray(gains.T)
+    first = per_rank[0]
+    maxima = table[target[:first]]
+    maxima *= pair_weight[:first]
+    buffer = np.empty_like(maxima)
+    start = first
+    for n in per_rank[1:]:
+        part = buffer[:n]
+        table.take(target[start:start + n], axis=0, out=part)
+        part *= pair_weight[start:start + n]
+        np.maximum(maxima[:n], part, out=maxima[:n])
+        start += n
+    # The dense search included zero for every target outside a fiber; only fibres
+    # holding every target (the longest groups, so a prefix) had none.
+    full = int(np.count_nonzero(sizes == targets))
+    np.maximum(maxima[full:], 0, out=maxima[full:])
+    # A centre's groups are contiguous in label order and ordered by fibre. The dense sum
+    # also added +0.0 for each empty fibre, which can only turn a -0.0 running sum into
+    # +0.0 for good; centres with an empty fibre therefore add a single zero at the end.
+    position = np.empty(len(groups), dtype=np.intp)
+    position[groups] = np.arange(len(groups))
+    group_centers = labels[starts] // count
+    center_starts, center_sizes = _segments(group_centers)
+    rows, segments, per_rank = _rank_order(center_starts, center_sizes)
+    rows = position[rows]
+    first = per_rank[0]
+    sums = maxima[rows[:first]]
+    start = first
+    for n in per_rank[1:]:
+        part = buffer[:n]
+        maxima.take(rows[start:start + n], axis=0, out=part)
+        np.add(sums[:n], part, out=sums[:n])
+        start += n
+    sums[center_sizes[segments] < count] += 0.0
+    result[group_centers[center_starts[segments]]] = sums
     return result
+
+
+def _fiber_choices(fibers: np.ndarray, gain: np.ndarray, near: np.ndarray) -> list:
+    """(fibre, target) with the largest positive gain in each fibre, in fibre order.
+
+    Ties keep the lowest index, as np.argmax over each fibre's targets did.
+    """
+    ids = np.flatnonzero((fibers >= 0) & (gain > 0))
+    if not len(ids):
+        return []
+    ids = ids[np.lexsort((-gain[ids], fibers[ids]))]
+    fiber = fibers[ids]
+    starts, _ = _segments(fiber)
+    return list(zip(fiber[starts].tolist(), near[ids[starts]].tolist()))
 
 
 def expected_science_gains(factors: np.ndarray, weights: np.ndarray, best: np.ndarray,
@@ -293,12 +326,7 @@ class Planner:
         value = float(merit[center_i, duration_i])
         if value <= item["merit"] * (1.0 + 1e-9):
             return len(ca)
-        gain = gains[duration_i] * geometry_weight[center_i]
-        selected = []
-        for fiber in range(task.grid.n):
-            ids = np.flatnonzero((fibers[center_i] == fiber) & (gain > 0))
-            if len(ids):
-                selected.append((fiber, int(near[ids[int(np.argmax(gain[ids]))]])))
+        selected = _fiber_choices(fibers[center_i], gains[duration_i] * geometry_weight[center_i], near)
         item.update({"merit": value, "alt": float(ca[center_i]), "az": float(cz[center_i]),
                      "duration": int(durations[duration_i]), "selected": selected, "refined": True})
         return len(ca)
@@ -732,12 +760,8 @@ class Planner:
                 value = float(merit[center_i, duration_i])
             if value <= 0 or (len(finalists) >= 6 and value <= finalists[-1]["merit"]):
                 continue
-            selected = []
             gain = gains[program_i, duration_i] * geometry_weight[center_i] if program_i is not None else gains[duration_i] * geometry_weight[center_i]
-            for fiber in range(task.grid.n):
-                ids = np.flatnonzero((fibers[center_i] == fiber) & (gain > 0))
-                if len(ids):
-                    selected.append((fiber, int(near[ids[int(np.argmax(gain[ids]))]])))
+            selected = _fiber_choices(fibers[center_i], gain, near)
             candidate = {
                 "merit": value,
                 "alt": float(ca[center_i]),
