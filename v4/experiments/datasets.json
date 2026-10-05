@@ -380,5 +380,16 @@
     "sources": {
       "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
     }
+  },
+  "trial-acd": {
+    "sealed": false,
+    "cards": [
+      "trial-a",
+      "trial-c",
+      "trial-d"
+    ],
+    "sources": {
+      "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
+    }
   }
 }
