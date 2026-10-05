@@ -239,6 +239,22 @@ def validate(config: dict) -> None:
         ):
             raise ValueError("scale.durations must contain integer seconds within 60..3600")
         scale["durations"] = sorted(set(scale_durations))
+    if "structure" in config:
+        structure = config["structure"]
+        if not isinstance(structure, dict) or type(structure.get("enabled")) is not bool:
+            raise ValueError("structure configuration must be an object with a boolean enabled")
+        for name, (low, high) in {"late_fraction": (0, 1), "late_share_threshold": (0, 1),
+                                  "rich_fiber_hours": (0, 1e9)}.items():
+            value = structure.get(name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
+                raise ValueError(f"invalid configuration field: structure.{name}")
+        allowed = {"setting_boost", "rising_weight", "upgrade_weight", "upgrade_factor", "season_weight"}
+        for name in ("late_overrides", "rich_overrides"):
+            overrides = structure.get(name)
+            if not isinstance(overrides, dict) or not set(overrides) <= allowed or any(
+                    isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+                    for value in overrides.values()):
+                raise ValueError(f"invalid configuration field: structure.{name}")
     for name in ("forecast_guard", "quake_cooldown"):
         if name in config["fault"] and type(config["fault"][name]) is not bool:
             raise ValueError(f"boolean configuration required for fault.{name}")

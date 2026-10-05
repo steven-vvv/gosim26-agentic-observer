@@ -95,6 +95,18 @@
       3600
     ]
   },
+  "structure": {
+    "enabled": false,
+    "late_fraction": 0.6,
+    "late_share_threshold": 0.3,
+    "late_overrides": {
+      "setting_boost": 0.0
+    },
+    "rich_fiber_hours": 4.0,
+    "rich_overrides": {
+      "upgrade_weight": 0.5
+    }
+  },
   "quality": {
     "prior": 0.78,
     "memory_hours": 1.5,
