@@ -194,7 +194,8 @@ def validate(config: dict) -> None:
             value = config["policy"][name]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
                 raise ValueError(f"invalid configuration field: policy.{name}")
-    for name, (low, high) in {"rollout_top": (0, 2), "rollout_weight": (0, 2)}.items():
+    for name, (low, high) in {"rollout_top": (0, 2), "rollout_weight": (0, 2), "setting_boost": (0, 2),
+                              "rising_weight": (0, 1), "upgrade_weight": (0, 2), "upgrade_factor": (0.5, 1)}.items():
         if name in config["policy"]:
             value = config["policy"][name]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:

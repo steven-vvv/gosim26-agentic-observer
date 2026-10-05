@@ -68,6 +68,10 @@
     "pace_floor": 0.8,
     "rollout_top": 0,
     "rollout_weight": 0.0,
+    "setting_boost": 0.35,
+    "rising_weight": 0.0,
+    "upgrade_weight": 0.0,
+    "upgrade_factor": 0.95,
     "level_safety_z": 1.5,
     "program_uncertainty_floor": 0.05
   },

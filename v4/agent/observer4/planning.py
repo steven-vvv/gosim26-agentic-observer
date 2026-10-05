@@ -539,7 +539,15 @@ class Planner:
                 urgency = np.where(task.required, chances, urgency)
             except Exception:  # noqa: BLE001 - keep the deadline urgency
                 self.opportunity = None
-        setting_boost = 1.0 + 0.35 * np.maximum(0, ha / np.maximum(1, task.hmax))
+        setting_boost = 1.0 + float(settings.get("setting_boost", 0.35)) * np.maximum(0, ha / np.maximum(1, task.hmax))
+        rising = float(settings.get("rising_weight", 0.0))
+        if rising > 0:
+            # A rising target that transits before the night ends is cheaper to expose later
+            # tonight (lower airmass); discount it by how far it still is from the meridian.
+            transit = now - ha / SIDEREAL_RATE
+            later = (ha < 0) & (transit <= min(night.end, task.end))
+            setting_boost = setting_boost * np.where(
+                later, 1.0 - rising * np.clip(-ha / np.maximum(1, task.hmax), 0.0, 1.0), 1.0)
         tonight = float(settings.get("tonight_weight", 0.0))
         if tonight > 0:
             # Required targets whose window tonight closes soon lose their chance for the
@@ -555,6 +563,16 @@ class Planner:
             science = task.weight * np.maximum(
                 0, science_value(reach, exponent, science_cap) - science_value(state.factor_estimate, exponent, science_cap)
             )
+        upgrade = float(settings.get("upgrade_weight", 0.0))
+        if upgrade > 0:
+            # A complete target scored under a mismatched or weaker program can still gain the
+            # multiplier difference; valued linearly in score and scaled down, so it only wins
+            # when new completions are scarce (long seasons).
+            top_multiplier = float(np.max(mult))
+            expected_top = np.max(expected_mult, axis=0)
+            complete = state.factor_estimate >= float(settings.get("upgrade_factor", 0.95))
+            linear = np.maximum(0, task.weight * expected_top * reach - state.best_score) / top_multiplier
+            science = np.where(complete, np.maximum(science, upgrade * linear), science)
         required_bonus = settings["required_bonus"] if self.scarcity is None else (
             settings["required_bonus"] * self.scarcity[night_index]
         )
@@ -652,6 +670,11 @@ class Planner:
                 science_gain = task.weight[near] * np.maximum(
                     0, science_value(factors, power, near_cap) - science_value(state.factor_estimate[near], power, near_cap)
                 )
+                if upgrade > 0:
+                    linear = np.maximum(
+                        0, task.weight[near] * expected_top[near] * factors - state.best_score[near]) / top_multiplier
+                    science_gain = np.where(complete[near][None, :], np.maximum(science_gain, upgrade * linear),
+                                            science_gain)
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
             req_gain = incomplete[near][None, :] * (factors >= settings["required_safe_factor"]) * near_bonus
             request_gain = self._request_gains(request_terms, near, durations, factors, now)
