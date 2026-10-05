@@ -701,7 +701,9 @@ class Planner:
             glass_margin = min(glass_margin, self.pointing.uncertainty + settings.get("margin_floor_deg", 0.012))
         finalists = []
         used = []
-        used_vectors = []
+        # Rows of the anchors in use; vecdot forms each row's 3-term dot product as the
+        # one-dimensional matmul did, so the spread test sees the same cosines.
+        used_vectors = np.empty((max(count, 0), 3))
         spread = math.cos(0.6 * RAD)
         fields_checked = 0
         for anchor in pool:
@@ -709,10 +711,10 @@ class Planner:
                 break
             # Spread the search over distinct fields rather than repeatedly testing one cluster.
             anchor_vector = task.vectors[anchor]
-            if any(float(anchor_vector @ other) > spread for other in used_vectors):
+            if np.any(np.vecdot(used_vectors[:len(used)], anchor_vector) > spread):
                 continue
+            used_vectors[len(used)] = anchor_vector
             used.append(int(anchor))
-            used_vectors.append(anchor_vector)
             near = task.neighbors(int(anchor))
             near = near[visible[near] & (directional[near] > 0) & (terrain_free[near] > 0.02)]
             if not len(near):
