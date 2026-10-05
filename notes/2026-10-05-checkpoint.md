@@ -15,7 +15,7 @@
 
 | 路径 | 分支 | 内容 |
 | --- | --- | --- |
-| `GOSIM26` | `claude` @ `8d920c2` | 四类卡生成器 `v4/evaluation/kinds.py`、规格 `kind_specs/`、`fiber_audit.py`、数据集与补丁、笔记 |
+| `GOSIM26` | `claude`（本文件所在提交） | 四类卡生成器 `v4/evaluation/kinds.py`、规格 `kind_specs/`、`fiber_audit.py`、数据集与补丁、笔记 |
 | `../GOSIM26-perf` | `perf` @ `1efffc3` | **逐位不变的提速**（10 个提交），CPU 约为原来的 50–60 % |
 | `../GOSIM26-algo` | `algo` @ `bedb47b` | 研究参数 `setting_boost` / `rising_weight` / `upgrade_weight` / `upgrade_factor` |
 | `../GOSIM26-season` | `season` @ `c1547a6` | 加 `season_weight` |
