@@ -45,31 +45,70 @@ def strategy_settings(policy: dict, strategy: str) -> dict:
     return settings
 
 
+def _rank_order(starts: np.ndarray, sizes: np.ndarray):
+    """Rank-major order of contiguous row segments (first rows ``starts``, lengths ``sizes``).
+
+    Rank r lists the r-th row of every segment longer than r, longest segments first (a
+    stable order), so the segments present at each rank are a prefix of that order and an
+    elementwise reduction over each segment in row order takes one slice per rank.
+    Returns the row order, the segment order and the number of segments at each rank.
+    """
+    segments = np.argsort(-sizes, kind="stable")
+    per_rank = len(sizes) - np.cumsum(np.bincount(sizes))[:-1]
+    offsets = np.cumsum(per_rank) - per_rank
+    slots = np.arange(int(per_rank[-1] + offsets[-1])) - np.repeat(offsets, per_rank)
+    return starts[segments][slots] + np.repeat(np.arange(len(per_rank)), per_rank), segments, per_rank.tolist()
+
+
 def fiber_totals(fibers: np.ndarray, gains: np.ndarray, weight: np.ndarray, count: int) -> np.ndarray:
     """Sum the best target per fiber for each candidate center and duration.
 
     Only centre-target pairs inside a fibre are reduced; the result is bitwise equal to the
-    dense reduction over every pair, including its zero floor and summation order.
+    dense reduction over every pair, including its zero floor and summation order. Each
+    (centre, fibre) maximum takes its targets in index order, rank by rank (see
+    _rank_order), as np.maximum.reduceat did.
     """
     centers, targets = fibers.shape
-    c_idx, t_idx = np.nonzero(fibers >= 0)
-    totals = np.zeros((centers * count, gains.shape[0]))
-    if len(c_idx):
-        labels = c_idx * count + fibers[c_idx, t_idx]
-        order = np.argsort(labels, kind="stable")
-        sorted_labels = labels[order]
-        starts = np.r_[0, np.flatnonzero(np.diff(sorted_labels)) + 1]
-        values = (gains[:, t_idx[order]] * weight[c_idx[order], t_idx[order]][None, :]).T
-        maxima = np.maximum.reduceat(values, starts, axis=0)
-        sizes = np.diff(np.r_[starts, len(sorted_labels)])
-        # The dense search included zero for every target outside a fiber.
-        maxima = np.where(sizes[:, None] < targets, np.maximum(maxima, 0), maxima)
-        totals[sorted_labels[starts]] = maxima
-    totals = totals.reshape(centers, count, -1)
+    totals = np.zeros((count * centers, gains.shape[0]))
+    flat = np.flatnonzero(fibers >= 0)
+    if len(flat):
+        labels = flat // targets * count + fibers.ravel()[flat]
+        # A stable sort depends only on the keys; 16-bit keys take numpy's radix sort.
+        keys = labels.astype(np.int16) if count * centers <= np.iinfo(np.int16).max else labels
+        order = np.argsort(keys, kind="stable")
+        labels = labels[order]
+        boundary = np.empty(len(labels), dtype=bool)
+        boundary[0] = True
+        np.not_equal(labels[1:], labels[:-1], out=boundary[1:])
+        starts = np.flatnonzero(boundary)
+        sizes = np.diff(starts, append=len(labels))
+        rows, groups, per_rank = _rank_order(starts, sizes)
+        pairs = flat[order[rows]]
+        target = pairs % targets
+        pair_weight = weight.ravel()[pairs][:, None]
+        table = np.ascontiguousarray(gains.T)
+        first = per_rank[0]
+        maxima = table[target[:first]]
+        maxima *= pair_weight[:first]
+        buffer = np.empty_like(maxima)
+        start = first
+        for n in per_rank[1:]:
+            part = buffer[:n]
+            table.take(target[start:start + n], axis=0, out=part)
+            part *= pair_weight[start:start + n]
+            np.maximum(maxima[:n], part, out=maxima[:n])
+            start += n
+        # The dense search included zero for every target outside a fiber; only fibres
+        # holding every target (the longest groups, so a prefix) had none.
+        full = int(np.count_nonzero(sizes == targets))
+        np.maximum(maxima[full:], 0, out=maxima[full:])
+        group_labels = labels[starts][groups]
+        totals[group_labels % count * centers + group_labels // count] = maxima
+    totals = totals.reshape(count, centers, -1)
     # Sequential sum over fibres, the same order as np.add.accumulate.
-    result = totals[:, 0, :].copy()
+    result = totals[0].copy()
     for fiber in range(1, count):
-        result += totals[:, fiber, :]
+        result += totals[fiber]
     return result
 
 
