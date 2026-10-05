@@ -353,10 +353,9 @@ class Planner:
         task = self.task
         radius = math.cos(float(self.settings.get("cluster_radius_deg", 1.3)) * RAD)
         values = np.zeros(len(pool))
-        for k, anchor in enumerate(pool):
-            near = task.neighbors(int(anchor))
-            close = near[task.vectors[near] @ task.vectors[int(anchor)] >= radius]
-            values[k] = float(np.sum(priority[close]))
+        # Only the anchors after the head are ordered by their surroundings.
+        for k in range(count, len(pool)):
+            values[k] = float(np.sum(priority[task.close_neighbors(int(pool[k]), radius)]))
         head = pool[:count]
         rest = pool[count:]
         rest = rest[np.lexsort((rest, -values[count:]))]
@@ -593,9 +592,9 @@ class Planner:
             science = np.max(expected_science_gains(reach[None, :], task.weight, state.best_score,
                                                     probabilities, mult, mismatch)[:, 0, :], axis=0)
         else:
-            science = task.weight * np.maximum(
-                0, science_value(reach, exponent, science_cap) - science_value(state.factor_estimate, exponent, science_cap)
-            )
+            # Elementwise, so the anchor search reuses its entries for each neighbourhood.
+            estimate_value = science_value(state.factor_estimate, exponent, science_cap)
+            science = task.weight * np.maximum(0, science_value(reach, exponent, science_cap) - estimate_value)
         required_bonus = settings["required_bonus"] if self.scarcity is None else (
             settings["required_bonus"] * self.scarcity[night_index]
         )
@@ -691,7 +690,7 @@ class Planner:
                 near_cap = science_cap[near] if science_cap is not None else None
                 power = exponent if np.ndim(exponent) == 0 else exponent[near]
                 science_gain = task.weight[near] * np.maximum(
-                    0, science_value(factors, power, near_cap) - science_value(state.factor_estimate[near], power, near_cap)
+                    0, science_value(factors, power, near_cap) - estimate_value[near]
                 )
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
             req_gain = incomplete[near][None, :] * (factors >= settings["required_safe_factor"]) * near_bonus
@@ -942,14 +941,14 @@ class Planner:
 
     def _durations(self, rate, required, left: float, request_thresholds=None):
         low, high = self.task.minimum_exposure, min(self.task.maximum_exposure, int(left))
-        values = list(self.settings["durations"])
+        values = {int(x) for x in [*self.settings["durations"], high] if low <= x <= high}
         if self.settings["adaptive_durations"]:
             thresholds = np.where(required, self.settings["required_safe_factor"], 1.0)
-            candidates = thresholds / np.maximum(rate, 1e-9)
-            values.extend(np.ceil(candidates / 30).astype(np.int64) * 30)
+            candidates = [thresholds / np.maximum(rate, 1e-9)]
             if request_thresholds is not None:
                 requested = request_thresholds > 0
-                candidates = request_thresholds[requested] / np.maximum(rate[requested], 1e-9)
-                values.extend(np.ceil(candidates / 30).astype(np.int64) * 30)
-        values.append(high)
-        return np.array(sorted({int(x) for x in values if low <= x <= high}), dtype=np.int32)
+                candidates.append(request_thresholds[requested] / np.maximum(rate[requested], 1e-9))
+            # The per-target durations are filtered and deduplicated as arrays.
+            steps = np.ceil(np.concatenate(candidates) / 30).astype(np.int64) * 30
+            values.update(np.unique(steps[(steps >= low) & (steps <= high)]).tolist())
+        return np.array(sorted(values), dtype=np.int32)

@@ -102,6 +102,7 @@ class Task:
         )
         self._neighbor_grid: dict[tuple, np.ndarray] = {}
         self._neighbor_cache: dict[int, np.ndarray] = {}
+        self._close_cache: dict[tuple, np.ndarray] = {}
 
     def _visibility(self):
         result = np.zeros((len(self.nights), len(self.ids)))
@@ -124,6 +125,7 @@ class Task:
             groups.setdefault(tuple(key), []).append(i)
         self._neighbor_grid = {key: np.array(ids, dtype=np.int32) for key, ids in groups.items()}
         self._neighbor_cache.clear()
+        self._close_cache.clear()
 
     def neighbors(self, i: int):
         cached = self._neighbor_cache.get(i)
@@ -135,6 +137,15 @@ class Task:
         near = near[self.vectors[near] @ self.vectors[i] >= np.cos(self._radius * RAD)]
         self._neighbor_cache[i] = near
         return near
+
+    def close_neighbors(self, i: int, cos_radius: float):
+        """neighbors(i) whose direction cosine with target i is at least ``cos_radius`` (cached)."""
+        key = (i, cos_radius)
+        cached = self._close_cache.get(key)
+        if cached is None:
+            near = self.neighbors(i)
+            cached = self._close_cache[key] = near[self.vectors[near] @ self.vectors[i] >= cos_radius]
+        return cached
 
     def current_night(self, timestamp: float) -> int | None:
         for i, night in enumerate(self.nights):
