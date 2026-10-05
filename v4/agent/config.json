@@ -99,7 +99,7 @@
   "structure": {
     "enabled": false,
     "late_fraction": 0.6,
-    "late_share_threshold": 0.3,
+    "late_share_threshold": 0.34,
     "late_overrides": {
       "setting_boost": 0.0
     },
