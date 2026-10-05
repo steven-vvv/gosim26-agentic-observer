@@ -411,5 +411,18 @@
     "sources": {
       "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
     }
+  },
+  "kind-validation-b": {
+    "sealed": true,
+    "count": 16,
+    "seed_base": 20300000,
+    "kinds": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "source": "kind-validation 中的 b 类卡（编号 1、5、9、13）",
+    "indices_of": "kind-validation"
   }
 }
