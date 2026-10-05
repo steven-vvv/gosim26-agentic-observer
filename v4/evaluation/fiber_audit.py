@@ -15,6 +15,7 @@ import argparse
 import collections
 import csv
 import json
+import math
 import statistics
 from datetime import datetime
 from pathlib import Path
@@ -35,7 +36,7 @@ def audit(run: Path, card: Path) -> dict:
     score = json.loads((card / "config" / "v4_score_config.json").read_text(encoding="utf-8"))
     zero_point = float(score["flux_zero_point"]) * float(score["exposure_zero_point_seconds"])
     latitude, longitude = scenario["site"]["latitude_deg"], scenario["site"]["longitude_deg"]
-    side = int(round(field["n_fibers"] ** 0.5))
+    side = math.isqrt(int(field["n_fibers"]))
     grid = FiberGrid({"grid_side": side, "n_fibers": field["n_fibers"],
                       "fiber_area_deg2": field["fiber_area_deg2"], "gap_deg": field["gap_deg"]})
     targets = list(_rows(card / "public" / "targets.csv"))
