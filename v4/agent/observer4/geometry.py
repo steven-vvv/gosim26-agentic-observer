@@ -47,6 +47,40 @@ def altaz(vectors):
     return np.arcsin(np.clip(vectors[..., 2], -1, 1)) / RAD, np.arctan2(vectors[..., 1], vectors[..., 0]) / RAD % 360.0
 
 
+class HorizonFactors:
+    """horizontal_vectors for fixed targets with the hour-angle-free products formed once.
+
+    The products of the declination and latitude terms are computed exactly as in
+    horizontal_vectors and in the same order, and every operation is elementwise, so
+    vectors() and altitude() equal horizontal_vectors and altaz bit for bit, also for a
+    subset taken with take().
+    """
+
+    def __init__(self, ra, dec, latitude: float):
+        dec, lat = np.asarray(dec) * RAD, latitude * RAD
+        sd, cd = np.sin(dec), np.cos(dec)
+        self.ra = np.asarray(ra)
+        self.terms = (math.cos(lat) * sd, math.sin(lat) * cd, -cd, math.sin(lat) * sd, math.cos(lat) * cd)
+
+    def take(self, indices) -> HorizonFactors:
+        part = object.__new__(HorizonFactors)
+        part.ra = self.ra[indices]
+        part.terms = tuple(term[indices] for term in self.terms)
+        return part
+
+    def vectors(self, lst: float, ha=None):
+        """horizontal_vectors(ra, dec, lst, latitude); ``ha`` may pass wrap180(lst - ra) in degrees."""
+        ha = (wrap180(lst - self.ra) if ha is None else ha) * RAD
+        x_sd, x_cd, y_cd, z_sd, z_cd = self.terms
+        sh, ch = np.sin(ha), np.cos(ha)
+        return np.stack((x_sd - x_cd * ch, y_cd * sh, z_sd + z_cd * ch), axis=-1)
+
+    def altitude(self, lst: float):
+        """altaz(horizontal_vectors(...))[0] without the azimuth terms."""
+        ha = wrap180(lst - self.ra) * RAD
+        return np.arcsin(np.clip(self.terms[3] + self.terms[4] * np.cos(ha), -1, 1)) / RAD
+
+
 def to_equatorial(alt: float, az: float, lst: float, latitude: float) -> tuple[float, float]:
     a, z, lat = alt * RAD, az * RAD, latitude * RAD
     dec = math.asin(max(-1.0, min(1.0, math.sin(a) * math.sin(lat) + math.cos(a) * math.cos(lat) * math.cos(z))))
@@ -94,9 +128,16 @@ def sun_equatorial(timestamp: float) -> tuple[float, float]:
     return math.atan2(math.cos(ob) * math.sin(lon), math.cos(lon)) / RAD % 360.0, math.asin(math.sin(ob) * math.sin(lon)) / RAD
 
 
-def lunar_factors(ra, dec, timestamp: float, latitude: float, longitude: float, model: dict | None):
+def lunar_factors(ra, dec, timestamp: float, latitude: float, longitude: float, model: dict | None,
+                  vectors=None):
+    """Lunar sky factor of each target.
+
+    ``vectors`` may pass equatorial_vectors(ra, dec) computed earlier (ra and dec are then
+    unused): the same array enters the same matrix product.
+    """
+    shape = np.shape(ra) if vectors is None else np.shape(vectors)[:-1]
     if not model:
-        return np.ones_like(np.asarray(ra), dtype=float)
+        return np.ones(shape)
     mra, mdec = moon_equatorial(timestamp)
     sra, sdec = sun_equatorial(timestamp)
     moon = equatorial_vectors(mra, mdec)
@@ -104,8 +145,8 @@ def lunar_factors(ra, dec, timestamp: float, latitude: float, longitude: float, 
     illumination = (1.0 - float(np.clip(moon @ sun, -1, 1))) / 2.0
     malt = float(altaz(horizontal_vectors(mra, mdec, sidereal(timestamp, longitude), latitude))[0])
     if malt <= 0:
-        return np.ones_like(np.asarray(ra), dtype=float)
-    separation = np.arccos(np.clip(equatorial_vectors(ra, dec) @ moon, -1, 1)) / RAD
+        return np.ones(shape)
+    separation = np.arccos(np.clip((equatorial_vectors(ra, dec) if vectors is None else vectors) @ moon, -1, 1)) / RAD
     penalty = float(model["maximum_penalty"]) * illumination * math.sin(malt * RAD) ** float(model["altitude_exponent"])
     return np.clip(1.0 - penalty * np.exp(-separation / float(model["angular_decay_scale_deg"])), 0, 1)
 

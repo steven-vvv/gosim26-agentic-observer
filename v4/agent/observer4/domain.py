@@ -7,7 +7,16 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .geometry import RAD, SIDEREAL_RATE, FiberGrid, equatorial_vectors, max_hour_angle, parse_utc, sidereal
+from .geometry import (
+    RAD,
+    SIDEREAL_RATE,
+    FiberGrid,
+    HorizonFactors,
+    equatorial_vectors,
+    max_hour_angle,
+    parse_utc,
+    sidereal,
+)
 
 PROTOCOL = "participant-agent-protocol-v4"
 TARGET_COLUMNS = ("target_id", "ra_deg", "dec_deg", "target_class", "feature_flux", "science_weight", "required")
@@ -79,6 +88,8 @@ class Task:
         ):
             raise ValueError("invalid public target values")
         self.vectors = equatorial_vectors(self.ra, self.dec)
+        # Hour-angle-free factors of horizontal_vectors, formed once for the fixed catalog.
+        self.horizon = HorizonFactors(self.ra, self.dec, self.latitude)
         self.hmax = max_hour_angle(self.dec, self.latitude, self.minimum_altitude + altitude_margin)
         width = float(self.scoring["uniformity"]["ra_band_width_deg"])
         self.bands, self.band_labels = np.unique(np.floor(self.ra / width).astype(np.int32), return_inverse=True)

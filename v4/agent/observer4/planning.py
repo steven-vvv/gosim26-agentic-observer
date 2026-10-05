@@ -470,7 +470,7 @@ class Planner:
         ha = wrap180(lst - task.ra)
         setting_seconds = np.where(task.hmax >= 180, 1e9, (task.hmax - ha) / SIDEREAL_RATE)
         visible = (ha >= -task.hmax) & (setting_seconds >= task.minimum_exposure) & (task.hmax > 0)
-        vectors = horizontal_vectors(task.ra, task.dec, lst, task.latitude)
+        vectors = task.horizon.vectors(lst, ha)
         altitude, azimuth = altaz(vectors)
         directional, clean = self.quality.direction_factors(altitude, azimuth)
         terrain_free = self.quality.terrain_free
@@ -489,7 +489,8 @@ class Planner:
         terrain = self.quality.terrain_model
         # Only visible targets can enter a plan, so tracks and profiles cover just them.
         subset = np.flatnonzero(visible)
-        track = self._track(now, altitude, azimuth, subset) if (predicted is not None or terrain is not None) else None
+        horizon = task.horizon.take(subset) if (predicted is not None or terrain is not None) else None
+        track = self._track(now, altitude, azimuth, subset, horizon) if terrain is not None else None
         self._terrain_profile = None
         if terrain is not None:
             try:
@@ -498,7 +499,8 @@ class Planner:
                 self.quality.terrain_model = None
         if predicted is None:
             base_quality = lunar_factors(
-                task.ra, task.dec, now + 450.0, task.latitude, task.longitude, task.scoring.get("lunar_model")
+                task.ra, task.dec, now + 450.0, task.latitude, task.longitude, task.scoring.get("lunar_model"),
+                vectors=task.vectors,
             ) / (task.scoring["q0"] * airmass(altitude) ** task.scoring["airmass_exponent"])
             scale = self.quality.scale(now)
             safety = settings["quality_safety"]
@@ -507,7 +509,7 @@ class Planner:
         else:
             scale, sigma = predicted
             safety = math.exp(-settings.get("level_safety_z", 1.5) * sigma)
-            profile = self._k_profile(now, track, subset)
+            profile = self._k_profile(now, altitude, subset, horizon)
             base_quality = profile[1][1]
             try:
                 correction = self.quality.band_correction(now)
@@ -798,27 +800,34 @@ class Planner:
     PROFILE_OFFSETS = (0.0, 300.0, 600.0, 900.0, 1350.0, 1800.0)
     TRACK_TIMES = (0.0, 300.0, 600.0, 900.0, 1350.0, 1800.0, 2700.0, 3600.0)
 
-    def _track(self, now: float, altitude0, azimuth0, subset) -> dict:
-        """Altitude and azimuth of the subset at fixed offsets after now; others keep now."""
+    def _track(self, now: float, altitude0, azimuth0, subset, horizon) -> dict:
+        """Altitude and azimuth of the subset at fixed offsets after now; others keep now.
+
+        ``horizon`` is task.horizon.take(subset).
+        """
         task = self.task
         alt = np.repeat(np.asarray(altitude0)[None, :], len(self.TRACK_TIMES), axis=0)
         az = np.repeat(np.asarray(azimuth0)[None, :], len(self.TRACK_TIMES), axis=0)
-        ra, dec = task.ra[subset], task.dec[subset]
         for j, offset in enumerate(self.TRACK_TIMES[1:], start=1):
-            alt[j, subset], az[j, subset] = altaz(horizontal_vectors(ra, dec, sidereal(now + offset, task.longitude),
-                                                                     task.latitude))
+            alt[j, subset], az[j, subset] = altaz(horizon.vectors(sidereal(now + offset, task.longitude)))
         return {"now": now, "alt": alt, "az": az}
 
-    def _k_profile(self, now: float, track: dict, subset):
-        """Lunar factor over airmass at exposure-midpoint offsets for the subset (1 elsewhere)."""
+    def _k_profile(self, now: float, altitude0, subset, horizon):
+        """Lunar factor over airmass at exposure-midpoint offsets for the subset (1 elsewhere).
+
+        The altitudes are those of the track (now at offset zero); ``horizon`` is
+        task.horizon.take(subset).
+        """
         task = self.task
         exponent = task.scoring["airmass_exponent"]
         model = task.scoring.get("lunar_model")
         rows = np.ones((len(self.PROFILE_OFFSETS), len(task.ids)))
-        ra, dec = task.ra[subset], task.dec[subset]
+        vectors = task.vectors[subset]
         for j, offset in enumerate(self.PROFILE_OFFSETS):
-            lunar = lunar_factors(ra, dec, now + max(offset, 60.0), task.latitude, task.longitude, model)
-            rows[j, subset] = lunar / (task.scoring["q0"] * airmass(np.maximum(track["alt"][j, subset], 1.0)) ** exponent)
+            lunar = lunar_factors(None, None, now + max(offset, 60.0), task.latitude, task.longitude, model,
+                                  vectors=vectors)
+            alt = altitude0[subset] if j == 0 else horizon.altitude(sidereal(now + offset, task.longitude))
+            rows[j, subset] = lunar / (task.scoring["q0"] * airmass(np.maximum(alt, 1.0)) ** exponent)
         # Midpoint sampling; time-resolved scoring differs only at second order in time.
         return np.array(self.PROFILE_OFFSETS), rows
 
