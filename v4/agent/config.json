@@ -145,6 +145,8 @@
     "band_paid_llr": 8.0,
     "band_paid_shift": 0.45,
     "fallback_beyond_cap": true,
+    "stale_levels": 1,
+    "stale_floor": 0.0,
     "probe_fractions": []
   },
   "observability": {

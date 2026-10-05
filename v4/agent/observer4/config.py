@@ -259,3 +259,10 @@ def validate(config: dict) -> None:
     for name in ("forecast_guard", "quake_cooldown"):
         if name in config["fault"] and type(config["fault"][name]) is not bool:
             raise ValueError(f"boolean configuration required for fault.{name}")
+    for name, (low, high) in {"stale_levels": (1, 50), "stale_floor": (0, 10)}.items():
+        if name in config["fault"]:
+            value = config["fault"][name]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
+                raise ValueError(f"invalid configuration field: fault.{name}")
+    if "stale_levels" in config["fault"] and type(config["fault"]["stale_levels"]) is not int:
+        raise ValueError("integer configuration required for fault.stale_levels")

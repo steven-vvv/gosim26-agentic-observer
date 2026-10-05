@@ -318,7 +318,15 @@ class InstrumentMonitor:
         return levels[-1]["level"] - self.log_eff(levels[-1])
 
     def predict(self, now: float, night: int, signature: frozenset) -> tuple[float, float] | None:
-        """Predicted log(efficiency * sky) for an exposure starting now, with its spread."""
+        """Predicted log(efficiency * sky) for an exposure starting now, with its spread.
+
+        Without a fresh level, the latest level under the same notices (earthquakes aside)
+        gives the sky. With ``stale_levels`` above one it is the median of that many, skipping
+        exposures split by a notice change, and ``stale_floor`` (log units, 0 = off) keeps it
+        within that distance of the long-run median: one exposure spoilt by an unannounced
+        closure must not set the sky for the rest of the season, since a planner that then
+        sees nothing worth observing would never measure the sky again.
+        """
         log_eff = self.efficiency.log_efficiency(night, now)
         levels = self.segment()
         if (levels and levels[-1]["night"] == night and levels[-1]["signature"] == signature
@@ -326,14 +334,26 @@ class InstrumentMonitor:
             sky = float(np.median([r["level"] - self.log_eff(r) for r in levels[-3:]]))
             return sky + log_eff, float(self.settings.get("fresh_sigma", 0.05))
         reduced = signature - {"earthquake"}
+        count = int(self.settings.get("stale_levels", 1))
+        floor = float(self.settings.get("stale_floor", 0.0))
+        skies, same = [], False
         for record in reversed(self.records[-400:]):
             if record["level"] is None or (record["signature"] - {"earthquake"}) != reduced:
                 continue
-            sky = record["level"] - self.log_eff(record)
-            same = record["night"] == night
-            return sky + log_eff, float(self.settings.get("same_night_sigma" if same else "stale_sigma",
-                                                         0.08 if same else 0.15))
-        return None
+            if count > 1 and record.get("mixed"):
+                continue
+            if not skies:
+                same = record["night"] == night
+            skies.append(record["level"] - self.log_eff(record))
+            if len(skies) >= count and floor <= 0:
+                break
+        if not skies:
+            return None
+        sky = skies[0] if count <= 1 else float(np.median(skies[:count]))
+        if floor > 0:
+            sky = max(sky, float(np.median(skies)) - floor)
+        return sky + log_eff, float(self.settings.get("same_night_sigma" if same else "stale_sigma",
+                                                     0.08 if same else 0.15))
 
     def band_llr(self, records: list[dict], weather_shift: float) -> tuple[float, int]:
         """log P(band flags | instrument cut) - log P(band flags | weather drop of weather_shift).
