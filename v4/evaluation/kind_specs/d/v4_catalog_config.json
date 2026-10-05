@@ -1,0 +1,94 @@
+{
+  "schema_version": "v4-catalog-v2",
+  "seed": 20270101,
+  "site": {
+    "name": "Nemo Observatory, South Pacific (fictional)",
+    "latitude_deg": -45.0,
+    "longitude_deg": -135.0,
+    "utc_offset_hours": -9.0
+  },
+  "footprint": {
+    "total_area_deg2": 6000.0,
+    "area_tolerance_fraction": 0.02,
+    "n_components": 3,
+    "component_area_weights": [
+      0.4,
+      0.35,
+      0.25
+    ],
+    "component_centers": [
+      [
+        20.0,
+        -35.0
+      ],
+      [
+        150.0,
+        -50.0
+      ],
+      [
+        280.0,
+        -30.0
+      ]
+    ],
+    "component_gap_deg": 2.0,
+    "pole_margin_deg": 5.0,
+    "vertices_per_component": 40,
+    "harmonic_amplitude_ranges": [
+      0.16,
+      0.1,
+      0.06
+    ]
+  },
+  "targets": {
+    "total_count": 30000,
+    "required_fraction": 0.05,
+    "class_fractions": {
+      "ELG": 0.34,
+      "BGS": 0.24,
+      "LRG": 0.2,
+      "QSO": 0.14,
+      "Star": 0.08
+    },
+    "clustered_fraction": 0.25,
+    "n_cluster_centers": 150,
+    "cluster_sigma_deg": 0.5,
+    "models": {
+      "ELG": {
+        "flux_median": 0.55,
+        "flux_log_sigma": 0.4,
+        "science_weight": 1.0
+      },
+      "BGS": {
+        "flux_median": 1.25,
+        "flux_log_sigma": 0.3,
+        "science_weight": 0.45
+      },
+      "LRG": {
+        "flux_median": 0.35,
+        "flux_log_sigma": 0.35,
+        "science_weight": 1.0
+      },
+      "QSO": {
+        "flux_median": 0.18,
+        "flux_log_sigma": 0.5,
+        "science_weight": 1.7
+      },
+      "Star": {
+        "flux_median": 4.0,
+        "flux_log_sigma": 0.25,
+        "science_weight": 0.3
+      }
+    }
+  },
+  "observability": {
+    "start_date": "2027-01-01",
+    "end_date": "2028-01-01",
+    "sun_altitude_limit_deg": -18.0,
+    "minimum_altitude_deg": 30.0,
+    "minimum_window_seconds": 900,
+    "max_position_attempts": 64
+  },
+  "output": {
+    "directory": "products"
+  }
+}

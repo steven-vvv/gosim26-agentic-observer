@@ -262,5 +262,105 @@
     "count": 64,
     "seed_base": 10770000,
     "family": {}
+  },
+  "formal-scale": {
+    "sealed": true,
+    "count": 5,
+    "seed_base": 15000000,
+    "seed_overrides": {
+      "3": 15000319
+    },
+    "profiles": [
+      {
+        "nights": 123,
+        "targets": 30000,
+        "area_deg2": 6000,
+        "stress": false,
+        "start_date": "2026-10-01"
+      },
+      {
+        "nights": 121,
+        "targets": 30000,
+        "area_deg2": 6000,
+        "stress": true,
+        "start_date": "2026-11-01"
+      }
+    ]
+  },
+  "formal-scale-b": {
+    "sealed": true,
+    "count": 4,
+    "seed_base": 17000000,
+    "profiles": [
+      {
+        "nights": 130,
+        "targets": 30000,
+        "area_deg2": 6000,
+        "stress": false,
+        "start_date": "2026-11-15"
+      },
+      {
+        "nights": 200,
+        "targets": 50000,
+        "area_deg2": 10000,
+        "stress": true,
+        "start_date": "2026-10-20"
+      }
+    ]
+  },
+  "formal-stress": {
+    "sealed": true,
+    "count": 4,
+    "seed_base": 16000000,
+    "profiles": [
+      {
+        "nights": 183,
+        "targets": 50000,
+        "area_deg2": 6000,
+        "stress": true,
+        "start_date": "2026-10-01"
+      },
+      {
+        "nights": 365,
+        "targets": 30000,
+        "area_deg2": 6000,
+        "stress": true,
+        "start_date": "2027-01-01"
+      }
+    ]
+  },
+  "kind-validation": {
+    "sealed": true,
+    "count": 16,
+    "seed_base": 20300000,
+    "kinds": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "source": "hackathon-survey26 bdb1031 cards/v4-practice-{a,b,c,d}/spec, seeds replaced (= formal A-D layouts)"
+  },
+  "trial-kinds": {
+    "sealed": false,
+    "cards": [
+      "trial-a",
+      "trial-b",
+      "trial-c",
+      "trial-d"
+    ],
+    "sources": {
+      "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
+    }
+  },
+  "trial-bd": {
+    "sealed": false,
+    "cards": [
+      "trial-b",
+      "trial-d"
+    ],
+    "sources": {
+      "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
+    }
   }
 }

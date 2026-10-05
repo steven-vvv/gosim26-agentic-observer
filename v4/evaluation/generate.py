@@ -28,6 +28,10 @@ def specifications(dataset: str, path: Path | None = None):
         from .family import family_specifications
 
         return family_specifications(dataset, selected, data["generation_revision"])
+    if "kinds" in selected:
+        from .kinds import kind_specifications
+
+        return kind_specifications(dataset, selected, data["generation_revision"])
     result = []
     for i in range(selected["count"]):
         profile = selected["profiles"][i % len(selected["profiles"])]
@@ -116,15 +120,20 @@ def generate(spec: dict, base: Path):
             from .family import build_family_card
 
             build_family_card(card, spec)
+        elif "kind" in spec:
+            from .kinds import build_kind_card
+
+            build_kind_card(card, spec)
         elif "components" in spec:
             build_with_components(card, spec)
         else:
             build_card_bundle(card, spec)
         with (card / "public" / "v4_night_calendar.csv").open(newline="", encoding="utf-8") as stream:
             actual_nights = sum(1 for _ in csv.DictReader(stream))
-        expected_nights = (date.fromisoformat(spec["end_date"]) - date.fromisoformat(spec["start_date"])).days
-        if actual_nights != expected_nights:
-            raise ValueError(f"generated {actual_nights} nights, expected {expected_nights}")
+        if "start_date" in spec:  # kind cards take their season from the organizer spec
+            expected_nights = (date.fromisoformat(spec["end_date"]) - date.fromisoformat(spec["start_date"])).days
+            if actual_nights != expected_nights:
+                raise ValueError(f"generated {actual_nights} nights, expected {expected_nights}")
         checksums = {
             str(path.relative_to(card)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(card.rglob("*"))

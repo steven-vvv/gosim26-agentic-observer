@@ -1,0 +1,9 @@
+{
+  "name": "v4-practice-b",
+  "card_id": "beta",
+  "scenario_slug": "v4-practice-b",
+  "phase": "practice-projects",
+  "stress": false,
+  "wallclock_seconds": 900,
+  "observation_requests": {}
+}

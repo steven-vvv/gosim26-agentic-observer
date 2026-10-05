@@ -1,0 +1,9 @@
+{
+  "name": "v4-practice-d",
+  "card_id": "delta",
+  "scenario_slug": "v4-practice-d",
+  "phase": "practice-projects",
+  "stress": true,
+  "wallclock_seconds": 900,
+  "observation_requests": {}
+}

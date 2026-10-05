@@ -1,0 +1,23 @@
+{
+  "schema_version": "v4-fiber-map-v1",
+  "site": {
+    "name": "Mauna Kea, Hawaii (virtual)",
+    "latitude_deg": 19.8207,
+    "longitude_deg": -155.4681,
+    "utc_offset_hours": -10.0
+  },
+  "field": {
+    "fiber_area_deg2": 0.7,
+    "gap_deg": 0.0,
+    "n_fibers": 9
+  },
+  "exposure": {
+    "min_duration_seconds": 60,
+    "max_duration_seconds": 3600
+  },
+  "demo": {
+    "targets_csv": "products/targets.csv",
+    "moment_utc": "2026-10-02T04:00:00Z",
+    "png_output": "products/v4_fiber_demo.png"
+  }
+}

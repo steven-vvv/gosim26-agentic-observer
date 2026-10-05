@@ -1,0 +1,209 @@
+{
+  "schema_version": "v4-weather-v2",
+  "seed": 20270101,
+  "site": {
+    "name": "Nemo Observatory, South Pacific (fictional)",
+    "latitude_deg": -45.0,
+    "longitude_deg": -135.0,
+    "utc_offset_hours": -9.0
+  },
+  "survey": {
+    "start_date": "2027-01-01",
+    "end_date": "2028-01-01",
+    "slot_seconds": 900,
+    "sun_altitude_limit_deg": -18.0
+  },
+  "quality": {
+    "seeing_arcsec": {
+      "nominal": 1.1,
+      "seasonal_amplitude": 0.15,
+      "night_sigma": 0.16,
+      "slot_sigma": 0.07,
+      "minimum": 0.5,
+      "maximum": 4.0
+    },
+    "transparency": {
+      "nominal": 0.88,
+      "seasonal_amplitude": 0.07,
+      "night_sigma": 0.06,
+      "slot_sigma": 0.025,
+      "minimum": 0.08,
+      "maximum": 1.0
+    },
+    "sky_quality": {
+      "nominal": 1.0,
+      "seasonal_amplitude": 0.12,
+      "night_sigma": 0.1,
+      "slot_sigma": 0.035,
+      "minimum": 0.05,
+      "maximum": 1.5
+    },
+    "instrument_efficiency": {
+      "jitter_minimum": 0.9,
+      "jitter_maximum": 1.0,
+      "minimum": 0.1,
+      "maximum": 1.0
+    },
+    "night_correlation": 0.82,
+    "slot_correlation": 0.88,
+    "seasonal_phase_day": 210
+  },
+  "background_closure": {
+    "start_probability_per_open_slot": 0.008,
+    "reopen_probability_per_closed_slot": 0.32,
+    "seasonal_probability_amplitude": 0.006
+  },
+  "weather_events": {
+    "sector_width_deg_range": [
+      40.0,
+      120.0
+    ],
+    "sector_altitude_limit_deg_range": [
+      40.0,
+      80.0
+    ],
+    "conditions": {
+      "rainy": {
+        "count": 18,
+        "duration_slots": [
+          8,
+          40
+        ],
+        "scope_weights": {
+          "ALL": 1.0
+        },
+        "force_close": true,
+        "seeing_multiplier": 1.8,
+        "transparency_multiplier": 0.25,
+        "sky_quality_multiplier": 0.35
+      },
+      "cloudy": {
+        "count": 30,
+        "duration_slots": [
+          8,
+          32
+        ],
+        "scope_weights": {
+          "ALL": 0.35,
+          "HORIZON_SECTOR": 0.65
+        },
+        "force_close": false,
+        "seeing_multiplier": 1.25,
+        "transparency_multiplier": 0.55,
+        "sky_quality_multiplier": 0.65
+      },
+      "smoggy": {
+        "count": 15,
+        "duration_slots": [
+          24,
+          96
+        ],
+        "scope_weights": {
+          "ALL": 0.3,
+          "HORIZON_SECTOR": 0.7
+        },
+        "force_close": false,
+        "seeing_multiplier": 1.15,
+        "transparency_multiplier": 0.68,
+        "sky_quality_multiplier": 0.72
+      },
+      "cold_wave": {
+        "count": 12,
+        "duration_slots": [
+          48,
+          192
+        ],
+        "scope_weights": {
+          "ALL": 1.0
+        },
+        "force_close": false,
+        "seeing_multiplier": 1.05,
+        "transparency_multiplier": 0.96,
+        "sky_quality_multiplier": 0.98
+      },
+      "tornado": {
+        "count": 3,
+        "duration_slots": [
+          4,
+          12
+        ],
+        "scope_weights": {
+          "ALL": 1.0
+        },
+        "force_close": true,
+        "seeing_multiplier": 2.0,
+        "transparency_multiplier": 0.15,
+        "sky_quality_multiplier": 0.25
+      }
+    }
+  },
+  "rocket_launch": {
+    "count": 12,
+    "duration_slots": [
+      2,
+      5
+    ],
+    "azimuth_sector_width_deg": [
+      40.0,
+      80.0
+    ],
+    "max_altitude_deg": [
+      30.0,
+      60.0
+    ]
+  },
+  "earthquake": {
+    "count": 2,
+    "magnitude_range": [
+      4.5,
+      7.0
+    ],
+    "impact_coefficient": 0.75,
+    "reference_magnitude": 6.8,
+    "max_degradation": 0.95,
+    "decay_nights": 4.0,
+    "negligible_degradation": 0.01,
+    "seeing_impact_coefficient": 0.0,
+    "transparency_impact_coefficient": 0.0,
+    "sky_quality_impact_coefficient": 0.0
+  },
+  "terrain_obstruction": {
+    "sector_count": [
+      0,
+      0
+    ],
+    "width_deg_range": [
+      30.0,
+      70.0
+    ],
+    "max_altitude_deg_range": [
+      35.0,
+      50.0
+    ]
+  },
+  "instrument_fault": {
+    "count": 3,
+    "instrument_efficiency_multiplier_range": [
+      0.7,
+      0.8
+    ]
+  },
+  "publication": {
+    "forecast_interval_days": 7,
+    "forecast_horizon_days": 7
+  },
+  "stress_tests": {
+    "enabled": false,
+    "data_loss": {
+      "trigger": "after_earthquake",
+      "window_max_fraction": 0.15
+    },
+    "pointing_offset": {
+      "max_abs_alt_rad": 0.0015,
+      "max_abs_az_rad": 0.002
+    }
+  },
+  "output": {
+    "directory": "products"
+  }
+}

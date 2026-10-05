@@ -1,0 +1,23 @@
+{
+  "schema_version": "v4-fiber-map-v1",
+  "site": {
+    "name": "Nemo Observatory, South Pacific (fictional)",
+    "latitude_deg": -45.0,
+    "longitude_deg": -135.0,
+    "utc_offset_hours": -9.0
+  },
+  "field": {
+    "fiber_area_deg2": 0.06,
+    "gap_deg": 0.0,
+    "n_fibers": 100
+  },
+  "exposure": {
+    "min_duration_seconds": 60,
+    "max_duration_seconds": 3600
+  },
+  "demo": {
+    "targets_csv": "products/targets.csv",
+    "moment_utc": "2026-10-02T04:00:00Z",
+    "png_output": "products/v4_fiber_demo.png"
+  }
+}
