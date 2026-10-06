@@ -609,5 +609,55 @@
       "kind-big-r3-062"
     ],
     "source": "kind-big a/b/c cards, first 16 of each kind (core-knob screen on the remote machine)"
+  },
+  "kind-v5": {
+    "sealed": true,
+    "count": 48,
+    "seed_base": 23300000,
+    "kinds": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "source": "kind specs with A1-D1 (v5) style stress: six instrument faults at 0.3-0.5 efficiency, two to four low terrain sectors, eight earthquakes",
+    "weather_patch": {
+      "instrument_fault": {
+        "count": 6,
+        "instrument_efficiency_multiplier_range": [
+          0.3,
+          0.5
+        ]
+      },
+      "terrain_obstruction": {
+        "sector_count": [
+          2,
+          4
+        ],
+        "width_deg_range": [
+          30.0,
+          70.0
+        ],
+        "max_altitude_deg_range": [
+          32.0,
+          42.0
+        ]
+      },
+      "earthquake": {
+        "count": 8,
+        "magnitude_range": [
+          4.5,
+          7.0
+        ],
+        "impact_coefficient": 0.75,
+        "reference_magnitude": 6.8,
+        "max_degradation": 0.95,
+        "decay_nights": 4.0,
+        "negligible_degradation": 0.01,
+        "seeing_impact_coefficient": 0.0,
+        "transparency_impact_coefficient": 0.0,
+        "sky_quality_impact_coefficient": 0.0
+      }
+    }
   }
 }

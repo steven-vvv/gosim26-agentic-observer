@@ -19,17 +19,19 @@ from .run import evaluate, source_sha256
 from .upstream import ROOT, resolve
 
 
-def _config(variant: str) -> dict:
+def _config(variant: str) -> tuple[dict, dict | None]:
     patch = None
     if variant not in {"baseline", "default"}:
         patch = json.loads((ROOT / "v4" / "experiments" / f"{variant}.json").read_text(encoding="utf-8"))
-    return load(ROOT / "v4" / "agent" / "config.json", patch)
+    # An evaluation-only oracle section never reaches the agent configuration.
+    oracle = patch.pop("oracle", None) if patch else None
+    return load(ROOT / "v4" / "agent" / "config.json", patch or None), oracle
 
 
 def _run(card: Path, output: Path, variant: str, expected_source: str) -> dict:
     if source_sha256() != expected_source:
         raise ValueError("agent source changed during experiment")
-    config = _config(variant)
+    config, oracle = _config(variant)
     digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
     if output.exists() and not (output / "summary.json").exists():
         # summary.json is written last, so its absence marks a run that was cut short
@@ -40,13 +42,22 @@ def _run(card: Path, output: Path, variant: str, expected_source: str) -> dict:
         if (
             summary["card"] != card.name
             or summary["config_sha256"] != digest
+            or summary.get("oracle") != oracle
             or summary.get("source_sha256") != expected_source
             or summary["fast_engine"] is not True
             or (summary["variant"] == "official-baseline") != (variant == "baseline")
         ):
             raise ValueError(f"existing run does not match requested experiment: {output}")
         return summary
-    summary = evaluate(card, output, config, baseline=variant == "baseline", fast=True)
+    factory = None
+    if oracle is not None:
+        from .oracle_log import oracle_factory
+
+        factory = oracle_factory(card, oracle, config)
+    summary = evaluate(card, output, config, baseline=variant == "baseline", fast=True, factory=factory)
+    if oracle is not None:
+        summary["oracle"] = oracle
+        (output / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if source_sha256() != expected_source:
         raise ValueError("agent source changed during experiment")
     return summary

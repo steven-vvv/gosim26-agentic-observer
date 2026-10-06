@@ -32,8 +32,11 @@ def kind_specifications(dataset: str, selected: dict, revision: int) -> list[dic
     for i in range(selected["count"]):
         seed = selected.get("seed_overrides", {}).get(str(i), selected["seed_base"] + i * 997 + 17)
         name = f"{dataset}-r{revision}-{i:03d}"
-        result.append({"name": name, "card_id": name, "scenario_slug": name, "phase": "research",
-                       "kind": kinds[i % len(kinds)], "seed": int(seed)})
+        item = {"name": name, "card_id": name, "scenario_slug": name, "phase": "research",
+                "kind": kinds[i % len(kinds)], "seed": int(seed)}
+        if selected.get("weather_patch"):
+            item["weather_patch"] = selected["weather_patch"]
+        result.append(item)
     return result
 
 
@@ -52,5 +55,8 @@ def build_kind_card(root: Path, spec: dict) -> Path:
         for name in ("v4_catalog_config.json", "v4_weather_config.json"):
             config = json.loads((folder / name).read_text(encoding="utf-8"))
             config["seed"] = int(spec["seed"])
+            if name == "v4_weather_config.json":
+                # Stress sections replaced whole (A1-D1 style: several faults, terrain, quakes).
+                config.update(spec.get("weather_patch", {}))
             (folder / name).write_text(json.dumps(config), encoding="utf-8")
         return build_spec_bundle(root, folder)
