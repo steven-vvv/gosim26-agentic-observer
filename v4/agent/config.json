@@ -97,7 +97,7 @@
     ]
   },
   "structure": {
-    "enabled": false,
+    "enabled": true,
     "late_fraction": 0.6,
     "late_share_threshold": 0.34,
     "late_overrides": {
@@ -146,9 +146,9 @@
     "band_paid_llr": 8.0,
     "band_paid_shift": 0.45,
     "fallback_beyond_cap": true,
-    "stale_levels": 1,
-    "stale_floor": 0.0,
-    "stale_max_hours": 0,
+    "stale_levels": 3,
+    "stale_floor": 1.0,
+    "stale_max_hours": 36,
     "probe_fractions": []
   },
   "observability": {
