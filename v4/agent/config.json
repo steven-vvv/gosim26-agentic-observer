@@ -147,6 +147,7 @@
     "fallback_beyond_cap": true,
     "stale_levels": 1,
     "stale_floor": 0.0,
+    "stale_max_hours": 0,
     "probe_fractions": []
   },
   "observability": {

@@ -336,10 +336,13 @@ class InstrumentMonitor:
         reduced = signature - {"earthquake"}
         count = int(self.settings.get("stale_levels", 1))
         floor = float(self.settings.get("stale_floor", 0.0))
+        age = float(self.settings.get("stale_max_hours", 0.0)) * 3600.0
         skies, same = [], False
         for record in reversed(self.records[-400:]):
             if record["level"] is None or (record["signature"] - {"earthquake"}) != reduced:
                 continue
+            if age > 0.0 and now - record["end"] > age:
+                break  # older than the accepted age: not evidence about the sky any more
             if count > 1 and record.get("mixed"):
                 continue
             if not skies:

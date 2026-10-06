@@ -221,14 +221,22 @@ class QualityModel:
         return self.estimate, sigma
 
     def scale(self, now: float) -> float:
+        """Weather scale from recent unsaturated samples, else a bounded history, else the prior.
+
+        ``stale_hours`` (0 = off): a season whose late exposures all saturate leaves no usable
+        sample for weeks; without this the last estimate is reused for the rest of the season,
+        and a single bad night then fixes the declared program (and so the multiplier) forever.
+        """
         if not self.settings["weather_feedback"]:
             return self.estimate
         recent = [value for timestamp, value, _ in self.samples if timestamp >= now - self.settings["memory_hours"] * 3600]
         if len(recent) >= 4:
             self.estimate = float(np.clip(np.median(recent), 0.025, 2.0))
-        else:
-            historical = [value for _, value, clean in self.samples if clean]
-            self.estimate = float(np.median(historical[-200:])) if len(historical) >= 8 else self.settings["prior"]
+            return self.estimate
+        stale = float(self.settings.get("stale_hours", 0.0)) * 3600.0
+        historical = [value for timestamp, value, clean in self.samples
+                      if clean and (stale <= 0 or timestamp >= now - stale)]
+        self.estimate = float(np.median(historical[-200:])) if len(historical) >= 8 else self.settings["prior"]
         return self.estimate
 
     def band_correction(self, now: float) -> float:
