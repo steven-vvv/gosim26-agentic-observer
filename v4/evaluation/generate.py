@@ -169,7 +169,7 @@ def main():
     if args.limit is not None:
         specs = specs[: args.limit]
     context = multiprocessing.get_context("fork") if os.name == "posix" else None
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, min(args.jobs, 4)), mp_context=context) as pool:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, min(args.jobs, os.cpu_count() or 4)), mp_context=context) as pool:
         futures = [pool.submit(generate, spec, args.out) for spec in specs]
         for future in concurrent.futures.as_completed(futures):
             print(json.dumps(future.result(), sort_keys=True), flush=True)

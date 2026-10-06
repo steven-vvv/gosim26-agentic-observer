@@ -482,5 +482,17 @@
       "d"
     ],
     "source": "hackathon-survey26 bdb1031 cards/v4-practice-{a,b,c,d}/spec, fresh seeds (robustness sweep, not for tuning)"
+  },
+  "kind-big": {
+    "sealed": true,
+    "count": 160,
+    "seed_base": 22500000,
+    "kinds": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "source": "hackathon-survey26 bdb1031 cards/v4-practice-{a,b,c,d}/spec, fresh seeds (160-card paired screen on the remote machine)"
   }
 }
