@@ -138,6 +138,7 @@ class Observer:
                 self.decision_source = "model-v4"
             evidence = None
             if self.fault_mode == "monitor":
+                self.instrument.reserve = 1 if self.logbook.faults else 0
                 evidence = self._guarded(self.instrument.decide, now, night)
                 if evidence:
                     self.instrument.reported(evidence, now, night)

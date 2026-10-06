@@ -199,6 +199,7 @@ class InstrumentMonitor:
         self.quake_notice = False
         self.last_signature = None
         self.vetoes = 0
+        self.reserve = 0
         self.window_trusted = True
         self.repairs = 0
         self.slot_offsets = np.cumsum([0] + [round((n.end - n.start) / task.slot_seconds) for n in task.nights])
@@ -655,7 +656,9 @@ class InstrumentMonitor:
             return None
         slot = self.slot_index(now, night)
         trusted = self.window_trusted and not self.repaired
-        free = self.free_left()
+        # A duty log that names faults may need a free report of its own (a fault only one
+        # reader found); the monitor's weak-evidence reports leave it one.
+        free = self.free_left(self.reserve)
         dead = self._dead()
         if dead is not None:
             return dead
@@ -788,8 +791,8 @@ class InstrumentMonitor:
         quake["hidden"] = True
         self.segment_start = len(self.records)
 
-    def free_left(self) -> bool:
-        return self.revision >= 2 and self.false_since_correct < self.free_allowance
+    def free_left(self, reserve: int = 0) -> bool:
+        return self.revision >= 2 and self.false_since_correct < self.free_allowance - reserve
 
     def _last_level(self):
         levels = [r for r in self.records if r["level"] is not None]
