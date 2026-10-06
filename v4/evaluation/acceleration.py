@@ -40,6 +40,24 @@ class _AssignedTargets(ast.NodeTransformer):
         return self.generic_visit(node)
 
 
+class _RunningTotal(ast.NodeTransformer):
+    """Replace the snapshot's per-decision sum over the best scores with the ledger's cache."""
+
+    EXPECTED = "round(sum((item[1] for item in ledger.best().values())), 6)"
+
+    def __init__(self):
+        self.replacements = 0
+
+    def visit_Dict(self, node):
+        for index, key in enumerate(node.keys):
+            if isinstance(key, ast.Constant) and key.value == "running_total":
+                if ast.unparse(node.values[index]) != self.EXPECTED:
+                    raise RuntimeError("upstream running_total expression changed; review acceleration")
+                node.values[index] = ast.parse("ledger.running_total()", mode="eval").body
+                self.replacements += 1
+        return self.generic_visit(node)
+
+
 def _ledger_type(base):
     class IncrementalLedger(base):
         """Caches the three per-decision scans the runner repeats over the whole ledger.
@@ -55,12 +73,20 @@ def _ledger_type(base):
             self._best = {}
             self._factors = {}
             self._windows = {}
+            self._total = None
+
+        def running_total(self):
+            """The runner's snapshot total, recomputed only after the ledger changed."""
+            if self._total is None:
+                self._total = round(sum(item[1] for item in self._best.values()), 6)
+            return self._total
 
         def record(self, action_index, target_id, factor, score, start_utc=None, end_utc=None):
             super().record(action_index, target_id, factor, score, start_utc, end_utc)
             self._update(self.entries[-1])
 
         def _update(self, entry):
+            self._total = None
             old = self._best.get(entry.target_id)
             if old is None or entry.score > old[1]:
                 self._best[entry.target_id] = (entry.factor, entry.score)
@@ -71,6 +97,7 @@ def _ledger_type(base):
             self._best = {}
             self._factors = {}
             self._windows = {}
+            self._total = None
             for entry in self.entries:
                 if entry.valid:
                     self._update(entry)
@@ -115,6 +142,10 @@ def fast_runner():
     tree = transformer.visit(tree)
     if transformer.replacements != 1:
         raise RuntimeError("upstream field candidate assignment count changed")
+    totals = _RunningTotal()
+    tree = totals.visit(tree)
+    if totals.replacements != 1:
+        raise RuntimeError("upstream running_total count changed")
     module = types.ModuleType("challenge._gosim26_v4_fast_runner")
     module.__package__ = "challenge"
     module.__file__ = str(path)
