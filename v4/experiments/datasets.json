@@ -914,5 +914,61 @@
       "kind-big-r3-157"
     ],
     "source": "kind-big b cards 65-159, never used for selection"
+  },
+  "kind-v6l": {
+    "sealed": true,
+    "count": 48,
+    "seed_base": 25100000,
+    "kinds": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "source": "kind-v6 (same seeds: same weather, faults and flat windows) plus duty-log requests naming each fault and the flat windows, for end-to-end tests of the log path",
+    "weather_patch": {
+      "instrument_fault": {
+        "count": 40,
+        "instrument_efficiency_multiplier_range": [
+          0.003,
+          0.35
+        ]
+      },
+      "terrain_obstruction": {
+        "sector_count": [
+          2,
+          4
+        ],
+        "width_deg_range": [
+          30.0,
+          70.0
+        ],
+        "max_altitude_deg_range": [
+          32.0,
+          42.0
+        ]
+      },
+      "earthquake": {
+        "count": 8,
+        "magnitude_range": [
+          4.5,
+          7.0
+        ],
+        "impact_coefficient": 0.75,
+        "reference_magnitude": 6.8,
+        "max_degradation": 0.95,
+        "decay_nights": 4.0,
+        "negligible_degradation": 0.01,
+        "seeing_impact_coefficient": 0.0,
+        "transparency_impact_coefficient": 0.0,
+        "sky_quality_impact_coefficient": 0.0
+      }
+    },
+    "flats": {
+      "per_night": 3
+    },
+    "dutylog": {
+      "every_nights": 3
+    }
   }
 }
