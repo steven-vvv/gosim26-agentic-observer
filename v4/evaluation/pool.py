@@ -54,19 +54,53 @@ def ssh_run(host: str, remote_cmd: str, timeout: int = 20) -> subprocess.Complet
                           check=False)
 
 
-def weighted_assign(cards: list[str], jobs: dict[str, int]) -> dict[str, list[str]]:
-    """Smooth weighted round robin: each host gets a share of cards proportional to its jobs."""
+def weighted_assign(items: list, jobs: dict[str, int]) -> dict[str, list]:
+    """Smooth weighted round robin: each host gets a share of items proportional to its jobs.
+
+    Generic over the item type: plain card names, or (card, variant) tuples so a host's
+    share is computed over actual schedulable units instead of whole cards.
+    """
     names = sorted(jobs)
     total = sum(jobs.values())
     credit = dict.fromkeys(names, 0)
-    assignment: dict[str, list[str]] = {name: [] for name in names}
-    for card in cards:
+    assignment: dict[str, list] = {name: [] for name in names}
+    for item in items:
         for name in names:
             credit[name] += jobs[name]
         winner = max(names, key=lambda name: (credit[name], name))
-        assignment[winner].append(card)
+        assignment[winner].append(item)
         credit[winner] -= total
     return assignment
+
+
+def _split_jobs(sizes: dict[str, int], budget: int) -> dict[str, int]:
+    """Per-variant-group ``--jobs`` for one host.
+
+    Each group gets one worker per card (full concurrency) when that already fits in
+    budget; otherwise the budget is handed out with the same smooth weighted round robin as
+    weighted_assign, proportional to group size and capped at it, so the per-host total
+    never exceeds budget. Falls back to 1-per-group (dropping the smallest groups first) if
+    there are more non-empty groups than budget allows.
+    """
+    names = sorted(sizes)
+    total = sum(sizes.values())
+    if total <= budget:
+        return dict(sizes)
+    if budget < len(names):
+        keep = sorted(names, key=lambda n: (-sizes[n], n))[:budget]
+        return {name: 1 for name in keep}
+    jobs = dict.fromkeys(names, 1)
+    credit = dict.fromkeys(names, 0)
+    for _ in range(budget - len(names)):
+        for name in names:
+            credit[name] += sizes[name]
+        candidates = [n for n in names if jobs[n] < sizes[n]]
+        if not candidates:
+            break
+        winner = max(candidates, key=lambda n: (credit[n], n))
+        jobs[winner] += 1
+        credit[winner] -= total
+    return jobs
 
 
 # --- prepare -----------------------------------------------------------------
@@ -164,19 +198,52 @@ def cmd_sync(hosts: list[str], experiments_only: bool) -> None:
 
 # --- run / requeue ----------------------------------------------------------
 
-def start_remote_batch(host: str, dataset: str, variants: list[str], tag: str, cards: list[str], jobs: int) -> None:
-    log = f"/root/gosim/runs/{tag}-{dataset}-{host}.log"
-    card_list = ",".join(cards)
+def ssh_fire_and_forget(host: str, remote_cmd: str, timeout: int = 30) -> None:
+    """Launch a backgrounded remote command without the local ssh hanging on the channel.
+
+    Plain ``ssh host 'cmd &'`` can block indefinitely: without ``-n`` (and a real stdin of
+    /dev/null) ssh keeps the channel open waiting on fds the backgrounded remote process
+    inherited, even though that process already redirects its own stdout/stderr/stdin. A
+    short timeout treats a hang as "probably started anyway" instead of blocking run/requeue.
+    """
+    try:
+        subprocess.run(["ssh", "-n", *SSH_OPTS, host, remote_cmd], capture_output=True, text=True,
+                        timeout=timeout, check=False, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        print(f"{host}: ssh did not return within {timeout}s, assuming the job started anyway")
+
+
+def start_remote_batch(host: str, dataset: str, tag: str, variant_cards: dict[str, list[str]], host_jobs: int) -> None:
+    """One generate pass over this host's union of cards, then one batch.py process per
+    non-empty variant group - sized by _split_jobs so the host's total concurrency never
+    exceeds host_jobs even when cards * variants would otherwise leave it under-filled.
+    """
+    all_cards = sorted({card for cards in variant_cards.values() for card in cards})
+    host_log = f"/root/gosim/runs/{tag}-{dataset}-{host}.log"
+    sizes = {variant: len(cards) for variant, cards in variant_cards.items() if cards}
+    per_variant_jobs = _split_jobs(sizes, host_jobs)
+    batch_cmds = [
+        f".venv/bin/python -m v4.evaluation.batch --dataset {dataset} --variants {variant} "
+        f"--cards {','.join(cards)} --jobs {per_variant_jobs[variant]} --tag {tag} "
+        f">> /root/gosim/runs/{tag}-{dataset}-{host}-{variant}.log 2>&1 &"
+        for variant, cards in variant_cards.items() if cards
+    ]
     inner = (
         f". /root/gosim/env.sh; cd /root/gosim/GOSIM26; "
-        f".venv/bin/python -m v4.evaluation.generate --dataset {dataset} --cards {card_list} "
-        f"--jobs {jobs} > {log} 2>&1 && "
-        f".venv/bin/python -m v4.evaluation.batch --dataset {dataset} --variants {' '.join(variants)} "
-        f"--cards {card_list} --jobs {jobs} --tag {tag} >> {log} 2>&1; "
-        f'echo "=== done $(date) ===" >> {log}'
+        f".venv/bin/python -m v4.evaluation.generate --dataset {dataset} --cards {','.join(all_cards)} "
+        f"--jobs {host_jobs} > {host_log} 2>&1 && "
+        f"{{ {' '.join(batch_cmds)} wait; }}; "
+        f'echo "=== done $(date) ===" >> {host_log}'
     )
-    remote_cmd = f"mkdir -p /root/gosim/runs && setsid nohup bash -c '{inner}' > /dev/null 2>&1 < /dev/null &"
-    subprocess.run(["ssh", *SSH_OPTS, host, remote_cmd], check=False)
+    remote_cmd = f"mkdir -p /root/gosim/runs && setsid nohup bash -c '{inner}' > /dev/null 2>&1 < /dev/null & disown"
+    ssh_fire_and_forget(host, remote_cmd)
+
+
+def _group_by_variant(tasks: list[tuple[str, str]]) -> dict[str, list[str]]:
+    by_variant: dict[str, list[str]] = {}
+    for card, variant in tasks:
+        by_variant.setdefault(variant, []).append(card)
+    return by_variant
 
 
 def cmd_run(dataset: str, variants: list[str], tag: str, hosts_arg: str | None) -> None:
@@ -190,16 +257,28 @@ def cmd_run(dataset: str, variants: list[str], tag: str, hosts_arg: str | None) 
         print("no hosts online, nothing started")
         return
     cards = [spec["name"] for spec in specifications(dataset)]
+    tasks = [(card, variant) for card in cards for variant in variants]
     jobs = {host: hosts_cfg["hosts"][host]["jobs"] for host in online}
-    assignment = weighted_assign(cards, jobs)
+    assignment = weighted_assign(tasks, jobs)
     table = ROOT / "v4" / "results" / "remote" / "pool" / f"{tag}-{dataset}.json"
     table.parent.mkdir(parents=True, exist_ok=True)
-    table.write_text(json.dumps(assignment, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    for host, host_cards in assignment.items():
-        if not host_cards:
-            continue
-        start_remote_batch(host, dataset, variants, tag, host_cards, jobs[host])
-        print(f"{host}: started {len(host_cards)} cards")
+    table.write_text(
+        json.dumps({host: [list(task) for task in host_tasks] for host, host_tasks in assignment.items()},
+                    indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    def launch(host: str) -> str:
+        host_tasks = assignment[host]
+        if not host_tasks:
+            return f"{host}: nothing assigned"
+        start_remote_batch(host, dataset, tag, _group_by_variant(host_tasks), jobs[host])
+        n_cards = len({card for card, _ in host_tasks})
+        return f"{host}: started {len(host_tasks)} (card,variant) tasks over {n_cards} cards"
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(online))) as pool:
+        for line in pool.map(launch, online):
+            print(line)
 
 
 def host_running_tag(host: str, tag: str) -> bool:
@@ -211,8 +290,8 @@ def cmd_requeue(dataset: str, variants: list[str], tag: str) -> None:
     hosts_cfg = load_hosts()
     result_root = ROOT / "v4" / "results" / "remote" / f"{dataset}-r2" / tag
     cards = [spec["name"] for spec in specifications(dataset)]
-    missing = [card for card in cards
-               if any(not (result_root / variant / card / "summary.json").exists() for variant in variants)]
+    missing = [(card, variant) for card in cards for variant in variants
+               if not (result_root / variant / card / "summary.json").exists()]
     if not missing:
         print("requeue: nothing missing")
         return
@@ -224,18 +303,25 @@ def cmd_requeue(dataset: str, variants: list[str], tag: str) -> None:
         else:
             free.append(host)
     if not free:
-        print("requeue: no free host to take the missing cards")
+        print("requeue: no free host to take the missing (card,variant) tasks")
         return
     jobs = {host: hosts_cfg["hosts"][host]["jobs"] for host in free}
     assignment = weighted_assign(missing, jobs)
     table = ROOT / "v4" / "results" / "remote" / "pool" / f"{tag}-{dataset}.json"
     existing = json.loads(table.read_text(encoding="utf-8")) if table.exists() else {}
-    for host, host_cards in assignment.items():
-        if not host_cards:
-            continue
-        existing.setdefault(host, []).extend(host_cards)
-        start_remote_batch(host, dataset, variants, tag, host_cards, jobs[host])
-        print(f"{host}: requeued {len(host_cards)} cards ({len(missing)} were missing)")
+
+    def launch(host: str) -> str | None:
+        host_tasks = assignment[host]
+        if not host_tasks:
+            return None
+        existing.setdefault(host, []).extend(list(task) for task in host_tasks)
+        start_remote_batch(host, dataset, tag, _group_by_variant(host_tasks), jobs[host])
+        return f"{host}: requeued {len(host_tasks)} (card,variant) tasks ({len(missing)} were missing)"
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(free))) as pool:
+        for line in pool.map(launch, free):
+            if line:
+                print(line)
     table.parent.mkdir(parents=True, exist_ok=True)
     table.write_text(json.dumps(existing, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -243,6 +329,11 @@ def cmd_requeue(dataset: str, variants: list[str], tag: str) -> None:
 # --- pull --------------------------------------------------------------------
 
 def pull_once(hosts_cfg: dict) -> None:
+    """Pulled layout: v4/results/remote/<dataset>-r2/<tag>/<variant>/<card>/ holds that card's
+    summary.json, score_report.json and agent_events.jsonl ("-r2" is batch.py's own
+    results-schema tag, independent of a dataset's card-generation revision). Run logs land
+    under v4/results/remote/runs/<host>/.
+    """
     dest = ROOT / "v4" / "results" / "remote"
     dest.mkdir(parents=True, exist_ok=True)
     for host in enabled_hosts(hosts_cfg):

@@ -9,6 +9,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+import re
 import shutil
 import tempfile
 from datetime import date, timedelta
@@ -16,14 +17,55 @@ from pathlib import Path
 
 from .upstream import ROOT, resolve
 
+# Matches the "<parent>-r<revision>-<index>" naming the generated-dataset branches below
+# produce, so a "cards" subset can tell which of its names are slices of a generatable
+# dataset (and must get that dataset's full spec, seed included) from names that are
+# truly published organizer cards (e.g. "v4-practice-alpha", "trial-a", "L1").
+_GENERATED_CARD_NAME = re.compile(r"^(?P<parent>.+)-r(?P<revision>\d+)-(?P<index>\d+)$")
+
+
+def _is_generatable(entry: dict) -> bool:
+    """True for a datasets.json entry that specifications() can build cards for directly."""
+    return "kinds" in entry or "family" in entry or "count" in entry
+
+
+def _parent_dataset(name: str, selected: dict, data: dict) -> str | None:
+    """The generatable dataset that owns a "cards" subset entry's card "name", if any."""
+    explicit = selected.get("of")
+    if explicit is not None:
+        return explicit
+    match = _GENERATED_CARD_NAME.match(name)
+    if not match:
+        return None
+    candidate = data.get(match.group("parent"))
+    if candidate is not None and _is_generatable(candidate):
+        return match.group("parent")
+    return None
+
+
+def _card_subset_specifications(dataset: str, selected: dict, data: dict, path: Path | None) -> list[dict]:
+    result = []
+    parent_specs: dict[str, dict[str, dict]] = {}
+    for name in selected["cards"]:
+        parent = _parent_dataset(name, selected, data)
+        if parent is None:
+            # A genuinely published organizer card (downloaded bundle), linked under v4/cards by name.
+            result.append({"name": name, "card_id": name, "published": True})
+            continue
+        if parent not in parent_specs:
+            parent_specs[parent] = {spec["name"]: spec for spec in specifications(parent, path)}
+        if name not in parent_specs[parent]:
+            raise KeyError(f"dataset {dataset!r}: card {name!r} not found in parent dataset {parent!r}")
+        result.append(parent_specs[parent][name])
+    return result
+
 
 def specifications(dataset: str, path: Path | None = None):
     path = path or ROOT / "v4" / "experiments" / "datasets.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     selected = data[dataset]
     if "cards" in selected:
-        # Published organizer cards (downloaded bundles), linked under v4/cards by name.
-        return [{"name": name, "card_id": name, "published": True} for name in selected["cards"]]
+        return _card_subset_specifications(dataset, selected, data, path)
     if "family" in selected:
         from .family import family_specifications
 
