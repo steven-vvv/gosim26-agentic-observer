@@ -663,5 +663,59 @@
       "8": 23700008
     },
     "note": "index 8: the base seed put a footprint component 4.7 deg from the pole, which the organizer generator rejects"
+  },
+  "kind-v5r": {
+    "sealed": true,
+    "count": 32,
+    "seed_base": 24100000,
+    "kinds": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "source": "kind-v5 stress plus A1-D1 style alert requests (4-5 targets near the zenith, 2-3 within 3-5 h, 300-500 points)",
+    "weather_patch": {
+      "instrument_fault": {
+        "count": 6,
+        "instrument_efficiency_multiplier_range": [
+          0.3,
+          0.5
+        ]
+      },
+      "terrain_obstruction": {
+        "sector_count": [
+          2,
+          4
+        ],
+        "width_deg_range": [
+          30.0,
+          70.0
+        ],
+        "max_altitude_deg_range": [
+          32.0,
+          42.0
+        ]
+      },
+      "earthquake": {
+        "count": 8,
+        "magnitude_range": [
+          4.5,
+          7.0
+        ],
+        "impact_coefficient": 0.75,
+        "reference_magnitude": 6.8,
+        "max_degradation": 0.95,
+        "decay_nights": 4.0,
+        "negligible_degradation": 0.01,
+        "seeing_impact_coefficient": 0.0,
+        "transparency_impact_coefficient": 0.0,
+        "sky_quality_impact_coefficient": 0.0
+      }
+    },
+    "seed_overrides": {},
+    "alerts": {
+      "every_nights": 12.0
+    }
   }
 }

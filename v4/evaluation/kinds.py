@@ -36,6 +36,8 @@ def kind_specifications(dataset: str, selected: dict, revision: int) -> list[dic
                 "kind": kinds[i % len(kinds)], "seed": int(seed)}
         if selected.get("weather_patch"):
             item["weather_patch"] = selected["weather_patch"]
+        if selected.get("alerts"):
+            item["alerts"] = selected["alerts"]
         result.append(item)
     return result
 
@@ -59,4 +61,9 @@ def build_kind_card(root: Path, spec: dict) -> Path:
                 # Stress sections replaced whole (A1-D1 style: several faults, terrain, quakes).
                 config.update(spec.get("weather_patch", {}))
             (folder / name).write_text(json.dumps(config), encoding="utf-8")
-        return build_spec_bundle(root, folder)
+        bundle = build_spec_bundle(root, folder)
+    if spec.get("alerts"):
+        from .alerts import add_alerts
+
+        add_alerts(root, int(spec["seed"]) + 7, float(spec["alerts"].get("every_nights", 12.0)))
+    return bundle
