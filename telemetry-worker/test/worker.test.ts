@@ -308,6 +308,37 @@ describe("telemetry worker", () => {
     }
   });
 
+  it("keeps provider reasoning when a request asks for it through chat_template_kwargs", async () => {
+    const oldUrl = runtimeEnv.LLM_UPSTREAM_URL;
+    const oldThinking = runtimeEnv.LLM_DISABLE_THINKING;
+    runtimeEnv.LLM_UPSTREAM_URL = "https://provider.test/v1";
+    runtimeEnv.LLM_DISABLE_THINKING = "true";
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const forwarded = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(forwarded.thinking).toBeUndefined();
+      expect(forwarded.chat_template_kwargs).toBeUndefined();
+      expect(forwarded.max_tokens).toBe(4096);
+      return new Response(JSON.stringify({ id: "upstream-2", choices: [] }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const response = await call("/v1/chat/completions", {
+        method: "POST",
+        headers: { ...bearer("ingest-test-token"), "content-type": "application/json" },
+        body: JSON.stringify({ model: "team-model", max_tokens: 4096, chat_template_kwargs: { thinking: true },
+          messages: [{ role: "user", content: "decode this log" }] }),
+      });
+      expect(response.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+      runtimeEnv.LLM_UPSTREAM_URL = oldUrl;
+      runtimeEnv.LLM_DISABLE_THINKING = oldThinking;
+    }
+  });
+
   it("keeps the upstream deadline active until a streamed body finishes", async () => {
     const oldUrl = runtimeEnv.LLM_UPSTREAM_URL;
     const oldTimeout = runtimeEnv.LLM_UPSTREAM_TIMEOUT_MS;

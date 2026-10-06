@@ -658,6 +658,10 @@
         "transparency_impact_coefficient": 0.0,
         "sky_quality_impact_coefficient": 0.0
       }
-    }
+    },
+    "seed_overrides": {
+      "8": 23700008
+    },
+    "note": "index 8: the base seed put a footprint component 4.7 deg from the pole, which the organizer generator rejects"
   }
 }

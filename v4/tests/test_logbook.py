@@ -11,7 +11,7 @@ import pytest
 
 from v4.agent.observer4.config import load
 from v4.agent.observer4.geometry import parse_utc
-from v4.agent.observer4.logbook import Logbook
+from v4.agent.observer4.logbook import Logbook, decode_log
 from v4.agent.observer4.policy import Observer
 from v4.agent.observer4.services import load_client
 from v4.agent.observer4.terrain import TerrainModel
@@ -122,3 +122,24 @@ def test_pinned_terrain_height_survives_resampling():
 def test_logbook_configuration_is_validated(patch):
     with pytest.raises(ValueError):
         load(CONFIG_PATH, patch)
+
+
+@pytest.mark.parametrize("line, decoded", [
+    ("【祥子】（加密了，钥匙：29）VZ-QZ vhfwru, 1/2 2:45-4:15 orfdo (orqj-udqjh): khdylhu forxg, vr hashfw uhgxfhg txdolwb.",
+     "凯撒解码：SW-NW sector, 1/2 2:45-4:15 local (long-range): heavier cloud, so expect reduced quality."),
+    ("【灯】（练习摩斯……）○●●●● ●●●●● ●○○●○ ●●○○○ / ○○●●● ○●●●● ●●●●● ●●●●● ●○○○○● ●●●●● ○●●●● ○○○●● ●●●●● / ●●● ●○● / ● ○○○○ ○○ ●○",
+     "摩斯解码：10/7 2100-0130 OK THIN"),
+    ("【灯】……换个写法：tiTATATATA TATATATATA TAtitiTAti tiTATATATA TATATATATA / titiTATATA tititiTATA titititiTA tititititi",
+     "摩斯解码：10/10 2345"),
+    ("【灯】东南到南一带云比较厚，11/15（周日）（哼一句：re re : fa sol）到2:30…效果打折。", "唱名时刻：22:45"),
+    ("【灯】预报说12/5（周六）♪do 高音re : 休止 休止♪到12/6（周日）0:00满天薄云", "唱名时刻：19:00"),
+])
+def test_encoded_log_parts_are_decoded_in_code(line, decoded):
+    assert decode_log(line) == f"{line}〔{decoded}〕"
+
+
+@pytest.mark.parametrize("line", ["time-critical follow-up",
+                                  "【祥子】Thin cloud expected in W-NW, 12/6 23:30-12/7 19:30 local (long-range); we can still observe through it.",
+                                  "【立希】今晚南边到西南风大，整晚关，别往那指。"])
+def test_plain_log_lines_stay_unchanged(line):
+    assert decode_log(line) == line

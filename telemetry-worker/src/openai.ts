@@ -2,7 +2,7 @@ import { requireIngestAuth } from "./auth";
 import { insertEvents } from "./storage";
 import { requestNetworkMetadata, withServerNetwork } from "./network";
 import { jsonBytes } from "./sanitize";
-import { proxyChatCompletion } from "./proxy";
+import { proxyChatCompletion, wantsThinking } from "./proxy";
 import { maxBatch, readJson, RequestError } from "./validation";
 import type { Env, JsonValue, NormalizedEvent } from "./types";
 
@@ -171,7 +171,7 @@ async function proxyWithRecord(request: Request, value: Record<string, unknown>,
       forwarded_model: env.LLM_MODEL_NAME?.trim() || record.model,
       message_count: record.messages,
       stream: value.stream === true,
-      thinking_disabled: env.LLM_DISABLE_THINKING?.trim().toLowerCase() === "true",
+      thinking_disabled: !wantsThinking(value) && env.LLM_DISABLE_THINKING?.trim().toLowerCase() === "true",
       status,
       upstream_ms: Date.now() - record.receivedAt,
       metadata: record.metadata,

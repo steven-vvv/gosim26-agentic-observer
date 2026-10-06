@@ -8,20 +8,33 @@ function upstreamEndpoint(value: string): string {
   return `${base}/v1/chat/completions`;
 }
 
-function timeoutMs(env: Env): number {
-  const value = Number.parseInt(env.LLM_UPSTREAM_TIMEOUT_MS ?? "15000", 10);
+/**
+ * A request asks to keep provider reasoning with `chat_template_kwargs: {"thinking": true}`,
+ * the one field of its kind that the platform proxy forwards. Reading an encoded duty log
+ * needs reasoning; the short planning advice does not.
+ */
+export function wantsThinking(body: Record<string, unknown>): boolean {
+  const kwargs = body.chat_template_kwargs;
+  return typeof kwargs === "object" && kwargs !== null && (kwargs as Record<string, unknown>).thinking === true;
+}
+
+function timeoutMs(env: Env, thinking: boolean): number {
+  const raw = thinking ? env.LLM_THINKING_TIMEOUT_MS ?? "110000" : env.LLM_UPSTREAM_TIMEOUT_MS ?? "15000";
+  const value = Number.parseInt(raw, 10);
   return Number.isFinite(value) ? Math.max(500, Math.min(value, 120000)) : 15000;
 }
 
 /**
  * The provider body: the configured model ID and, when `LLM_DISABLE_THINKING` is
- * "true", reasoning switched off. A reasoning model otherwise spends the whole
- * `max_tokens` on hidden reasoning, and the platform proxy forwards no field that
- * could turn it off.
+ * "true", reasoning switched off unless the request asked to keep it (the marker is
+ * not forwarded). A reasoning model otherwise spends the whole `max_tokens` on hidden
+ * reasoning, and the platform proxy forwards no provider field that could turn it off.
  */
 function forwardedBody(body: Record<string, unknown>, env: Env): Record<string, unknown> {
-  const forwarded: Record<string, unknown> = { ...body, model: env.LLM_MODEL_NAME?.trim() || body.model };
-  if (env.LLM_DISABLE_THINKING?.trim().toLowerCase() === "true") {
+  const thinking = wantsThinking(body);
+  const { chat_template_kwargs: _marker, ...rest } = body;
+  const forwarded: Record<string, unknown> = { ...(thinking ? rest : body), model: env.LLM_MODEL_NAME?.trim() || body.model };
+  if (!thinking && env.LLM_DISABLE_THINKING?.trim().toLowerCase() === "true") {
     forwarded.thinking = { type: "disabled" };
   }
   return forwarded;
@@ -38,7 +51,7 @@ export async function proxyChatCompletion(
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs(env));
+  const timer = setTimeout(() => controller.abort(), timeoutMs(env, wantsThinking(body)));
   try {
     const headers = new Headers({
       "content-type": "application/json",

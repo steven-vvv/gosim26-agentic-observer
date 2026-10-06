@@ -554,7 +554,8 @@ class ModelAdvisor:
             return None
 
     def extract(self, stage: str, system_prompt: str, payload: Mapping[str, Any],
-                sequence: Any = None) -> dict[str, Any] | None:
+                sequence: Any = None, extra_body: Mapping[str, Any] | None = None,
+                timeout: float | None = None) -> dict[str, Any] | None:
         """Return the model's JSON object for a reading task, or ``None`` on any failure.
 
         Same transport, budgets and circuit breaker as ``choose``; the caller validates
@@ -584,6 +585,7 @@ class ModelAdvisor:
             host = urlsplit(self.url or "").hostname
             if not (host in {"api.kimi.com", "api.kimi.ai"} or self.model.strip().lower() in {"k3", "kimi-for-coding"}):
                 body["temperature"] = self.config.temperature
+            body.update(extra_body or {})
             encoded = json.dumps(body, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
             call_id = str(uuid.uuid4())
             request = urllib.request.Request(
@@ -600,7 +602,7 @@ class ModelAdvisor:
                 method="POST",
             )
             transport = self._transport or urllib.request.urlopen
-            with transport(request, timeout=self.timeout) as response:
+            with transport(request, timeout=timeout or self.timeout) as response:
                 raw = response.read(self.config.max_response_bytes + 1)
             if len(raw) > self.config.max_response_bytes:
                 raise AdviceError("response_too_large")
