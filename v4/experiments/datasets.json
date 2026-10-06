@@ -713,9 +713,12 @@
         "sky_quality_impact_coefficient": 0.0
       }
     },
-    "seed_overrides": {},
+    "seed_overrides": {
+      "1": 24199001
+    },
     "alerts": {
       "every_nights": 12.0
-    }
+    },
+    "note": "index 1 (b): seed 24101014 put a footprint component 4.59 deg from the pole, which the organizer generator rejects; replaced by 24199001"
   }
 }

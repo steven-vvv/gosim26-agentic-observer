@@ -72,3 +72,4 @@ v3/tools/omni/dp.so
 # 远程机器凭据（10-06）：只放在 ~/.ssh，不进仓库
 *.pem
 /server
+/servers
