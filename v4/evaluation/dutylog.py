@@ -45,8 +45,10 @@ def add_duty_log(card: Path, seed: int, every_nights: int = 3) -> int:
         windows = [(row["night_id"], _utc(row["start_utc"]), _utc(row["end_utc"]))
                    for row in csv.DictReader(windows_path.open(encoding="utf-8"))]
     starts: dict[str, datetime] = {}
+    last = None
     for row in csv.DictReader((card / "truth" / "v4_weather_truth.csv").open(encoding="utf-8")):
         starts.setdefault(row["night_id"], _utc(row["timestamp_utc"]))
+        last = _utc(row["timestamp_utc"]) + timedelta(seconds=int(row["duration_seconds"]))
     nights = sorted(starts)
     targets = [row["target_id"] for row in csv.DictReader((card / "public" / "targets.csv").open(encoding="utf-8"))]
     path = card / "truth" / "v4_observation_requests.jsonl"
@@ -54,6 +56,9 @@ def add_duty_log(card: Path, seed: int, every_nights: int = 3) -> int:
     added = 0
     for index in range(0, len(nights), every_nights):
         issued = starts[nights[index]]
+        deadline = min(issued + timedelta(days=2), last)
+        if deadline <= issued + timedelta(hours=1):
+            break  # the engine only publishes requests whose window lies inside the survey
         until = starts[nights[index + every_nights]] if index + every_nights < len(nights) else issued + timedelta(days=30)
         lines = [("【立希】规矩再讲一次：导星相机一动，数据就全废，直到我们报修才算完，所以到点就报，别等着看数据。"
                   "平场灯、镜盖测试那几段同样是废片，可那不是故障，不许报，报了就是误报。")]
@@ -80,7 +85,7 @@ def add_duty_log(card: Path, seed: int, every_nights: int = 3) -> int:
         requests.append({
             "completion_factor_threshold": 0.5,
             "completion_reward": 0.0,
-            "deadline_utc": (issued + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "deadline_utc": deadline.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "issued_at_utc": issued.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "minimum_completed": 1,
             "reason": "\n".join(lines),
