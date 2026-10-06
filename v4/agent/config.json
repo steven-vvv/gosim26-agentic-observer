@@ -12,8 +12,8 @@
     }
   },
   "policy": {
-    "anchors": 24,
-    "anchor_pool": 256,
+    "anchors": 48,
+    "anchor_pool": 512,
     "neighbor_radius_deg": 4.2,
     "science_exponent": 1.5,
     "science_cap_quality": 0.0,
@@ -51,8 +51,8 @@
     "free_center": true,
     "adaptive_margin": true,
     "opportunity_weight": 0.0,
-    "cluster_anchors": 8,
-    "refine_top": 3,
+    "cluster_anchors": 16,
+    "refine_top": 6,
     "refine_iterations": 1,
     "stale_probe_seconds": 0,
     "tonight_weight": 0.0,
@@ -68,7 +68,7 @@
     "pace_floor": 0.8,
     "rollout_top": 0,
     "rollout_weight": 0.0,
-    "setting_boost": 0.35,
+    "setting_boost": 0.0,
     "rising_weight": 0.0,
     "upgrade_weight": 0.0,
     "upgrade_factor": 0.95,
@@ -94,7 +94,8 @@
       2400,
       3000,
       3600
-    ]
+    ],
+    "setting_boost": 0.35
   },
   "structure": {
     "enabled": true,
@@ -207,6 +208,7 @@
     "merge_hours": 6.0,
     "terrain_margin_deg": 1.0,
     "appointment_horizon_days": 45.0,
-    "rules": true
+    "rules": true,
+    "max_wait_seconds": 900.0
   }
 }

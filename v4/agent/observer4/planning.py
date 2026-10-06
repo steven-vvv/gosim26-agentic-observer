@@ -254,7 +254,7 @@ class Planner:
         if not self._scale_active():
             return {**settings, **overrides} if overrides else settings
         scaled = dict(settings)
-        for name in ("anchor_pool", "anchors", "cluster_anchors", "refine_top"):
+        for name in ("anchor_pool", "anchors", "cluster_anchors", "refine_top", "setting_boost"):
             if name in profile:
                 scaled[name] = profile[name]
         if profile.get("durations"):

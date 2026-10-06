@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 from .geometry import parse_utc
@@ -35,7 +36,8 @@ SYSTEM_PROMPT = (
     "填 {\"time\": \"2027-01-21 21:15\", \"zone\": \"UTC-11\"}；「按钟点比前面 1/24 的那次早 15 分钟」填新日期、那次的钟点减 15 分钟、"
     "那次的时区。日期一律写完整的公历日期：日志写 M/D 就用 M/D 那一天（凌晨的时刻也就是写的那个日历日），"
     "唯独平场灯、镜盖测试这类“X 日那晚/夜里”的时段，中午以前的时刻属于第二天。\n"
-    "appointments：工程组确认要动导星相机（ガイダーカメラの作業、guider camera work）并要求到点报修的每个时刻，"
+    "appointments：工程组确认要动导星相机（ガイダーカメラの作業、guider camera work）或其它硬件、并说动完整机吞吐量归零或画面报废、"
+    "要求到点报修的每个时刻，"
     "一条日志里有几次就列几次；同一件事的本地写法和 UTC 写法只列一次。更正（「灯记错了，X 不对，导星相机是 Y」）只取更正后的 Y；"
     "「若那晚下雨则顺延一天」后面又说「那晚下雨了，顺延一天」时，取顺延后的时刻；「推迟 N 分钟/小时」时取推迟后的时刻。"
     "以下都不要列：【灯】自己没被确认的时刻；传言（「听说也要动？没确认，先别当真」「有人说」）；平场灯、镜盖测试。\n"
@@ -144,6 +146,7 @@ class Logbook:
         self.terrain: dict[str, float] = {}
         self.applied_terrain: dict[str, float] = {}
         self.readings = 0
+        self.waited = 0.0
         self.read = {"model": set(), "rules": set()}
         self.reader = None
         enabled = bool(self.settings.get("enabled", False))
@@ -213,11 +216,19 @@ class Logbook:
         for _ in range(int(self.settings.get("per_decision", 2))):
             if not self.queue or not self.reader.enabled:
                 return
+            if self.waited > float(self.settings.get("max_wait_seconds", 900.0)):
+                # Reading is not charged to the budget but counts against the run's real-time
+                # cap; past this much waiting the rules read the remaining texts alone.
+                self.emit("logbook_wait_cap", {"waited": round(self.waited, 1), "queued": len(self.queue)})
+                self.reader = None
+                return
             issued, stamp, text, digest = self.queue.pop(0)
             local = datetime.fromtimestamp(issued, timezone.utc) + timedelta(hours=self.offset_hours)
             payload = {"issued_at_utc": stamp, "issued_at_local": local.strftime("%Y-%m-%d %H:%M %A"),
                        "site_utc_offset_hours": self.offset_hours, "log": decode_log(text)}
+            started = time.perf_counter()
             reading = self.reader.extract("duty_log", SYSTEM_PROMPT, payload, sequence)
+            self.waited += time.perf_counter() - started
             self.readings += 1
             if isinstance(reading, dict):
                 self.read["model"].add(digest)
@@ -356,6 +367,7 @@ class Logbook:
 
     def status(self) -> dict:
         return {"enabled": self.reader is not None, "rules": self.rules, "readings": self.readings,
+                "waited": round(self.waited, 1),
                 "queued": len(self.queue), "read": {name: len(texts) for name, texts in self.read.items()},
                 "faults": [{"start": round(item["start"]), "state": item["state"], "sources": sorted(item["sources"])}
                            for item in self.faults],

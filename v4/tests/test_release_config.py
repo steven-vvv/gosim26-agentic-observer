@@ -249,7 +249,7 @@ def test_startup_remote_full_restores_a_conservative_raw_profile(monkeypatch):
     assert status["source"] == "remote"
     assert status["profile"] == "full"
     assert resolved["release"]["profile"] == "full"
-    assert resolved["policy"]["anchors"] == 24
+    assert resolved["policy"]["anchors"] == 48
     assert resolved["policy"]["durations"][-1] == 3600
     assert resolved["model"]["max_total_calls"] == 24
 
@@ -260,7 +260,7 @@ def test_formal_package_keeps_full_baseline_for_startup_switching(tmp_path):
     packaged = json.loads(sources(tmp_path, profile="formal_conservative")["config.json"])
 
     assert packaged["release"]["profile"] == "formal_conservative"
-    assert packaged["policy"]["anchors"] == 24
+    assert packaged["policy"]["anchors"] == 48
     assert packaged["policy"]["durations"][-1] == 3600
     assert packaged["model"]["max_total_calls"] == 24
 
