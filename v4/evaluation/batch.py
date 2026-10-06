@@ -7,6 +7,8 @@ import concurrent.futures
 import hashlib
 import json
 import multiprocessing
+import os
+import shutil
 import statistics
 from pathlib import Path
 
@@ -29,6 +31,10 @@ def _run(card: Path, output: Path, variant: str, expected_source: str) -> dict:
         raise ValueError("agent source changed during experiment")
     config = _config(variant)
     digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+    if output.exists() and not (output / "summary.json").exists():
+        # summary.json is written last, so its absence marks a run that was cut short
+        # (an interrupted or preempted worker); its partial files are discarded and rerun.
+        shutil.rmtree(output)
     if output.exists():
         summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
         if (
@@ -66,7 +72,8 @@ def run(dataset: str, variants: list[str], jobs: int, *, limit: int | None = Non
     # configuration values.
     methods = multiprocessing.get_all_start_methods()
     context = multiprocessing.get_context("fork") if "fork" in methods else None
-    pool_options = {"max_workers": max(1, min(jobs, 4))}
+    # One worker per core at most: a run is single-threaded and timing-sensitive.
+    pool_options = {"max_workers": max(1, min(jobs, os.cpu_count() or 4))}
     if context is not None:
         pool_options["mp_context"] = context
     with concurrent.futures.ProcessPoolExecutor(**pool_options) as pool:
