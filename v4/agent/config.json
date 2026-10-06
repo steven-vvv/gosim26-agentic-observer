@@ -106,6 +106,10 @@
     "rich_fiber_hours": 4.0,
     "rich_overrides": {
       "upgrade_weight": 0.5
+    },
+    "lean_fiber_hours": 0.7,
+    "lean_overrides": {
+      "window_weight": 0.5
     }
   },
   "quality": {

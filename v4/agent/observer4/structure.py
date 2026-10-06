@@ -12,7 +12,9 @@ def card_structure(task, switch: dict) -> dict:
     visible hours in the last third of the season (a region that only rises late). The
     nightly setting boost then keeps the earlier region busy when the late one finally
     rises. ``fiber_hours``: fibre hours of the whole season per target; a season rich in
-    time can afford re-exposures for a better program multiplier.
+    time can afford re-exposures for a better program multiplier. A lean season (kinds a
+    and c) gains from ranking targets by the nights they have left; on the 25-fibre kind b,
+    whose late region rises in the last third, the same urgency costs 7 % of the targets.
     """
     visibility = np.asarray(getattr(task, "visibility", np.zeros((0, 0))))
     result = {"late_share": None, "fiber_hours": None, "overrides": {}}
@@ -29,4 +31,6 @@ def card_structure(task, switch: dict) -> dict:
         overrides.update(switch.get("late_overrides", {}))
     if fiber_hours >= float(switch.get("rich_fiber_hours", 1e9)):
         overrides.update(switch.get("rich_overrides", {}))
+    if fiber_hours <= float(switch.get("lean_fiber_hours", 0.0)):
+        overrides.update(switch.get("lean_overrides", {}))
     return {"late_share": round(share, 4), "fiber_hours": round(fiber_hours, 3), "overrides": overrides}

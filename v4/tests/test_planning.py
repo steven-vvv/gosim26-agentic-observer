@@ -154,3 +154,23 @@ def test_pacing_cuts_only_below_the_fair_share_floor():
     assert planner.paced_plans == 3
     planner.settings["pace_budget"] = False
     assert planner._paced_anchors(500.0, 5, 100.0, extra=4) == 24
+
+
+def test_structure_switch_selects_window_urgency_only_on_lean_seasons():
+    from pathlib import Path
+
+    from v4.agent.observer4.config import load
+    from v4.agent.observer4.structure import card_structure
+
+    switch = load(Path(__file__).resolve().parents[1] / "agent" / "config.json")["structure"]
+
+    def task(fibers, targets, hours):
+        night = SimpleNamespace(start=0.0, end=hours * 3600.0)
+        return SimpleNamespace(visibility=np.ones((3, targets)), nights=[night], grid=SimpleNamespace(n=fibers),
+                               ids=list(range(targets)))
+
+    # Kinds a, c, b, d: 16 fibres / 0.504, 9 / 0.356, 25 / 0.843, 100 / 9.6 fibre hours per target.
+    assert card_structure(task(16, 1000, 31.5), switch)["overrides"] == {"window_weight": 0.5}
+    assert card_structure(task(9, 1000, 39.6), switch)["overrides"] == {"window_weight": 0.5}
+    assert "window_weight" not in card_structure(task(25, 1000, 33.7), switch)["overrides"]
+    assert card_structure(task(100, 1000, 96.1), switch)["overrides"] == {"upgrade_weight": 0.5}
