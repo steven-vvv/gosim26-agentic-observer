@@ -24,6 +24,7 @@ SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
 RSYNC_SSH = "ssh -o BatchMode=yes -o ConnectTimeout=10"
 SECRET_PATTERN = r"sk-[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY"
 SYNC_DIRS = ["v4/agent", "v4/evaluation", "v4/experiments", "v4/tests"]
+VERIFY_PYTHON_REMOTE = "/root/.uvpy/cpython-3.12.14-linux-x86_64-gnu/bin/python3.12"
 
 
 def load_hosts() -> dict:
@@ -326,13 +327,59 @@ def cmd_requeue(dataset: str, variants: list[str], tag: str) -> None:
     table.write_text(json.dumps(existing, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+# --- verify ------------------------------------------------------------------
+
+def sync_verify_inputs(host: str, package: Path, cards: list[str]) -> None:
+    ssh_run(host, "mkdir -p /root/gosim/verify /root/gosim/GOSIM26/v4/cards", timeout=20)
+    for card in cards:
+        subprocess.run(["rsync", "-a", "-L", "-e", RSYNC_SSH, f"{ROOT / 'v4' / 'cards' / card}/",
+                         f"{host}:/root/gosim/GOSIM26/v4/cards/{card}/"], check=False)
+    subprocess.run(["rsync", "-a", "-e", RSYNC_SSH, str(package),
+                     f"{host}:/root/gosim/verify/{package.name}"], check=False)
+
+
+def start_remote_verify(host: str, package_name: str, cards: list[str]) -> None:
+    """One verify_package.py process per card: the script scores its ``--cards`` serially,
+    so parallelism across cards comes from running one process per card instead. Each
+    process's ``--out`` is the same package-verify directory, but every card writes to its
+    own ``<out>/<package-stem>/<card>/`` subpath, so the processes never touch the same file.
+    """
+    package_remote = f"/root/gosim/verify/{package_name}"
+    out_dir = "/root/gosim/GOSIM26/v4/results/package-verify"
+    log_stem = f"/root/gosim/runs/verify-{Path(package_name).stem}"
+    verify_cmds = [
+        f".venv/bin/python -m v4.evaluation.verify_package --package {package_remote} "
+        f"--cards v4/cards/{card} --python {VERIFY_PYTHON_REMOTE} --out {out_dir} "
+        f">> {log_stem}-{card}.log 2>&1 &"
+        for card in cards
+    ]
+    inner = (
+        f". /root/gosim/env.sh; cd /root/gosim/GOSIM26; "
+        f"{' '.join(verify_cmds)} wait"
+    )
+    remote_cmd = (f"mkdir -p /root/gosim/runs && "
+                   f"setsid nohup bash -c '{inner}' > /dev/null 2>&1 < /dev/null & disown")
+    ssh_fire_and_forget(host, remote_cmd)
+
+
+def cmd_verify(package: Path, cards: list[str], host: str) -> None:
+    if not is_online(host):
+        print(f"{host}: offline")
+        return
+    sync_verify_inputs(host, package, cards)
+    start_remote_verify(host, package.name, cards)
+    print(f"{host}: verifying {package.name} over {len(cards)} cards in parallel (one process per "
+          f"card); pull, then check v4/results/package-verify/{package.stem}/<card>/score_report.json")
+
+
 # --- pull --------------------------------------------------------------------
 
 def pull_once(hosts_cfg: dict) -> None:
     """Pulled layout: v4/results/remote/<dataset>-r2/<tag>/<variant>/<card>/ holds that card's
     summary.json, score_report.json and agent_events.jsonl ("-r2" is batch.py's own
     results-schema tag, independent of a dataset's card-generation revision). Run logs land
-    under v4/results/remote/runs/<host>/.
+    under v4/results/remote/runs/<host>/. verify's output mirrors the remote path verbatim,
+    landing at v4/results/package-verify/<package-stem>/<card>/ instead.
     """
     dest = ROOT / "v4" / "results" / "remote"
     dest.mkdir(parents=True, exist_ok=True)
@@ -346,6 +393,10 @@ def pull_once(hosts_cfg: dict) -> None:
         log_dest = dest / "runs" / host
         log_dest.mkdir(parents=True, exist_ok=True)
         subprocess.run(["rsync", "-a", "-e", RSYNC_SSH, f"{host}:/root/gosim/runs/*.log", f"{log_dest}/"], check=False)
+        verify_dest = ROOT / "v4" / "results" / "package-verify"
+        verify_dest.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["rsync", "-a", "-e", RSYNC_SSH, f"{host}:/root/gosim/GOSIM26/v4/results/package-verify/",
+                         f"{verify_dest}/"], check=False)
         print(f"{host}: pulled")
 
 
@@ -402,6 +453,11 @@ def main() -> None:
     requeue.add_argument("--variants", nargs="+", required=True)
     requeue.add_argument("--tag", required=True)
 
+    verify = sub.add_parser("verify", help="rsync a package + cards to a host and score each card in parallel")
+    verify.add_argument("--package", type=Path, required=True)
+    verify.add_argument("--cards", nargs="+", required=True)
+    verify.add_argument("--host", default="gosim")
+
     pull = sub.add_parser("pull", help="rsync summary/score/event files and run logs back to this machine")
     pull.add_argument("--loop", type=int, help="repeat every SEC seconds instead of pulling once")
 
@@ -420,6 +476,8 @@ def main() -> None:
         cmd_run(args.dataset, args.variants, args.tag, args.hosts)
     elif args.command == "requeue":
         cmd_requeue(args.dataset, args.variants, args.tag)
+    elif args.command == "verify":
+        cmd_verify(args.package, args.cards, args.host)
     elif args.command == "pull":
         cmd_pull(args.loop)
     elif args.command == "status":
