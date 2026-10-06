@@ -456,5 +456,31 @@
     "sources": {
       "kind-validation-r3-*": "v4/evaluation/kinds.py, kind-validation seeds"
     }
+  },
+  "kv-b5": {
+    "sealed": false,
+    "cards": [
+      "kind-validation-r3-001",
+      "kind-validation-r3-005",
+      "kind-validation-r3-009",
+      "kind-validation-r3-013",
+      "trial-b"
+    ],
+    "sources": {
+      "kind-validation-r3-*": "v4/evaluation/kinds.py, kind-validation seeds (b kind)",
+      "trial-b": "formal B layout"
+    }
+  },
+  "kind-sweep": {
+    "sealed": true,
+    "count": 32,
+    "seed_base": 21700000,
+    "kinds": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "source": "hackathon-survey26 bdb1031 cards/v4-practice-{a,b,c,d}/spec, fresh seeds (robustness sweep, not for tuning)"
   }
 }
