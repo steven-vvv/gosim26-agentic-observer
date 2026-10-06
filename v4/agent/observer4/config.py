@@ -278,7 +278,7 @@ def validate(config: dict) -> None:
     if "logbook" in config:
         logbook = config["logbook"]
         if not isinstance(logbook, dict) or any(type(logbook.get(name)) is not bool
-                                                for name in ("enabled", "reports", "terrain")):
+                                                for name in ("enabled", "reports", "terrain", "rules")):
             raise ValueError("logbook configuration must be an object with boolean switches")
         for name, (low, high) in {"min_chars": (1, 10000), "max_chars": (100, 60000), "max_calls": (0, 1000),
                                   "per_decision": (1, 20), "timeout_seconds": (0.2, 30), "max_tokens": (64, 4096),

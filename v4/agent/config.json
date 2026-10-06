@@ -153,7 +153,13 @@
     "stale_levels": 3,
     "stale_floor": 1.0,
     "stale_max_hours": 36,
-    "probe_fractions": []
+    "probe_fractions": [],
+    "deep_fault_allowed": false,
+    "dead_level": -4.0,
+    "dead_exposures": 3,
+    "dead_minutes": 40.0,
+    "dead_gap_minutes": 10.0,
+    "dead_spread": 1.5
   },
   "observability": {
     "local_enabled": true,
@@ -172,7 +178,8 @@
       "decision_every": 20,
       "drain_timeout_seconds": 10.0,
       "model_proxy": false
-    }
+    },
+    "level_trace": false
   },
   "model": {
     "enabled": true,
@@ -194,10 +201,12 @@
     "max_chars": 6000,
     "max_calls": 160,
     "per_decision": 2,
-    "timeout_seconds": 15.0,
-    "max_tokens": 600,
+    "timeout_seconds": 25.0,
+    "max_tokens": 2048,
     "max_consecutive_failures": 4,
     "merge_hours": 6.0,
-    "terrain_margin_deg": 1.0
+    "terrain_margin_deg": 1.0,
+    "appointment_horizon_days": 45.0,
+    "rules": true
   }
 }

@@ -161,15 +161,16 @@ class EfficiencyModel:
         self.fault_log = 0.0
         self.quake_active = False
 
-    def log_efficiency(self, night: int, now: float) -> float:
+    def log_efficiency(self, night: int, now: float, hidden: bool = True) -> float:
+        """Modelled log efficiency; without ``hidden`` only announced shocks count."""
         tau = float(self.settings.get("quake_decay_nights", 4.0))
         value = 0.0
         for quake in self.quakes:
-            if now < quake["time"]:
+            if now < quake["time"] or (quake.get("hidden") and not hidden):
                 continue
             degradation = quake["d0"] * math.exp(-max(0, night - quake["night"]) / tau)
             value += math.log(max(0.02, 1.0 - degradation))
-        return value + self.fault_log
+        return value + (self.fault_log if hidden else 0.0)
 
     def quake_onset(self, now: float, night: int) -> dict:
         quake = {"time": now, "night": night, "d0": float(self.settings.get("quake_prior_degradation", 0.5)),
@@ -655,7 +656,12 @@ class InstrumentMonitor:
         slot = self.slot_index(now, night)
         trusted = self.window_trusted and not self.repaired
         free = self.free_left()
-        if len(self.reports) >= int(self.settings.get("monitor_maximum_reports", 6)):
+        dead = self._dead()
+        if dead is not None:
+            return dead
+        correct = [i for i, entry in enumerate(self.reports) if entry.get("resolved") == "correct"]
+        since_correct = len(self.reports) - (correct[-1] + 1 if correct else 0)
+        if since_correct >= int(self.settings.get("monitor_maximum_reports", 6)):
             # False reports must not use up the one report that the window's fault is
             # certain to repay: the fallback stays available until a repair.
             if not (trusted and self.settings.get("fallback_beyond_cap", True)):
@@ -682,7 +688,7 @@ class InstrumentMonitor:
                       and evidence.get("band_llr", 0.0) >= float(self.settings.get("early_band_llr", 3.0))
                       and evidence.get("band_targets", 0) >= 3)
             certain = strong and evidence.get("band_llr", 0.0) >= float(self.settings.get("early_paid_llr", 6.0))
-            if not (strong and (free or certain)) or evidence["drop"] < -float(self.settings.get("maximum_fault_drop", 1.8)):
+            if not (strong and (free or certain)) or self._too_deep(evidence):
                 if (self.quake_notice and evidence.get("band_llr", 0.0) >= float(self.settings.get("quake_band_llr", 1.0))
                         and self.settings.get("model_hidden_quakes", True)):
                     # The earthquake notice cannot show a second shock while the first one
@@ -694,8 +700,8 @@ class InstrumentMonitor:
         evidence = self._detect(1.0)
         if evidence is None and free:
             evidence = self._detect(float(self.settings.get("probe_threshold_scale", 0.6)))
-        if evidence is not None and evidence["drop"] < -float(self.settings.get("maximum_fault_drop", 1.8)):
-            # No fault cuts efficiency this far, an unannounced aftershock can.
+        if evidence is not None and self._too_deep(evidence):
+            # No fault is modelled to cut efficiency this far, an unannounced aftershock can.
             self._hidden_quake(evidence, now, night)
             evidence = None
         if evidence is not None and evidence["scale"] < 1.0 and not free:
@@ -717,6 +723,63 @@ class InstrumentMonitor:
                     evidence = {"kind": "probe", "probe": due[0], "reference": None, "level": self._last_level(),
                                 "drop": 0.0}
         return evidence
+
+    def _dead(self) -> dict | None:
+        """A long run of near-zero levels: the instrument has stopped, not the sky.
+
+        Moving the guide camera drops the throughput of the whole instrument to well under
+        one percent until a report repairs it. Closures leave no levels at all, announced
+        earthquakes are taken out of the level, and announced test windows last at most half
+        an hour, so a longer run of such levels is a fault. A run is evidence once: after a
+        report only a run that begins later counts, and after a false one the level must
+        first come back.
+        """
+        floor = float(self.settings.get("dead_level", 0.0))
+        if floor >= 0.0:
+            return None
+        last = self.reports[-1] if self.reports else None
+        since = last["time"] if last is not None else float("-inf")
+        gap = float(self.settings.get("dead_gap_minutes", 10.0)) * 60.0
+        # Announced shocks only: a hidden one may itself be this fault, misread as a shock.
+        level = lambda record: record["level"] - self.efficiency.log_efficiency(record["night"], record["start"], False)
+        run, recovered = [], False
+        for record in reversed(self.records):
+            if record["start"] < since:
+                break
+            if record["level"] is None:
+                continue
+            if level(record) >= floor or (run and run[-1]["start"] - record["end"] > gap):
+                recovered = level(record) >= floor
+                break
+            run.append(record)
+        if last is not None and last.get("kind") == "dead" and last.get("resolved") == "false" and not recovered:
+            return None
+        if len(run) < int(self.settings.get("dead_exposures", 3)):
+            return None
+        if sum(record["end"] - record["start"] for record in run) < float(self.settings.get("dead_minutes", 40.0)) * 60.0:
+            return None
+        values = np.array([level(record) for record in run])
+        if np.max(values) - np.min(values) > float(self.settings.get("dead_spread", 1.5)):
+            return None  # a stopped instrument reads the same low level; weather scatters it
+        level = float(np.median(values))
+        return {"kind": "dead", "reference": None, "level": level, "drop": level, "exposures": len(run),
+                "scale": 1.0}
+
+    def _too_deep(self, evidence: dict) -> bool:
+        """True when the drop is so deep that only an unannounced aftershock explains it.
+
+        A fault is modelled to cut efficiency by a bounded amount, but a card can move the
+        guide camera and drop the whole instrument to nearly zero. A deep drop is therefore
+        a fault when the program bands keep their place (the sky did not move) and coherent
+        over many targets; it is an aftershock only when the bands themselves shifted.
+        """
+        limit = -float(self.settings.get("maximum_fault_drop", 1.8))
+        if evidence.get("drop", 0.0) >= limit:
+            return False
+        if not self.settings.get("deep_fault_allowed", True):
+            return True
+        return not (evidence.get("band_targets", 0) >= int(self.settings.get("band_count_min", 2))
+                    and evidence.get("band_llr", 0.0) >= float(self.settings.get("band_llr_min", 4.0)))
 
     def _hidden_quake(self, evidence: dict, now: float, night: int) -> None:
         quake = self.efficiency.quake_onset(now, night)
@@ -787,6 +850,10 @@ class InstrumentMonitor:
             self._reject(entry)
 
     def _confirm(self, entry: dict) -> None:
+        if entry.get("kind") in ("dead", "logbook"):
+            # Shocks inferred since the previous repair were this fault's drops.
+            previous = max([float("-inf")] + [r["time"] for r in self.reports[:-1] if r.get("resolved") == "correct"])
+            self.efficiency.quakes = [q for q in self.efficiency.quakes if not (q.get("hidden") and q["time"] > previous)]
         self.repaired = True
         self.repairs += 1
         self.false_since_correct = 0

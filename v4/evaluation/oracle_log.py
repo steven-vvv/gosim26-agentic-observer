@@ -4,8 +4,10 @@ Cards A1-D1 announce instrument faults and terrain heights in their observation-
 texts; research cards carry no such text. An experiment variant may add an ``oracle``
 section, which is removed before the agent configuration is validated and never reaches
 the submitted agent: the truth fault starts are handed to the agent's log book a fixed
-delay after each fault begins (as if a log entry named it then), and the truth terrain
-heights are pinned once the terrain model exists.
+delay after each fault begins (as if a log entry named it then) or, with ``appointments``,
+ahead of time as the A1-D1 engineers announce them; ``quiet`` adds the truth flat-lamp
+windows of the synthetic cards; and the truth terrain heights are pinned once the terrain
+model exists.
 """
 
 from __future__ import annotations
@@ -36,11 +38,22 @@ def oracle_factory(card: Path, oracle: dict, config: dict):
         heights[direction] = max(heights.get(direction, 0.0), float(row["max_altitude_deg"]))
     delay = oracle.get("fault_delay_hours")
     margin = oracle.get("terrain_margin_deg")
+    flats = []
+    windows = card / "truth" / "v4_flat_windows.csv"
+    if oracle.get("quiet") and windows.exists():
+        flats = [(parse_utc(row["start_utc"]).timestamp(), parse_utc(row["end_utc"]).timestamp())
+                 for row in csv.DictReader(windows.open(encoding="utf-8"))]
 
     def build(publication, record):
         agent = Observer(publication, config, record)
         original = agent.respond
         pending = [start + float(delay) * 3600.0 for start in faults] if delay is not None else []
+        agent.logbook.quiet.extend(flats)
+        if oracle.get("appointments"):
+            # A perfect log reader: every move announced ahead, due exactly when it happens.
+            agent.logbook.faults.extend({"start": start, "issued": start, "state": "open", "future": True,
+                                         "sources": {"model", "rules"}, "texts": set()} for start in faults)
+            pending = []
         pinned = {"done": margin is None}
 
         def respond(snapshot):
@@ -48,7 +61,7 @@ def oracle_factory(card: Path, oracle: dict, config: dict):
             while pending and pending[0] <= now:
                 issued = pending.pop(0)
                 agent.logbook.faults.append({"start": issued - float(delay) * 3600.0, "issued": issued,
-                                             "state": "open"})
+                                             "state": "open", "sources": {"model", "rules"}, "texts": set()})
             action = original(snapshot)
             model = agent.quality.terrain_model
             if not pinned["done"] and model is not None:

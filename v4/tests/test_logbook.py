@@ -40,7 +40,8 @@ def fake_model(monkeypatch, reading):
 def book(config=None):
     events = []
     reader = Logbook(SimpleNamespace(longitude=-155.0), {"site": {"utc_offset_hours": -10.0}},
-                     config or load(CONFIG_PATH), lambda kind, payload: events.append((kind, payload)))
+                     config or load(CONFIG_PATH, {"logbook": {"rules": False}}),
+                     lambda kind, payload: events.append((kind, payload)))
     return reader, events
 
 
@@ -49,8 +50,7 @@ def request(text, issued="2026-12-27T04:34:00Z"):
 
 
 def test_reader_reads_each_long_text_once_and_dates_last_night(monkeypatch):
-    calls = fake_model(monkeypatch, {"fault_report": True, "fault_start": "2026-12-26 02:45",
-                                     "fault_start_zone": "local", "terrain": [], "reason": "hardware"})
+    calls = fake_model(monkeypatch, {"now": [{"time": "2026-12-26 02:45", "zone": "local"}], "reason": "hardware"})
     reader, _ = book()
     reader.collect([request(LOG), request(LOG), request("time-critical follow-up")])
     reader.process(1)
@@ -59,28 +59,122 @@ def test_reader_reads_each_long_text_once_and_dates_last_night(monkeypatch):
     assert reader.faults[0]["start"] == parse_utc("2026-12-26T12:45:00Z").timestamp()
 
 
-def test_a_start_after_the_log_is_moved_back_one_day(monkeypatch):
-    fake_model(monkeypatch, {"fault_report": True, "fault_start": "2026-12-26 21:30", "fault_start_zone": "local"})
+def test_an_appointment_is_due_exactly_at_its_time(monkeypatch):
+    # The engineers announce each guide-camera move ahead of time; the report is due at that
+    # moment, so a time after the log is kept as given.
+    fake_model(monkeypatch, {"appointments": [{"time": "2026-12-26 21:30", "zone": "local"},
+                                              {"time": "2026-12-27 07:30", "zone": "utc"}]})
     reader, _ = book()
     reader.collect([request(LOG, issued="2026-12-27T04:34:00Z")])  # 18:34 local on 12-26
     reader.process(1)
-    assert reader.faults[0]["start"] == parse_utc("2026-12-26T07:30:00Z").timestamp()
+    # The local and the UTC wording name the same move: one fault.
+    assert [item["start"] for item in reader.faults] == [parse_utc("2026-12-27T07:30:00Z").timestamp()]
+    assert reader.faults[0]["future"] is True
+    assert reader.due(parse_utc("2026-12-27T07:29:00Z").timestamp(), None) is None
+    assert reader.due(parse_utc("2026-12-27T07:30:00Z").timestamp(), None) is reader.faults[0]
+
+
+def test_a_stated_foreign_clock_is_converted_in_code():
+    reader, _ = book(load(CONFIG_PATH, {"logbook": {"enabled": False}}))
+    issued = parse_utc("2026-10-02T00:00:00Z").timestamp()
+    reader._apply({"appointments": [{"time": "2026-10-04 12:15", "zone": "UTC+9"},
+                                    {"time": "2026-10-05 01:00", "zone": "UTC-11"}]}, issued)
+    assert [item["start"] for item in reader.faults] == [parse_utc("2026-10-04T03:15:00Z").timestamp(),
+                                                         parse_utc("2026-10-05T12:00:00Z").timestamp()]
+
+
+def test_a_cancelled_appointment_is_never_reported():
+    reader, events = book(load(CONFIG_PATH, {"logbook": {"enabled": False}}))
+    issued = parse_utc("2027-06-08T16:18:00Z").timestamp()
+    reader._apply({"appointments": [{"time": "2027-06-10 22:45", "zone": "local"}]}, issued)
+    reader._apply({"cancelled": [{"time": "2027-06-10 22:45", "zone": "local"}]}, issued)
+    assert reader.due(parse_utc("2027-06-12T12:00:00Z").timestamp(), None) is None
+    # A later restatement of the cancelled time does not bring it back.
+    reader._apply({"appointments": [{"time": "2027-06-10 22:45", "zone": "local"}]}, issued + 600)
+    assert reader.due(parse_utc("2027-06-12T12:00:00Z").timestamp(), None) is None
+    assert [kind for kind, _ in events] == ["logbook_fault", "logbook_cancel"]
+
+
+def test_quiet_windows_and_the_next_boundary():
+    reader, _ = book(load(CONFIG_PATH, {"logbook": {"enabled": False}}))
+    issued = parse_utc("2027-06-01T07:15:00Z").timestamp()
+    reader._apply({"quiet": [{"start": "2027-06-01 21:45", "end": "2027-06-01 22:00", "zone": "local"}],
+                   "appointments": [{"time": "2027-06-02 00:30", "zone": "local"}]}, issued)
+    low, high = parse_utc("2027-06-02T07:45:00Z").timestamp(), parse_utc("2027-06-02T08:00:00Z").timestamp()
+    assert reader.quiet == [(low, high)]
+    assert reader.in_quiet(low - 600, low + 60) and not reader.in_quiet(high, high + 600)
+    assert reader.next_boundary(low - 3600) == low
+    assert reader.next_boundary(high) == parse_utc("2027-06-02T10:30:00Z").timestamp()
+
+
+def test_an_implausibly_distant_time_is_ignored():
+    reader, _ = book(load(CONFIG_PATH, {"logbook": {"enabled": False}}))
+    issued = parse_utc("2027-06-08T16:18:00Z").timestamp()
+    reader._apply({"appointments": [{"time": "2028-06-10 22:45", "zone": "local"}],
+                   "now": [{"time": "bad", "zone": "local"}]}, issued)
+    assert reader.faults == []
 
 
 def test_due_skips_a_fault_that_a_later_correct_report_repaired():
     reader, _ = book(load(CONFIG_PATH, {"logbook": {"enabled": False}}))
-    reader._apply({"fault_report": True, "fault_start": "2026-12-26 02:45", "fault_start_zone": "local"},
+    reader._apply({"now": [{"time": "2026-12-26 02:45", "zone": "local"}]},
                   parse_utc("2026-12-27T04:34:00Z").timestamp())
     start = reader.faults[0]["start"]
     assert reader.due(start + 7200, start + 3600) is None
     assert reader.faults[0]["state"] == "covered"
-    reader._apply({"fault_report": True, "fault_start": "2027-01-16 22:15", "fault_start_zone": "local"},
-                  parse_utc("2027-01-17T09:15:00Z").timestamp())
+    reader._apply({"appointments": [{"time": "2027-01-16 22:15", "zone": "local"}]},
+                  parse_utc("2027-01-17T07:15:00Z").timestamp())
     item = reader.due(parse_utc("2027-01-17T10:00:00Z").timestamp(), start + 3600)
     assert item is reader.faults[1]
     reader.reported(item, 0.0)
     reader.outcome(False)
     assert reader.faults[1]["state"] == "false" and reader.due(1e12, None) is None
+
+
+def test_a_name_only_one_reader_finds_waits_for_a_free_report():
+    reader, _ = book(load(CONFIG_PATH, {"logbook": {"enabled": False}}))
+    issued = parse_utc("2027-06-01T17:15:00Z").timestamp()
+    both = parse_utc("2027-06-01T18:30:00Z").timestamp()
+    alone = parse_utc("2027-06-02T18:45:00Z").timestamp()
+    reader.read = {"model": {"t1"}, "rules": {"t1"}}
+    reader._merge([both, alone], [], [], [], issued, "model", "t1", "")
+    reader._merge([both], [], [], [], issued, "rules", "t1", "")
+    assert not reader.contested(reader.faults[0]) and reader.contested(reader.faults[1])
+    assert reader.due(both, None, free=False) is reader.faults[0]
+    reader.reported(reader.faults[0], both)
+    reader.outcome(True)
+    # Without a free report left the contested name is skipped; with one it is reported.
+    assert reader.due(alone, both, free=False) is None and reader.faults[1]["state"] == "skipped"
+    reader.faults[1]["state"] = "open"
+    assert reader.due(alone, both, free=True) is reader.faults[1]
+
+
+def test_a_false_report_refutes_the_names_it_covered():
+    reader, _ = book(load(CONFIG_PATH, {"logbook": {"enabled": False}}))
+    issued = parse_utc("2027-06-01T17:15:00Z").timestamp()
+    first, second = issued + 3600, issued + 7200
+    reader._merge([first, second], [], [], [], issued, "model", "t1", "")
+    reader.reported(reader.faults[1], second)
+    reader.faults[0]["state"] = "open"
+    reader.outcome(False)
+    assert [item["state"] for item in reader.faults] == ["refuted", "false"]
+
+
+def test_rules_read_the_log_without_a_model(monkeypatch):
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OBSERVER_MODEL_BASE_URL", raising=False)
+    monkeypatch.delenv("OBSERVER_MODEL_API_KEY", raising=False)
+    events = []
+    reader = Logbook(SimpleNamespace(longitude=18.4), {"site": {"utc_offset_hours": 2.0}}, load(CONFIG_PATH),
+                     lambda kind, payload: events.append((kind, payload)))
+    text = ("【祥子】请记录工程组通知：6/1（周二）20:30 前后动导星相机。这是硬件问题，不报修画面就会持续报废，到点请报修。\n"
+            "【立希】6/2 夜里平场灯和镜盖测试 3 段：0:15到0:30、0:45到1:15、2:30到2:45。拍出来都是废片，但不是故障，请勿报修，报了算误报。")
+    reader.collect([request(text, issued="2027-06-01T17:15:00Z")])
+    assert reader.reader is None and reader.read["rules"]
+    assert [item["start"] for item in reader.faults] == [parse_utc("2027-06-01T18:30:00Z").timestamp()]
+    assert not reader.contested(reader.faults[0])
+    assert (parse_utc("2027-06-02T22:15:00Z").timestamp(), parse_utc("2027-06-02T22:30:00Z").timestamp()) in reader.quiet
 
 
 def test_reader_stays_off_without_credentials(monkeypatch):
@@ -94,8 +188,8 @@ def test_reader_stays_off_without_credentials(monkeypatch):
 
 
 def test_observer_reports_the_fault_the_log_names(monkeypatch, publication):  # noqa: F811
-    fake_model(monkeypatch, {"fault_report": True, "fault_start": "2026-10-01 20:00", "fault_start_zone": "utc"})
-    config = load(CONFIG_PATH, {"model": {"enabled": False}})
+    fake_model(monkeypatch, {"now": [{"time": "2026-10-01 20:00", "zone": "utc"}]})
+    config = load(CONFIG_PATH, {"model": {"enabled": False}, "logbook": {"rules": False}})
     observer = Observer(publication, config)
     snapshot = {"now_utc": "2026-10-02T01:00:00Z", "new_messages": [request(LOG, issued="2026-10-02T00:30:00Z")],
                 "wallclock": {"remaining_seconds": 900}}

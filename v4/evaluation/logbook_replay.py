@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--show", action="store_true", help="print every reading")
     parser.add_argument("--no-thinking", action="store_true", help="switch provider reasoning off (as the Worker does)")
     parser.add_argument("--thinking", action="store_true", help="ask the Worker to keep reasoning")
+    parser.add_argument("--save", type=Path, help="write the extracted appointments, cancellations and quiet windows")
     args = parser.parse_args()
     config = load(ROOT / "v4" / "agent" / "config.json")
     events = []
@@ -76,15 +77,22 @@ def main():
         if not isinstance(reading, dict):
             failures += 1
             continue
-        if args.show or reading.get("fault_report") is True or reading.get("terrain"):
+        if args.show:
             print(stamp, json.dumps(reading, ensure_ascii=False)[:300])
         book._apply(reading, issued)
     local = lambda ts: (datetime.fromtimestamp(ts, timezone.utc) + timedelta(hours=book.offset_hours)).strftime("%m-%d %H:%M")
     print(f"texts {len(queue)}, failed readings {failures}, calls {reader.calls}, usage {reader.usage_totals}")
     ordered = sorted(durations)
     print(f"seconds per reading: median {ordered[len(ordered) // 2]:.1f}, p90 {ordered[int(len(ordered) * 0.9)]:.1f}, max {ordered[-1]:.1f}")
-    print("named faults (local start):", [local(item["start"]) for item in book.faults])
+    print("named faults (local start):", [local(item["start"]) for item in book.faults if item["state"] == "open"])
+    print(f"faults {sum(item['state'] == 'open' for item in book.faults)}, cancelled {len(book.cancelled)}, "
+          f"quiet windows {len(book.quiet)}")
     print("terrain:", book.terrain)
+    if args.save:
+        args.save.write_text(json.dumps({
+            "offset_hours": book.offset_hours,
+            "faults": sorted(item["start"] for item in book.faults if item["state"] == "open"),
+            "cancelled": sorted(book.cancelled), "quiet": sorted(book.quiet)}, indent=1) + "\n", encoding="utf-8")
     reports = [m for m in messages if m.get("record_type") == "report_result"]
     print("run reports (local):", [(local(parse_utc(m["issued_at_utc"]).timestamp()), m["correct"]) for m in reports])
 

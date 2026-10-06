@@ -2,12 +2,13 @@
 
 Cards A1-D1 (version 5) issue dozens of zero-reward observation requests whose reason is a
 handover log of the night staff: code words for weather, Caesar-shifted English, times
-hummed as solfege, corrections ("old chart, use this one"). The log says when a drop in
-throughput is the instrument and not the sky ("file a ticket now") and how high the
-announced terrain really is. A correct report repairs the instrument, while the
-statistical monitor needs nights of evidence and holds back after its first repair, so a
-fault the log names is reported at once. Ordinary cards publish no such text and the
-reader never acts on them.
+hummed as solfege, corrections ("old chart, use this one"), rumours and cancellations. The
+engineers announce when they will move the guide camera; from that moment the throughput
+of the whole instrument stays near zero until a report repairs it, so the report is due
+exactly at the announced time, once per announcement. Flat-lamp and mirror-cover tests
+spoil frames too but are not faults: no report and no exposure then. The reader turns
+each log into appointments, cancellations, quiet windows and drops that have already
+happened; ordinary cards publish no such text and the reader never acts on them.
 """
 
 from __future__ import annotations
@@ -25,15 +26,26 @@ SYSTEM_PROMPT = (
     "site_utc_offset_hours 是站点当地时间相对 UTC 的时差，log 是日志正文（几位值班员的交接对话，可能夹杂暗号、凯撒密码、"
     "唱名报时、摩斯码、日文或繁体字；后面的更正优先于前面的说法；行末〔〕里是程序预先解出的凯撒密文、摩斯码和唱名时刻，"
     "可以直接采用）。只依据日志内容，返回一个 JSON 对象，不要输出其他文字：\n"
-    '{"fault_report": true 或 false, "fault_start": "YYYY-MM-DD HH:MM" 或 null, "fault_start_zone": "local" 或 "utc", '
+    '{"appointments": [{"time": "YYYY-MM-DD HH:MM", "zone": 时区}], "cancelled": [{"time": "YYYY-MM-DD HH:MM", "zone": 时区}], '
+    '"quiet": [{"start": "YYYY-MM-DD HH:MM", "end": "YYYY-MM-DD HH:MM", "zone": 时区}], '
+    '"now": [{"time": "YYYY-MM-DD HH:MM", "zone": 时区}], '
     '"terrain": [{"direction": "N|NE|E|SE|S|SW|W|NW", "altitude_deg": 数字}], "reason": "一句话"}\n'
-    "fault_report：只有当日志说望远镜或仪器的吞吐量、效率或计数已经突然下降、至今没有恢复、不是天气或云的原因，并要求提单、"
-    "报修、叫工程组或打电话时为 true。预告将来要做的工程（例如要动导星相机）、会一晚比一晚好转而不必处理的“晃动”、"
-    "只是提醒留意噪声尖峰的，都为 false。\n"
-    "fault_start：那次突然下降开始的日期和时刻，根据“昨晚”“今晚”“刚才”和发布时刻推断完整日期；日志按 UTC 写的时刻填 "
-    "utc，否则填 local。\n"
+    "时区写 \"local\"（站点当地时间）、\"utc\"，或日志指明的其它时钟写成 \"UTC+9\"、\"UTC-11\" 这样（例如「工程组给的是东京时间（UTC+9）」"
+    "就写 UTC+9）；时刻照日志原样填，绝对不要自己换算时区，换算由程序完成。例：「工程组用的是 UTC-11 的钟：1/21 21:15 动导星相机」"
+    "填 {\"time\": \"2027-01-21 21:15\", \"zone\": \"UTC-11\"}；「按钟点比前面 1/24 的那次早 15 分钟」填新日期、那次的钟点减 15 分钟、"
+    "那次的时区。日期一律写完整的公历日期：日志写 M/D 就用 M/D 那一天（凌晨的时刻也就是写的那个日历日），"
+    "唯独平场灯、镜盖测试这类“X 日那晚/夜里”的时段，中午以前的时刻属于第二天。\n"
+    "appointments：工程组确认要动导星相机（ガイダーカメラの作業、guider camera work）并要求到点报修的每个时刻，"
+    "一条日志里有几次就列几次；同一件事的本地写法和 UTC 写法只列一次。更正（「灯记错了，X 不对，导星相机是 Y」）只取更正后的 Y；"
+    "「若那晚下雨则顺延一天」后面又说「那晚下雨了，顺延一天」时，取顺延后的时刻；「推迟 N 分钟/小时」时取推迟后的时刻。"
+    "以下都不要列：【灯】自己没被确认的时刻；传言（「听说也要动？没确认，先别当真」「有人说」）；平场灯、镜盖测试。\n"
+    "cancelled：工程组说取消了、不动了、别报的原定时刻，以及推迟或顺延时说「原来那个点别报」的原时刻。\n"
+    "quiet：拍的是废片但不许报修的时段——平场灯、镜盖测试（フラット試験、flat-lamp tests），以及停机、停止、停電、检修、"
+    "换油、镀膜、点检、换导星相机停机等维护时段（多日停机写起止日期和时刻；只说早上恢复的，end 用那天 08:00）。\n"
+    "now：日志说吞吐量已经突然下降、至今没有恢复、不是天气，要求提单、报修、叫工程组时，那次下降开始的时刻"
+    "（根据“昨晚”“刚才”和发布时刻推断完整日期）；“会一晚比一晚好转的晃动”、噪声尖峰提醒都不算。\n"
     "terrain：日志给出的某个方向的山、稜线或地形遮挡的高度（度）；同一方向有更正或“以……为准”时只取最后确认的数值；"
-    "没有就返回空列表。"
+    "没有就返回空列表。没有的项都返回空列表。"
 )
 
 DIRECTIONS = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"}
@@ -127,11 +139,16 @@ class Logbook:
         self.queue: list[tuple[float, str, str]] = []
         self.seen: set[str] = set()
         self.faults: list[dict] = []
+        self.cancelled: list[float] = []
+        self.quiet: list[tuple[float, float]] = []
         self.terrain: dict[str, float] = {}
         self.applied_terrain: dict[str, float] = {}
         self.readings = 0
+        self.read = {"model": set(), "rules": set()}
         self.reader = None
-        if not self.settings.get("enabled", False):
+        enabled = bool(self.settings.get("enabled", False))
+        self.rules = enabled and bool(self.settings.get("rules", True))
+        if not enabled:
             return
         client = load_client("model_advisor")
         url = os.environ.get("OBSERVER_MODEL_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
@@ -154,8 +171,8 @@ class Logbook:
                                           on_event=lambda event: self.emit("model_request", event))
 
     def collect(self, messages: list[dict]) -> None:
-        """Queue every new long request text (the log), each distinct text once."""
-        if self.reader is None:
+        """Read every new long request text (the log) by rule now and queue it for the model."""
+        if self.reader is None and not self.rules:
             return
         shortest = int(self.settings.get("min_chars", 40))
         longest = int(self.settings.get("max_chars", 6000))
@@ -171,7 +188,23 @@ class Logbook:
                 issued = parse_utc(str(message.get("issued_at_utc"))).timestamp()
             except (TypeError, ValueError):
                 continue
-            self.queue.append((issued, str(message.get("issued_at_utc")), text[:longest]))
+            if self.rules:
+                self._read_rules(text[:longest], issued, digest)
+            if self.reader is not None:
+                self.queue.append((issued, str(message.get("issued_at_utc")), text[:longest], digest))
+
+    def _read_rules(self, text: str, issued: float, digest: str) -> None:
+        try:
+            from .logrules import extract
+
+            reading = extract(text, issued, self.offset_hours)
+        except Exception as error:  # noqa: BLE001 - the model reader still reads the text
+            self.emit("logbook_rules_error", {"error_type": type(error).__name__, "detail": str(error)[:160]})
+            return
+        self.read["rules"].add(digest)
+        self._merge(reading.get("appointments", []), reading.get("cancelled", []),
+                    [tuple(window) for window in reading.get("quiet", [])], reading.get("now", []),
+                    issued, "rules", digest, "")
 
     def process(self, sequence) -> None:
         """Read a few queued texts; a failed or exhausted reader leaves the queue unread."""
@@ -180,38 +213,50 @@ class Logbook:
         for _ in range(int(self.settings.get("per_decision", 2))):
             if not self.queue or not self.reader.enabled:
                 return
-            issued, stamp, text = self.queue.pop(0)
+            issued, stamp, text, digest = self.queue.pop(0)
             local = datetime.fromtimestamp(issued, timezone.utc) + timedelta(hours=self.offset_hours)
             payload = {"issued_at_utc": stamp, "issued_at_local": local.strftime("%Y-%m-%d %H:%M %A"),
                        "site_utc_offset_hours": self.offset_hours, "log": decode_log(text)}
             reading = self.reader.extract("duty_log", SYSTEM_PROMPT, payload, sequence)
             self.readings += 1
             if isinstance(reading, dict):
-                self._apply(reading, issued)
+                self.read["model"].add(digest)
+                self._apply(reading, issued, digest)
 
     def _moment(self, value, zone) -> float | None:
+        """UTC timestamp of a 'YYYY-MM-DD HH:MM' on the site clock, UTC or a stated 'UTC+9' clock."""
         if not isinstance(value, str):
             return None
         try:
             moment = datetime.strptime(value.strip()[:16].replace("T", " ") + " +0000", "%Y-%m-%d %H:%M %z")
         except ValueError:
             return None
-        shift = 0.0 if str(zone).strip().lower() == "utc" else self.offset_hours
+        zone = str(zone).strip().upper().replace("−", "-").replace("UTC ", "UTC")
+        if zone == "UTC":
+            shift = 0.0
+        elif zone.startswith("UTC") and re.fullmatch(r"UTC[+-]\d{1,2}(\.5)?", zone):
+            shift = float(zone[3:])
+        else:
+            shift = self.offset_hours
         return (moment - timedelta(hours=shift)).timestamp()
 
-    def _apply(self, reading: dict, issued: float) -> None:
-        if reading.get("fault_report") is True and self.settings.get("reports", True):
-            start = self._moment(reading.get("fault_start"), reading.get("fault_start_zone"))
-            if start is not None and start > issued + 3600.0:
-                start -= 86400.0  # "last night" dated to the day of the log
-            if start is None or start > issued + 3600.0 or start < issued - 10 * 86400.0:
-                # An unusable time still names a fault that has already happened.
-                start = issued - 12 * 3600.0
-            merge = float(self.settings.get("merge_hours", 3.0)) * 3600.0
-            if not any(abs(item["start"] - start) <= merge for item in self.faults):
-                self.faults.append({"start": start, "issued": issued, "state": "open"})
-                self.emit("logbook_fault", {"start": round(start), "issued": round(issued),
-                                            "reason": str(reading.get("reason", ""))[:160]})
+    def _times(self, rows, issued: float, keys=("time",)) -> list:
+        """Readable moments of a reading's list, each within the season around the log."""
+        horizon = float(self.settings.get("appointment_horizon_days", 45.0)) * 86400.0
+        result = []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            values = [self._moment(row.get(key), row.get("zone")) for key in keys]
+            if any(value is None or not issued - 10 * 86400.0 <= value <= issued + horizon for value in values):
+                continue
+            result.append(values[0] if len(values) == 1 else tuple(values))
+        return result
+
+    def _apply(self, reading: dict, issued: float, digest: str = "") -> None:
+        self._merge(self._times(reading.get("appointments"), issued), self._times(reading.get("cancelled"), issued),
+                    self._times(reading.get("quiet"), issued, ("start", "end")), self._times(reading.get("now"), issued),
+                    issued, "model", digest, str(reading.get("reason", ""))[:160])
         if self.settings.get("terrain", True) and isinstance(reading.get("terrain"), list):
             for row in reading["terrain"]:
                 if not isinstance(row, dict):
@@ -224,28 +269,96 @@ class Logbook:
                 if direction in DIRECTIONS and 5.0 <= altitude <= 75.0:
                     self.terrain[direction] = altitude
 
-    def due(self, now: float, last_correct: float | None) -> dict | None:
-        """The oldest named fault that no correct report has repaired since it began."""
+    def _merge(self, appointments, cancelled, quiet, now, issued: float, source: str, digest: str,
+               reason: str) -> None:
+        """Fold one reader's reading of one text into the shared schedule."""
+        merge = float(self.settings.get("merge_hours", 3.0)) * 3600.0
+        for start, end in quiet:
+            if 0 < end - start <= 20 * 86400.0 and (start, end) not in self.quiet:
+                self.quiet.append((start, end))
+                self.emit("logbook_quiet", {"start": round(start), "end": round(end), "source": source})
+        # A cancelled appointment must be dropped before a new one can merge with it.
+        for cancel in cancelled:
+            self.cancelled.append(cancel)
+            for item in self.faults:
+                if item["state"] == "open" and abs(item["start"] - cancel) <= 600.0:
+                    item["state"] = "cancelled"
+                    self.emit("logbook_cancel", {"start": round(item["start"]), "source": source})
+        # An appointment is due exactly when the engineers move the guide camera; a drop the
+        # log says has already happened is due at once. Two announcements are one fault only
+        # when they name the same moment (the log restates each in UTC).
+        named = [(start, True) for start in appointments] + [(start, False) for start in now]
+        for start, appointment in named if self.settings.get("reports", True) else []:
+            if any(abs(start - cancel) <= 600.0 for cancel in self.cancelled):
+                continue
+            window = 600.0 if appointment else merge
+            match = next((item for item in self.faults if item["state"] != "cancelled"
+                          and abs(item["start"] - start) <= window), None)
+            if match is not None:
+                match["sources"].add(source)
+                match["texts"].add(digest)
+                continue
+            self.faults.append({"start": start, "issued": issued, "state": "open", "future": start > issued,
+                                "sources": {source}, "texts": {digest}})
+            self.faults.sort(key=lambda item: item["start"])
+            self.emit("logbook_fault", {"start": round(start), "issued": round(issued), "appointment": appointment,
+                                        "source": source, "reason": reason})
+
+    def contested(self, item: dict) -> bool:
+        """Only one reader names the fault although the other read a text that names it."""
+        if len(item["sources"]) != 1:
+            return False
+        other = "rules" if "model" in item["sources"] else "model"
+        return bool(item["texts"] & self.read[other])
+
+    def in_quiet(self, start: float, end: float | None = None) -> bool:
+        """True when [start, end) overlaps a window whose frames are spoilt but no fault."""
+        end = start + 1.0 if end is None else end
+        return any(low < end and start < high for low, high in self.quiet)
+
+    def next_boundary(self, now: float) -> float | None:
+        """The next moment the instrument changes on its own: an appointment or a quiet window."""
+        moments = [item["start"] for item in self.faults if item["state"] == "open" and item["start"] > now]
+        moments += [low for low, _ in self.quiet if low > now]
+        return min(moments) if moments else None
+
+    def due(self, now: float, last_correct: float | None, free: bool = True) -> dict | None:
+        """The oldest named fault that no correct report has repaired since it began.
+
+        A fault both readers name is reported in any case; one that only one of them names
+        (the other read the same text) only while a false report costs nothing.
+        """
         for item in self.faults:
             if item["state"] != "open":
                 continue
-            if last_correct is not None and last_correct >= item["start"] - 3600.0:
+            if last_correct is not None and item["start"] <= last_correct:
                 item["state"] = "covered"
                 continue
-            if item["start"] <= now:
-                return item
+            if item["start"] > now:
+                return None
+            if self.contested(item) and not free:
+                item["state"] = "skipped"
+                continue
+            return item
         return None
 
     def reported(self, item: dict, now: float) -> None:
         item["state"], item["reported"] = "reported", now
 
     def outcome(self, correct: bool) -> None:
+        reported = [item["reported"] for item in self.faults if item["state"] == "reported"]
         for item in self.faults:
             if item["state"] == "reported":
                 item["state"] = "correct" if correct else "false"
+            elif not correct and reported and item["state"] == "open" and item["start"] <= max(reported):
+                # A false report proves no unrepaired fault was active then: earlier names are wrong.
+                item["state"] = "refuted"
 
     def status(self) -> dict:
-        return {"enabled": self.reader is not None, "readings": self.readings, "queued": len(self.queue),
-                "faults": [{"start": round(item["start"]), "state": item["state"]} for item in self.faults],
+        return {"enabled": self.reader is not None, "rules": self.rules, "readings": self.readings,
+                "queued": len(self.queue), "read": {name: len(texts) for name, texts in self.read.items()},
+                "faults": [{"start": round(item["start"]), "state": item["state"], "sources": sorted(item["sources"])}
+                           for item in self.faults],
+                "quiet": len(self.quiet), "cancelled": len(self.cancelled),
                 "terrain": dict(self.terrain),
                 "reader": self.reader.status() if self.reader is not None else None}

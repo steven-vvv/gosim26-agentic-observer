@@ -74,8 +74,10 @@ class Observer:
         if self.pending and result and result.get("action") == "observe":
             samples = self.state.feedback(result, self.pending)
             self.pointing.feedback(self.pending, result)
-            self.quality.update(samples, self.pending, now, self.pending["night"])
-            self._guarded(self._instrument_record, result, bulletins)
+            if not self.logbook.in_quiet(self.pending["start"], self.pending["start"] + self.pending["duration"]):
+                # Frames of an announced test window say nothing about the sky or the instrument.
+                self.quality.update(samples, self.pending, now, self.pending["night"])
+                self._guarded(self._instrument_record, result, bulletins)
         self.pending = None
         self._guarded(self.instrument.notices, bulletins, now)
         outcomes = [m for m in messages if m.get("record_type") == "report_result"]
@@ -95,10 +97,25 @@ class Observer:
         for message in snapshot.get("new_messages", []):
             if message.get("record_type") == "state_resync":
                 self.emit("state_resync", self.state.resync(message))
-        if night is None:
+        named = (self.logbook.due(now, self._last_correct_report(), self.instrument.free_left())
+                 if self.instrument_enabled and self.instrument.pending is None else None)
+        quiet = self._quiet_end(now) if night is not None else None
+        if named is not None:
+            # The duty log names an instrument drop that no correct report has repaired: report
+            # it now, closed dome, test window or daytime alike.
+            evidence = {"kind": "logbook", "reference": None, "level": self.instrument._last_level(), "drop": 0.0}
+            self.instrument.reported(evidence, now, night)
+            self.logbook.reported(named, now)
+            self.emit("fault_report", {"now_utc": snapshot["now_utc"], **evidence})
+            action = {"action": "report"}
+        elif night is None:
             action = self.wait_for_next_night(now)
         elif self.quality.closed():
             action = self.wait_for_bulletin(now, night)
+        elif quiet is not None:
+            # The log announces a flat-lamp or mirror-cover test (or a maintenance stop): its
+            # frames are lost and a report then is a false one, so the time is waited out.
+            action = {"action": "wait", "until_utc": format_utc(datetime.fromtimestamp(quiet, timezone.utc))}
         else:
             budget = float(snapshot.get("wallclock", {}).get("remaining_seconds", self.task.wallclock))
             if night != self.last_night:
@@ -120,20 +137,12 @@ class Observer:
             if self.guidance.weekly_plan["source"] == "model":
                 self.decision_source = "model-v4"
             evidence = None
-            named = (self.logbook.due(now, self._last_correct_report())
-                     if self.instrument_enabled and self.instrument.pending is None else None)
-            if named is not None:
-                # The duty log names an instrument drop that no correct report has repaired.
-                evidence = {"kind": "logbook", "reference": None, "level": self.instrument._last_level(),
-                            "drop": 0.0}
-                self.instrument.reported(evidence, now, night)
-                self.logbook.reported(named, now)
-            elif self.fault_mode == "monitor":
+            if self.fault_mode == "monitor":
                 evidence = self._guarded(self.instrument.decide, now, night)
                 if evidence:
                     self.instrument.reported(evidence, now, night)
                     evidence = {key: value for key, value in evidence.items() if key != "before"}
-            if self.fault_mode != "monitor" and named is None:
+            if self.fault_mode != "monitor":
                 evidence = self.quality.report_evidence(now)
                 if evidence:
                     self.quality.reported(now)
@@ -144,7 +153,10 @@ class Observer:
                 self.quality.zero_observes = 0
                 action = self.wait_for_bulletin(now, night)
             else:
+                boundary = self.logbook.next_boundary(now)
+                self.planner.horizon_limit = boundary if boundary is not None and boundary > now else None
                 action = self.planner.plan(now, night, budget)
+                self.planner.horizon_limit = None
                 self.last_trace = dict(self.planner.last_trace)
                 if action is None:
                     action = self.wait_for_bulletin(now, night)
@@ -163,7 +175,7 @@ class Observer:
 
     def _read_log(self, messages: list[dict]) -> None:
         """Read the duty log in request texts; a failure only switches the reader off."""
-        if self.logbook.reader is None:
+        if self.logbook.reader is None and not self.logbook.rules:
             return
         try:
             self.logbook.collect(messages)
@@ -179,7 +191,20 @@ class Observer:
                         self.emit("logbook_terrain", {"direction": direction, "top": altitude + margin})
         except Exception as error:  # noqa: BLE001 - the log is optional evidence
             self.logbook.reader = None
+            self.logbook.rules = False
             self.emit("logbook_disabled", {"error_type": type(error).__name__, "detail": str(error)[:200]})
+
+    def _quiet_end(self, now: float) -> float | None:
+        """End of the announced quiet window that holds now (or the next appointment in it)."""
+        ends = [high for low, high in self.logbook.quiet if low <= now < high]
+        if not ends:
+            return None
+        night = self.task.current_night(now)
+        end = max(ends)
+        if night is None or end >= self.task.nights[night].end:
+            return None  # a stop past the night's end: the night handling waits it out
+        appointments = [item["start"] for item in self.logbook.faults if item["state"] == "open" and now < item["start"] < end]
+        return min([end, *appointments])
 
     def _last_correct_report(self) -> float | None:
         times = [entry["time"] for entry in self.instrument.reports if entry.get("resolved") == "correct"]
@@ -229,6 +254,12 @@ class Observer:
         reference = self.instrument.reference_level(pending["night"], signature, start)
         record = build_record(self.task, pending, hits, signature, self.revision >= 2, reference, mixed=mixed)
         self.instrument.add(record)
+        if self.config["observability"].get("level_trace", False) and record["level"] is not None:
+            # Research runs: the monitor's evidence per exposure, for calibrating its rules.
+            self.emit("level", {"start": round(start), "duration": pending["duration"], "night": pending["night"],
+                                "level": round(record["level"], 4), "eff": round(self.instrument.log_eff(record), 4),
+                                "program": pending["program"], "samples": record["samples"], "mixed": mixed,
+                                "signature": sorted(signature), "directions": sorted(d for d in directions if d)})
         try:
             self.quality.terrain_evidence(record, pending, self.task, directions)
         except Exception as error:  # noqa: BLE001 - fall back to the announced-sector envelope
@@ -257,6 +288,9 @@ class Observer:
         slot = self.task.slot_seconds
         offset = (now - self.task.nights[night].start) % slot
         seconds = max(self.task.minimum_exposure, int(slot - offset))
+        boundary = self.logbook.next_boundary(now)
+        if boundary is not None and now + self.task.minimum_exposure <= boundary < now + seconds:
+            seconds = int(boundary - now)  # wake for the announced moment, not after it
         return {"action": "wait", "duration_seconds": min(self.task.maximum_exposure, seconds)}
 
     def summary(self):
