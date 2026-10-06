@@ -42,10 +42,19 @@ class _AssignedTargets(ast.NodeTransformer):
 
 def _ledger_type(base):
     class IncrementalLedger(base):
+        """Caches the three per-decision scans the runner repeats over the whole ledger.
+
+        ``request_factors`` is called once per live request on every decision; the plain
+        implementation walks every entry, so a long season makes the runner quadratic.
+        Entries only ever append, and ``invalidate_window`` rebuilds from scratch, so a
+        per-window cursor folds each new entry in exactly once.
+        """
+
         def __init__(self):
             super().__init__()
             self._best = {}
             self._factors = {}
+            self._windows = {}
 
         def record(self, action_index, target_id, factor, score, start_utc=None, end_utc=None):
             super().record(action_index, target_id, factor, score, start_utc, end_utc)
@@ -61,10 +70,30 @@ def _ledger_type(base):
             count = super().invalidate_window(first, end, event_id)
             self._best = {}
             self._factors = {}
+            self._windows = {}
             for entry in self.entries:
                 if entry.valid:
                     self._update(entry)
             return count
+
+        def request_factors(self, available_from, deadline):
+            state = self._windows.get((available_from, deadline))
+            if state is None:
+                state = ({}, 0)
+            factors, seen = state
+            entries = self.entries
+            for index in range(seen, len(entries)):
+                entry = entries[index]
+                if (
+                    entry.valid
+                    and entry.start_utc is not None
+                    and entry.end_utc is not None
+                    and available_from <= entry.start_utc
+                    and entry.end_utc <= deadline
+                ):
+                    factors[entry.target_id] = max(factors.get(entry.target_id, 0.0), entry.factor)
+            self._windows[(available_from, deadline)] = (factors, len(self.entries))
+            return factors
 
         def best(self):
             return self._best
