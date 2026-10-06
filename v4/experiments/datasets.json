@@ -493,6 +493,10 @@
       "c",
       "d"
     ],
-    "source": "hackathon-survey26 bdb1031 cards/v4-practice-{a,b,c,d}/spec, fresh seeds (160-card paired screen on the remote machine)"
+    "source": "hackathon-survey26 bdb1031 cards/v4-practice-{a,b,c,d}/spec, fresh seeds (160-card paired screen on the remote machine)",
+    "seed_overrides": {
+      "149": 22700149
+    },
+    "note": "index 149 (b): seed 22648570 put a footprint component 4.7 deg from the pole, which the organizer generator rejects; replaced by 22700149"
   }
 }
