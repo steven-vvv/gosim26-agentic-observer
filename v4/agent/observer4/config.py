@@ -189,7 +189,7 @@ def validate(config: dict) -> None:
         value = config["policy"]["scarcity_weight"]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 2:
             raise ValueError("invalid configuration field: policy.scarcity_weight")
-    for name, (low, high) in {"request_weight": (0, 20), "pace_floor": (0, 1)}.items():
+    for name, (low, high) in {"request_weight": (0, 100), "pace_floor": (0, 1)}.items():
         if name in config["policy"]:
             value = config["policy"][name]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
