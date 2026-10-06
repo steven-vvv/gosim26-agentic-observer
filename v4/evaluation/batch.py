@@ -63,13 +63,28 @@ def _run(card: Path, output: Path, variant: str, expected_source: str) -> dict:
     return summary
 
 
-def run(dataset: str, variants: list[str], jobs: int, *, limit: int | None = None, tag: str = "dev") -> dict:
+def _parse_shard(shard: str) -> tuple[int, int]:
+    index, _, total = shard.partition("/")
+    index, total = int(index), int(total)
+    if not (0 <= index < total):
+        raise ValueError("shard must be I/N with 0 <= I < N")
+    return index, total
+
+
+def run(dataset: str, variants: list[str], jobs: int, *, limit: int | None = None, tag: str = "dev",
+        shard: str | None = None, only_cards: list[str] | None = None) -> dict:
     resolve()
     if not tag or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for character in tag):
         raise ValueError("tag must use lowercase letters, digits, hyphens or underscores")
     specs = specifications(dataset)
     if limit is not None:
         specs = specs[:limit]
+    if shard is not None:
+        index, total = _parse_shard(shard)
+        specs = [spec for i, spec in enumerate(specs) if i % total == index]
+    if only_cards is not None:
+        wanted = set(only_cards)
+        specs = [spec for spec in specs if spec["name"] in wanted]
     cards = [ROOT / "v4" / "cards" / spec["name"] for spec in specs]
     if any(not card.is_dir() for card in cards):
         raise ValueError("dataset cards are missing; run evaluation.generate first")
@@ -128,8 +143,11 @@ def main():
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--tag", default="dev")
+    parser.add_argument("--shard", help="I/N: only run cards where index mod N == I (card order before --cards filter)")
+    parser.add_argument("--cards", help="comma-separated card names; only run these (applied after --shard)")
     args = parser.parse_args()
-    run(args.dataset, args.variants, args.jobs, limit=args.limit, tag=args.tag)
+    only_cards = args.cards.split(",") if args.cards else None
+    run(args.dataset, args.variants, args.jobs, limit=args.limit, tag=args.tag, shard=args.shard, only_cards=only_cards)
 
 
 if __name__ == "__main__":
