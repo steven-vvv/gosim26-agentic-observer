@@ -553,5 +553,89 @@ class ModelAdvisor:
                 LOG.warning("model advice failed at %s: %s", stage, reason)
             return None
 
+    def extract(self, stage: str, system_prompt: str, payload: Mapping[str, Any],
+                sequence: Any = None) -> dict[str, Any] | None:
+        """Return the model's JSON object for a reading task, or ``None`` on any failure.
+
+        Same transport, budgets and circuit breaker as ``choose``; the caller validates
+        every field of the returned object.
+        """
+        if not self.enabled:
+            return None
+        used = self.stage_calls.get(stage, 0)
+        if used >= self.config.max_stage_calls:
+            return None
+        self.stage_calls[stage] = used + 1
+        self.calls += 1
+        started = time.perf_counter()
+        usage = None
+        try:
+            content = json.dumps(dict(payload), ensure_ascii=False, separators=(",", ":"))
+            self.context_bytes = len(content.encode("utf-8"))
+            if self.context_bytes > self.config.max_context_bytes:
+                raise AdviceError("context_too_large")
+            body = {
+                "model": self.model,
+                "top_p": self.config.top_p,
+                "max_tokens": self.config.max_tokens,
+                "stream": False,
+                "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": content}],
+            }
+            host = urlsplit(self.url or "").hostname
+            if not (host in {"api.kimi.com", "api.kimi.ai"} or self.model.strip().lower() in {"k3", "kimi-for-coding"}):
+                body["temperature"] = self.config.temperature
+            encoded = json.dumps(body, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+            call_id = str(uuid.uuid4())
+            request = urllib.request.Request(
+                self.url or "",
+                data=encoded,
+                headers={
+                    "Authorization": f"Bearer {self.key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "gosim26-observer/1",
+                    "Idempotency-Key": call_id,
+                    "X-GOSIM26-Request-ID": call_id,
+                },
+                method="POST",
+            )
+            transport = self._transport or urllib.request.urlopen
+            with transport(request, timeout=self.timeout) as response:
+                raw = response.read(self.config.max_response_bytes + 1)
+            if len(raw) > self.config.max_response_bytes:
+                raise AdviceError("response_too_large")
+            response_payload = json.loads(raw.decode("utf-8"))
+            usage = self._usage(response_payload.get("usage") if isinstance(response_payload, dict) else None)
+            if usage:
+                for key, value in usage.items():
+                    self.usage_totals[key] += value
+            choices = response_payload.get("choices") if isinstance(response_payload, dict) else None
+            if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+                raise AdviceError("missing_choice")
+            if choices[0].get("finish_reason") == "length":
+                raise AdviceError("completion_truncated")
+            message = choices[0].get("message")
+            parsed = self._json_content(message.get("content") if isinstance(message, dict) else None)
+            if parsed is None:
+                raise AdviceError("invalid_reading_json")
+            self.successes += 1
+            self.consecutive_failures = 0
+            self.last_outcome = {"stage": stage, "available": True, "fallback": False,
+                                 "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+                                 "usage": usage, "request_bytes": len(encoded), "response_bytes": len(raw)}
+            self._notify(self.last_outcome, sequence)
+            return parsed
+        except Exception as exc:  # noqa: BLE001  # network, provider, and schema failures all fail closed
+            self.failures += 1
+            self.consecutive_failures += 1
+            reason = (str(exc) if isinstance(exc, AdviceError) else
+                      f"http_{exc.code}" if isinstance(exc, urllib.error.HTTPError) else type(exc).__name__)
+            self.last_outcome = {"stage": stage, "available": self.enabled, "fallback": True, "reason": reason,
+                                 "duration_ms": round((time.perf_counter() - started) * 1000, 3), "usage": usage}
+            self._notify(self.last_outcome, sequence)
+            if self.on_event is None:
+                LOG.warning("model reading failed at %s: %s", stage, reason)
+            return None
+
 
 __all__ = ["AdvisorConfig", "ModelAdvisor"]

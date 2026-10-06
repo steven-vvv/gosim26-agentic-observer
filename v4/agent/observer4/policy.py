@@ -11,6 +11,7 @@ from .advice import ModelGuidance
 from .domain import Task
 from .geometry import format_utc, parse_utc
 from .instrument import InstrumentMonitor, build_record, engine_revision
+from .logbook import Logbook
 from .planning import Planner
 from .pointing import PointingModel
 from .quality import QualityModel
@@ -32,6 +33,7 @@ class Observer:
         self.instrument = InstrumentMonitor(self.task, config["fault"], self.revision)
         self.quality.attach(self.instrument)
         self.planner.instrument = self.instrument
+        self.logbook = Logbook(self.task, publication, config, self.emit)
         self.fault_mode = config["fault"].get("mode", "legacy")
         self.instrument_enabled = True
         self.level_errors = []
@@ -80,8 +82,12 @@ class Observer:
         if not outcomes and result and result.get("action") == "report" and "correct" in result:
             outcomes = [result]
         for outcome in outcomes:
+            logged = self.instrument.pending is not None and self.instrument.pending.get("kind") == "logbook"
             self._guarded(self.instrument.report_result, outcome)
+            if logged:
+                self.logbook.outcome(bool(outcome.get("correct")))
             self.emit("report_result", {"correct": bool(outcome.get("correct")), **self.instrument.status()})
+        self._read_log(messages)
         self.quality.messages(snapshot, now)
         self.planner.set_requests(snapshot.get("active_requests") or [])
         if self.planner.opportunity is not None:
@@ -114,12 +120,20 @@ class Observer:
             if self.guidance.weekly_plan["source"] == "model":
                 self.decision_source = "model-v4"
             evidence = None
-            if self.fault_mode == "monitor":
+            named = (self.logbook.due(now, self._last_correct_report())
+                     if self.instrument_enabled and self.instrument.pending is None else None)
+            if named is not None:
+                # The duty log names an instrument drop that no correct report has repaired.
+                evidence = {"kind": "logbook", "reference": None, "level": self.instrument._last_level(),
+                            "drop": 0.0}
+                self.instrument.reported(evidence, now, night)
+                self.logbook.reported(named, now)
+            elif self.fault_mode == "monitor":
                 evidence = self._guarded(self.instrument.decide, now, night)
                 if evidence:
                     self.instrument.reported(evidence, now, night)
                     evidence = {key: value for key, value in evidence.items() if key != "before"}
-            if self.fault_mode != "monitor":
+            if self.fault_mode != "monitor" and named is None:
                 evidence = self.quality.report_evidence(now)
                 if evidence:
                     self.quality.reported(now)
@@ -146,6 +160,30 @@ class Observer:
         self.decisions += 1
         self.decision_seconds += time.perf_counter() - started
         return action
+
+    def _read_log(self, messages: list[dict]) -> None:
+        """Read the duty log in request texts; a failure only switches the reader off."""
+        if self.logbook.reader is None:
+            return
+        try:
+            self.logbook.collect(messages)
+            self.logbook.process(self.sequence)
+            model = self.quality.terrain_model
+            if model is not None:
+                margin = float(self.logbook.settings.get("terrain_margin_deg", 1.0))
+                for direction, altitude in self.logbook.terrain.items():
+                    if self.logbook.applied_terrain.get(direction) == altitude:
+                        continue
+                    self.logbook.applied_terrain[direction] = altitude
+                    if model.pin(direction, altitude + margin):
+                        self.emit("logbook_terrain", {"direction": direction, "top": altitude + margin})
+        except Exception as error:  # noqa: BLE001 - the log is optional evidence
+            self.logbook.reader = None
+            self.emit("logbook_disabled", {"error_type": type(error).__name__, "detail": str(error)[:200]})
+
+    def _last_correct_report(self) -> float | None:
+        times = [entry["time"] for entry in self.instrument.reports if entry.get("resolved") == "correct"]
+        return max(times) if times else None
 
     def _level_error_summary(self) -> dict:
         errors = np.array([error for error, _ in self.level_errors], dtype=float)
@@ -237,4 +275,5 @@ class Observer:
             "instrument": self.instrument.status(),
             "level_errors": self._level_error_summary(),
             "model": self.guidance.status(),
+            "logbook": self.logbook.status(),
         }

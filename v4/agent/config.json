@@ -22,7 +22,7 @@
     "scarcity_weight": 0.0,
     "required_bonus": 200.0,
     "required_safe_factor": 0.52,
-    "request_weight": 6.0,
+    "request_weight": 40.0,
     "quality_safety": 0.9,
     "deadline_weight": 2.0,
     "density_weight": 0.0,
@@ -181,5 +181,19 @@
     "max_consecutive_failures": 2,
     "min_alternative_probability": 0.0,
     "action_merit_tolerance": 0.03
+  },
+  "logbook": {
+    "enabled": true,
+    "reports": true,
+    "terrain": false,
+    "min_chars": 40,
+    "max_chars": 6000,
+    "max_calls": 160,
+    "per_decision": 2,
+    "timeout_seconds": 15.0,
+    "max_tokens": 600,
+    "max_consecutive_failures": 4,
+    "merge_hours": 6.0,
+    "terrain_margin_deg": 1.0
   }
 }

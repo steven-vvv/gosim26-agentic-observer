@@ -271,3 +271,18 @@ def validate(config: dict) -> None:
                 raise ValueError(f"invalid configuration field: fault.{name}")
     if "stale_levels" in config["fault"] and type(config["fault"]["stale_levels"]) is not int:
         raise ValueError("integer configuration required for fault.stale_levels")
+    if "logbook" in config:
+        logbook = config["logbook"]
+        if not isinstance(logbook, dict) or any(type(logbook.get(name)) is not bool
+                                                for name in ("enabled", "reports", "terrain")):
+            raise ValueError("logbook configuration must be an object with boolean switches")
+        for name, (low, high) in {"min_chars": (1, 10000), "max_chars": (100, 60000), "max_calls": (0, 1000),
+                                  "per_decision": (1, 20), "timeout_seconds": (0.2, 30), "max_tokens": (64, 4096),
+                                  "max_consecutive_failures": (1, 50), "merge_hours": (0, 48),
+                                  "terrain_margin_deg": (0, 10)}.items():
+            value = logbook.get(name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
+                raise ValueError(f"invalid configuration field: logbook.{name}")
+        if any(type(logbook[name]) is not int for name in ("min_chars", "max_chars", "max_calls", "per_decision",
+                                                           "max_tokens", "max_consecutive_failures")):
+            raise ValueError("integer configuration required in logbook")

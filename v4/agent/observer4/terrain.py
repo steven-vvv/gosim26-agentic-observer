@@ -145,6 +145,18 @@ class TerrainModel:
             free[inside] *= 1.0 - grid[j, k]
         return 1.0 - free
 
+    def pin(self, direction: str, top: float) -> bool:
+        """Fix the maximum altitude of an announced direction to a height the log states."""
+        found = False
+        for sector in self.sectors:
+            if sector["direction"] == direction:
+                sector["pinned"] = float(top)
+                sector["top"] = np.full_like(sector["top"], float(top))
+                found = True
+        if found:
+            self.updates += 1
+        return found
+
     def _reach(self, sector, az, alt):
         return _inside(az, DIRECTIONS[sector["direction"]], HALF_SECTOR + self.width[1] / 2.0) & (alt <= self.top[1])
 
@@ -208,7 +220,8 @@ class TerrainModel:
                                        base - HALF_SECTOR, base + HALF_SECTOR)
             sector["half"] = np.clip(sector["half"][pick] + rng.normal(0, 0.5, (n, 2)),
                                      self.width[0] / 2.0, self.width[1] / 2.0)
-            sector["top"] = np.clip(sector["top"][pick] + rng.normal(0, 0.25, (n, 2)), self.top[0], self.top[1])
+            sector["top"] = (np.full((n, 2), sector["pinned"]) if "pinned" in sector else
+                             np.clip(sector["top"][pick] + rng.normal(0, 0.25, (n, 2)), self.top[0], self.top[1]))
             sector["active"] = sector["active"][pick]
             sector["log_weight"] = np.zeros(n)
 
