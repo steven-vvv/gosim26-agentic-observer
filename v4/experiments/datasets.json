@@ -827,6 +827,59 @@
     ],
     "source": "kind-big a/c cards 64-159, never used for selection (wave-4 winners confirmation; search width acts only on unscaled a/c)"
   },
+  "kind-v6": {
+    "sealed": true,
+    "count": 48,
+    "seed_base": 25100000,
+    "kinds": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "source": "kind-v5 terrain/earthquake stress plus A1-D1 style engineering disruptions: frequent guide-camera (instrument_fault) failures at deep efficiency and three nightly flat-field/dome-cover windows",
+    "weather_patch": {
+      "instrument_fault": {
+        "count": 40,
+        "instrument_efficiency_multiplier_range": [
+          0.003,
+          0.35
+        ]
+      },
+      "terrain_obstruction": {
+        "sector_count": [
+          2,
+          4
+        ],
+        "width_deg_range": [
+          30.0,
+          70.0
+        ],
+        "max_altitude_deg_range": [
+          32.0,
+          42.0
+        ]
+      },
+      "earthquake": {
+        "count": 8,
+        "magnitude_range": [
+          4.5,
+          7.0
+        ],
+        "impact_coefficient": 0.75,
+        "reference_magnitude": 6.8,
+        "max_degradation": 0.95,
+        "decay_nights": 4.0,
+        "negligible_degradation": 0.01,
+        "seeing_impact_coefficient": 0.0,
+        "transparency_impact_coefficient": 0.0,
+        "sky_quality_impact_coefficient": 0.0
+      }
+    },
+    "flats": {
+      "per_night": 3
+    }
+  },
   "big-b24v": {
     "sealed": true,
     "cards": [

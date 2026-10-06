@@ -38,6 +38,8 @@ def kind_specifications(dataset: str, selected: dict, revision: int) -> list[dic
             item["weather_patch"] = selected["weather_patch"]
         if selected.get("alerts"):
             item["alerts"] = selected["alerts"]
+        if selected.get("flats"):
+            item["flats"] = selected["flats"]
         result.append(item)
     return result
 
@@ -66,4 +68,8 @@ def build_kind_card(root: Path, spec: dict) -> Path:
         from .alerts import add_alerts
 
         add_alerts(root, int(spec["seed"]) + 7, float(spec["alerts"].get("every_nights", 12.0)))
+    if spec.get("flats"):
+        from .flats import add_flat_windows
+
+        add_flat_windows(root, int(spec["seed"]) + 11, int(spec["flats"].get("per_night", 3)))
     return bundle
