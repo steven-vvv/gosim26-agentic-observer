@@ -157,6 +157,14 @@ def generate(spec: dict, base: Path):
     return {"name": spec["name"], "status": "created"}
 
 
+def _parse_shard(shard: str) -> tuple[int, int]:
+    index, _, total = shard.partition("/")
+    index, total = int(index), int(total)
+    if not (0 <= index < total):
+        raise ValueError("shard must be I/N with 0 <= I < N")
+    return index, total
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", required=True)
@@ -164,10 +172,18 @@ def main():
     parser.add_argument("--out", type=Path, default=ROOT / "v4" / "cards")
     parser.add_argument("--jobs", type=int, default=3)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--shard", help="I/N: only generate cards where index mod N == I (card order before --cards filter)")
+    parser.add_argument("--cards", help="comma-separated card names; only generate these (applied after --shard)")
     args = parser.parse_args()
     specs = specifications(args.dataset, args.specs)
     if args.limit is not None:
         specs = specs[: args.limit]
+    if args.shard is not None:
+        index, total = _parse_shard(args.shard)
+        specs = [spec for i, spec in enumerate(specs) if i % total == index]
+    if args.cards is not None:
+        wanted = set(args.cards.split(","))
+        specs = [spec for spec in specs if spec["name"] in wanted]
     context = multiprocessing.get_context("fork") if os.name == "posix" else None
     with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, min(args.jobs, os.cpu_count() or 4)), mp_context=context) as pool:
         futures = [pool.submit(generate, spec, args.out) for spec in specs]

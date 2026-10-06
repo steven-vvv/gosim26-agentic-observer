@@ -166,10 +166,13 @@ def cmd_sync(hosts: list[str], experiments_only: bool) -> None:
 
 def start_remote_batch(host: str, dataset: str, variants: list[str], tag: str, cards: list[str], jobs: int) -> None:
     log = f"/root/gosim/runs/{tag}-{dataset}-{host}.log"
+    card_list = ",".join(cards)
     inner = (
         f". /root/gosim/env.sh; cd /root/gosim/GOSIM26; "
+        f".venv/bin/python -m v4.evaluation.generate --dataset {dataset} --cards {card_list} "
+        f"--jobs {jobs} > {log} 2>&1 && "
         f".venv/bin/python -m v4.evaluation.batch --dataset {dataset} --variants {' '.join(variants)} "
-        f"--cards {','.join(cards)} --jobs {jobs} --tag {tag} > {log} 2>&1; "
+        f"--cards {card_list} --jobs {jobs} --tag {tag} >> {log} 2>&1; "
         f'echo "=== done $(date) ===" >> {log}'
     )
     remote_cmd = f"mkdir -p /root/gosim/runs && setsid nohup bash -c '{inner}' > /dev/null 2>&1 < /dev/null &"
