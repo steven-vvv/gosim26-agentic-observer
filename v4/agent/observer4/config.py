@@ -194,7 +194,9 @@ def validate(config: dict) -> None:
             value = config["policy"][name]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
                 raise ValueError(f"invalid configuration field: policy.{name}")
-    for name, (low, high) in {"rollout_top": (0, 2), "rollout_weight": (0, 2)}.items():
+    for name, (low, high) in {"rollout_top": (0, 2), "rollout_weight": (0, 2), "setting_boost": (0, 2),
+                              "rising_weight": (0, 1), "upgrade_weight": (0, 2), "upgrade_factor": (0.5, 1),
+                              "season_weight": (0, 2), "window_weight": (0, 2)}.items():
         if name in config["policy"]:
             value = config["policy"][name]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
@@ -237,6 +239,35 @@ def validate(config: dict) -> None:
         ):
             raise ValueError("scale.durations must contain integer seconds within 60..3600")
         scale["durations"] = sorted(set(scale_durations))
+    if "structure" in config:
+        structure = config["structure"]
+        if not isinstance(structure, dict) or type(structure.get("enabled")) is not bool:
+            raise ValueError("structure configuration must be an object with a boolean enabled")
+        for name, (low, high) in {"late_fraction": (0, 1), "late_share_threshold": (0, 1),
+                                  "rich_fiber_hours": (0, 1e9)}.items():
+            value = structure.get(name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
+                raise ValueError(f"invalid configuration field: structure.{name}")
+        allowed = {"setting_boost", "rising_weight", "upgrade_weight", "upgrade_factor", "season_weight",
+                   "window_weight"}
+        for name in ("late_overrides", "rich_overrides"):
+            overrides = structure.get(name)
+            if not isinstance(overrides, dict) or not set(overrides) <= allowed or any(
+                    isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+                    for value in overrides.values()):
+                raise ValueError(f"invalid configuration field: structure.{name}")
     for name in ("forecast_guard", "quake_cooldown"):
         if name in config["fault"] and type(config["fault"][name]) is not bool:
             raise ValueError(f"boolean configuration required for fault.{name}")
+    if "stale_hours" in config["quality"]:
+        value = config["quality"]["stale_hours"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 2000:
+            raise ValueError("invalid configuration field: quality.stale_hours")
+    for name, (low, high) in {"stale_levels": (1, 50), "stale_floor": (0, 10),
+                              "stale_max_hours": (0, 2000)}.items():
+        if name in config["fault"]:
+            value = config["fault"][name]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
+                raise ValueError(f"invalid configuration field: fault.{name}")
+    if "stale_levels" in config["fault"] and type(config["fault"]["stale_levels"]) is not int:
+        raise ValueError("integer configuration required for fault.stale_levels")

@@ -54,6 +54,7 @@ class Observer:
                 "fiber_grid_side": self.task.grid.side,
                 "fiber_contract": {"expected": 16, "matches": self.task.grid.n == 16},
                 "wallclock_seconds": self.task.wallclock,
+                "structure": self.planner.structure,
             },
         )
 
@@ -230,6 +231,7 @@ class Observer:
             "pending_result_not_delivered": self.pending is not None,
             "policy_seconds": round(self.decision_seconds, 6),
             "pacing": self.planner.pacing_status(),
+            "structure": self.planner.structure,
             "quality": self.quality.status(),
             "pointing": self.pointing.status(),
             "instrument": self.instrument.status(),

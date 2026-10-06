@@ -43,3 +43,15 @@ def test_old_config_without_optional_fault_guards_stays_valid():
     assert load(legacy)["fault"]["minimum_samples"] == 24
     with pytest.raises(ValueError, match="fault.forecast_guard"):
         load(CONFIG, {"fault": {"forecast_guard": 0}})
+
+
+def test_scale_falls_back_to_the_prior_once_samples_are_stale():
+    config = load(CONFIG, {"quality": {"stale_hours": 36}})
+    quality = QualityModel(SimpleNamespace(nights=[], scoring={}), config)
+    for i in range(20):
+        quality.samples.append((float(i), 0.09, True))
+    hour = 3600.0
+    assert quality.scale(20.0 + 24 * hour) == pytest.approx(0.09)
+    assert quality.scale(20.0 + 40 * hour) == pytest.approx(config["quality"]["prior"])
+    config["quality"]["stale_hours"] = 0
+    assert quality.scale(20.0 + 40 * hour) == pytest.approx(0.09)

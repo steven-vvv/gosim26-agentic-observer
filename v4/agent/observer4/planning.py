@@ -21,8 +21,14 @@ from .geometry import (
     wrap180,
 )
 from .opportunity import OpportunityModel
+from .structure import card_structure
 
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
+# Priority factor after k recorded misses (k capped at 6): max(0.25, 0.80 ** k), elementwise.
+MISS_FACTORS = np.maximum(0.25, 0.80 ** np.arange(7))
+# fiber_totals adds fibres through a dense (fibre, centre, duration) table up to this many
+# cells (1 MiB); larger tables, mostly empty, cost more than summing nonempty fibres.
+DENSE_FIBER_CELLS = 1 << 17
 
 
 WEEKLY_STRATEGIES = ("steady", "required_push", "science_push")
@@ -45,32 +51,115 @@ def strategy_settings(policy: dict, strategy: str) -> dict:
     return settings
 
 
+def _rank_order(starts: np.ndarray, sizes: np.ndarray):
+    """Rank-major order of contiguous row segments (first rows ``starts``, lengths ``sizes``).
+
+    Rank r lists the r-th row of every segment longer than r, longest segments first (a
+    stable order), so the segments present at each rank are a prefix of that order and an
+    elementwise reduction over each segment in row order takes one slice per rank.
+    Returns the row order, the segment order and the number of segments at each rank.
+    """
+    segments = np.argsort(-sizes, kind="stable")
+    per_rank = len(sizes) - np.cumsum(np.bincount(sizes))[:-1]
+    offsets = np.cumsum(per_rank) - per_rank
+    slots = np.arange(int(per_rank[-1] + offsets[-1])) - np.repeat(offsets, per_rank)
+    return starts[segments][slots] + np.repeat(np.arange(len(per_rank)), per_rank), segments, per_rank.tolist()
+
+
+def _segments(keys: np.ndarray):
+    """First index and length of each run of equal values in ``keys`` (not empty)."""
+    boundary = np.empty(len(keys), dtype=bool)
+    boundary[0] = True
+    np.not_equal(keys[1:], keys[:-1], out=boundary[1:])
+    starts = np.flatnonzero(boundary)
+    return starts, np.diff(starts, append=len(keys))
+
+
 def fiber_totals(fibers: np.ndarray, gains: np.ndarray, weight: np.ndarray, count: int) -> np.ndarray:
     """Sum the best target per fiber for each candidate center and duration.
 
     Only centre-target pairs inside a fibre are reduced; the result is bitwise equal to the
-    dense reduction over every pair, including its zero floor and summation order.
+    dense reduction over every pair, including its zero floor and summation order. Each
+    (centre, fibre) maximum takes its targets in index order, rank by rank (see
+    _rank_order), as np.maximum.reduceat did; each centre then adds its fibres in fibre
+    order, through a dense (fibre, centre) table when that is small and otherwise over its
+    nonempty fibres only.
     """
     centers, targets = fibers.shape
-    c_idx, t_idx = np.nonzero(fibers >= 0)
-    totals = np.zeros((centers * count, gains.shape[0]))
-    if len(c_idx):
-        labels = c_idx * count + fibers[c_idx, t_idx]
-        order = np.argsort(labels, kind="stable")
-        sorted_labels = labels[order]
-        starts = np.r_[0, np.flatnonzero(np.diff(sorted_labels)) + 1]
-        values = (gains[:, t_idx[order]] * weight[c_idx[order], t_idx[order]][None, :]).T
-        maxima = np.maximum.reduceat(values, starts, axis=0)
-        sizes = np.diff(np.r_[starts, len(sorted_labels)])
-        # The dense search included zero for every target outside a fiber.
-        maxima = np.where(sizes[:, None] < targets, np.maximum(maxima, 0), maxima)
-        totals[sorted_labels[starts]] = maxima
-    totals = totals.reshape(centers, count, -1)
-    # Sequential sum over fibres, the same order as np.add.accumulate.
-    result = totals[:, 0, :].copy()
-    for fiber in range(1, count):
-        result += totals[:, fiber, :]
+    flat = np.flatnonzero(fibers >= 0)
+    if not len(flat):
+        return np.zeros((centers, gains.shape[0]))
+    labels = flat // targets * count + fibers.ravel()[flat]
+    # A stable sort depends only on the keys; 16-bit keys take numpy's radix sort.
+    keys = labels.astype(np.int16) if count * centers <= np.iinfo(np.int16).max else labels
+    order = np.argsort(keys, kind="stable")
+    labels = labels[order]
+    starts, sizes = _segments(labels)
+    rows, groups, per_rank = _rank_order(starts, sizes)
+    pairs = flat[order[rows]]
+    target = pairs % targets
+    pair_weight = weight.ravel()[pairs][:, None]
+    table = np.ascontiguousarray(gains.T)
+    first = per_rank[0]
+    maxima = table[target[:first]]
+    maxima *= pair_weight[:first]
+    buffer = np.empty_like(maxima)
+    start = first
+    for n in per_rank[1:]:
+        part = buffer[:n]
+        table.take(target[start:start + n], axis=0, out=part)
+        part *= pair_weight[start:start + n]
+        np.maximum(maxima[:n], part, out=maxima[:n])
+        start += n
+    # The dense search included zero for every target outside a fiber; only fibres
+    # holding every target (the longest groups, so a prefix) had none.
+    full = int(np.count_nonzero(sizes == targets))
+    np.maximum(maxima[full:], 0, out=maxima[full:])
+    if count * centers * gains.shape[0] <= DENSE_FIBER_CELLS:
+        # Sequential sum over fibres, the same order as np.add.accumulate.
+        totals = np.zeros((count * centers, gains.shape[0]))
+        group_labels = labels[starts][groups]
+        totals[group_labels % count * centers + group_labels // count] = maxima
+        totals = totals.reshape(count, centers, -1)
+        result = totals[0].copy()
+        for fiber in range(1, count):
+            result += totals[fiber]
+        return result
+    # A centre's groups are contiguous in label order and ordered by fibre. The dense sum
+    # also added +0.0 for each empty fibre, which can only turn a -0.0 running sum into
+    # +0.0 for good; centres with an empty fibre therefore add a single zero at the end.
+    position = np.empty(len(groups), dtype=np.intp)
+    position[groups] = np.arange(len(groups))
+    group_centers = labels[starts] // count
+    center_starts, center_sizes = _segments(group_centers)
+    rows, segments, per_rank = _rank_order(center_starts, center_sizes)
+    rows = position[rows]
+    first = per_rank[0]
+    sums = maxima[rows[:first]]
+    start = first
+    for n in per_rank[1:]:
+        part = buffer[:n]
+        maxima.take(rows[start:start + n], axis=0, out=part)
+        np.add(sums[:n], part, out=sums[:n])
+        start += n
+    sums[center_sizes[segments] < count] += 0.0
+    result = np.zeros((centers, gains.shape[0]))
+    result[group_centers[center_starts[segments]]] = sums
     return result
+
+
+def _fiber_choices(fibers: np.ndarray, gain: np.ndarray, near: np.ndarray) -> list:
+    """(fibre, target) with the largest positive gain in each fibre, in fibre order.
+
+    Ties keep the lowest index, as np.argmax over each fibre's targets did.
+    """
+    ids = np.flatnonzero((fibers >= 0) & (gain > 0))
+    if not len(ids):
+        return []
+    ids = ids[np.lexsort((-gain[ids], fibers[ids]))]
+    fiber = fibers[ids]
+    starts, _ = _segments(fiber)
+    return list(zip(fiber[starts].tolist(), near[ids[starts]].tolist()))
 
 
 def expected_science_gains(factors: np.ndarray, weights: np.ndarray, best: np.ndarray,
@@ -92,7 +181,11 @@ def science_value(factor: np.ndarray, exponent: float, cap: np.ndarray | None) -
     targets that can never reach a factor of one.
     """
     if cap is None:
-        return factor ** exponent
+        if np.ndim(exponent) == 0:
+            return factor ** exponent
+        # pow(1, p) is exactly 1, so saturated factors (most long exposures) skip the power.
+        result = np.ones(np.broadcast_shapes(np.shape(factor), np.shape(exponent)))
+        return np.power(factor, exponent, out=result, where=np.not_equal(factor, 1.0))
     ratio = np.minimum(factor / cap, 1.0)
     return np.where(factor >= cap, factor, cap * ratio ** exponent)
 
@@ -113,6 +206,7 @@ class Planner:
     def __init__(self, task, state, quality, pointing, config: dict):
         self.task, self.state, self.quality, self.pointing = task, state, quality, pointing
         self.config = config
+        self.structure = card_structure(task, config.get("structure") or {})
         self.settings = self._scaled_settings(config["policy"])
         self.scale_profile = self._scale_active()
         task.prepare_neighbors(self.settings["neighbor_radius_deg"])
@@ -156,14 +250,16 @@ class Planner:
         so it can be audited and tuned without changing the decision logic.
         """
         profile = self.config.get("scale") or {}
+        overrides = (getattr(self, "structure", None) or {}).get("overrides") or {}
         if not self._scale_active():
-            return settings
+            return {**settings, **overrides} if overrides else settings
         scaled = dict(settings)
         for name in ("anchor_pool", "anchors", "cluster_anchors", "refine_top"):
             if name in profile:
                 scaled[name] = profile[name]
         if profile.get("durations"):
             scaled["durations"] = list(profile["durations"])
+        scaled.update(overrides)
         return scaled
 
     def _science_exponents(self, night_index: int):
@@ -182,6 +278,14 @@ class Planner:
             self._future_hours = np.vstack((future[1:], np.zeros((1, future.shape[1]))))
         share = np.clip(self._future_hours[night_index] / horizon, 0.0, 1.0)
         return 1.0 + (base - 1.0) * share
+
+    def _remaining_hours(self, night_index: int) -> np.ndarray:
+        """Public visible hours of every target from tonight to the end of the season."""
+        if self._future_hours is None:
+            future = np.cumsum(self.task.visibility[::-1], axis=0)[::-1] / 3600.0
+            self._future_hours = np.vstack((future[1:], np.zeros((1, future.shape[1]))))
+        tonight = self.task.visibility[night_index] / 3600.0
+        return self._future_hours[night_index] + tonight
 
     def set_requests(self, active_requests: list[dict]) -> None:
         self.active_requests = active_requests
@@ -254,12 +358,7 @@ class Planner:
         value = float(merit[center_i, duration_i])
         if value <= item["merit"] * (1.0 + 1e-9):
             return len(ca)
-        gain = gains[duration_i] * geometry_weight[center_i]
-        selected = []
-        for fiber in range(task.grid.n):
-            ids = np.flatnonzero((fibers[center_i] == fiber) & (gain > 0))
-            if len(ids):
-                selected.append((fiber, int(near[ids[int(np.argmax(gain[ids]))]])))
+        selected = _fiber_choices(fibers[center_i], gains[duration_i] * geometry_weight[center_i], near)
         item.update({"merit": value, "alt": float(ca[center_i]), "az": float(cz[center_i]),
                      "duration": int(durations[duration_i]), "selected": selected, "refined": True})
         return len(ca)
@@ -314,10 +413,9 @@ class Planner:
         task = self.task
         radius = math.cos(float(self.settings.get("cluster_radius_deg", 1.3)) * RAD)
         values = np.zeros(len(pool))
-        for k, anchor in enumerate(pool):
-            near = task.neighbors(int(anchor))
-            close = near[task.vectors[near] @ task.vectors[int(anchor)] >= radius]
-            values[k] = float(np.sum(priority[close]))
+        # Only the anchors after the head are ordered by their surroundings.
+        for k in range(count, len(pool)):
+            values[k] = float(np.sum(priority[task.close_neighbors(int(pool[k]), radius)]))
         head = pool[:count]
         rest = pool[count:]
         rest = rest[np.lexsort((rest, -values[count:]))]
@@ -470,7 +568,7 @@ class Planner:
         ha = wrap180(lst - task.ra)
         setting_seconds = np.where(task.hmax >= 180, 1e9, (task.hmax - ha) / SIDEREAL_RATE)
         visible = (ha >= -task.hmax) & (setting_seconds >= task.minimum_exposure) & (task.hmax > 0)
-        vectors = horizontal_vectors(task.ra, task.dec, lst, task.latitude)
+        vectors = task.horizon.vectors(lst, ha)
         altitude, azimuth = altaz(vectors)
         directional, clean = self.quality.direction_factors(altitude, azimuth)
         terrain_free = self.quality.terrain_free
@@ -489,7 +587,8 @@ class Planner:
         terrain = self.quality.terrain_model
         # Only visible targets can enter a plan, so tracks and profiles cover just them.
         subset = np.flatnonzero(visible)
-        track = self._track(now, altitude, azimuth, subset) if (predicted is not None or terrain is not None) else None
+        horizon = task.horizon.take(subset) if (predicted is not None or terrain is not None) else None
+        track = self._track(now, altitude, azimuth, subset, horizon) if terrain is not None else None
         self._terrain_profile = None
         if terrain is not None:
             try:
@@ -498,7 +597,8 @@ class Planner:
                 self.quality.terrain_model = None
         if predicted is None:
             base_quality = lunar_factors(
-                task.ra, task.dec, now + 450.0, task.latitude, task.longitude, task.scoring.get("lunar_model")
+                task.ra, task.dec, now + 450.0, task.latitude, task.longitude, task.scoring.get("lunar_model"),
+                vectors=task.vectors,
             ) / (task.scoring["q0"] * airmass(altitude) ** task.scoring["airmass_exponent"])
             scale = self.quality.scale(now)
             safety = settings["quality_safety"]
@@ -507,7 +607,7 @@ class Planner:
         else:
             scale, sigma = predicted
             safety = math.exp(-settings.get("level_safety_z", 1.5) * sigma)
-            profile = self._k_profile(now, track, subset)
+            profile = self._k_profile(now, altitude, subset, horizon)
             base_quality = profile[1][1]
             try:
                 correction = self.quality.band_correction(now)
@@ -532,6 +632,28 @@ class Planner:
         threshold = float(task.scoring["required"]["observed_factor_threshold"])
         incomplete = task.required & (state.factor_lower < threshold)
         urgency = 1.0 + settings["deadline_weight"] / np.maximum(1, task.last_night - night_index + 1)
+        season = float(settings.get("season_weight", 0.0))
+        if season > 0:
+            # Long seasons: a target whose remaining public visible hours are few, compared with
+            # the typical target, has fewer later chances; this ranks it ahead while it lasts.
+            future = self._remaining_hours(night_index)
+            alive = future > 0
+            if np.any(alive):
+                typical = float(np.median(future[alive]))
+                scarce = np.clip(typical / np.maximum(future, 1.0), 1.0, 4.0) - 1.0
+                urgency = urgency * (1.0 + season * np.where(alive, scarce, 0.0))
+        window = float(settings.get("window_weight", 0.0))
+        if window > 0:
+            # Remaining chances in nights: visible hours left this season over tonight's. A
+            # target that will be gone after a few such nights ranks ahead of one with many
+            # left; a region that mostly rises later in the season is not urgent before then.
+            tonight = task.visibility[night_index] / 3600.0
+            nights_left = self._remaining_hours(night_index) / np.maximum(tonight, 0.25)
+            up = tonight > 0
+            if np.any(up):
+                typical = float(np.median(nights_left[up]))
+                scarce = np.clip(typical / np.maximum(nights_left, 1.0), 1.0, 4.0) - 1.0
+                urgency = urgency * (1.0 + window * np.where(up, scarce, 0.0))
         if self.opportunity is not None and self.instrument is not None:
             try:
                 chances = self.opportunity.urgency(night_index, self.instrument.sky_levels(), threshold,
@@ -539,7 +661,15 @@ class Planner:
                 urgency = np.where(task.required, chances, urgency)
             except Exception:  # noqa: BLE001 - keep the deadline urgency
                 self.opportunity = None
-        setting_boost = 1.0 + 0.35 * np.maximum(0, ha / np.maximum(1, task.hmax))
+        setting_boost = 1.0 + float(settings.get("setting_boost", 0.35)) * np.maximum(0, ha / np.maximum(1, task.hmax))
+        rising = float(settings.get("rising_weight", 0.0))
+        if rising > 0:
+            # A rising target that transits before the night ends is cheaper to expose later
+            # tonight (lower airmass); discount it by how far it still is from the meridian.
+            transit = now - ha / SIDEREAL_RATE
+            later = (ha < 0) & (transit <= min(night.end, task.end))
+            setting_boost = setting_boost * np.where(
+                later, 1.0 - rising * np.clip(-ha / np.maximum(1, task.hmax), 0.0, 1.0), 1.0)
         tonight = float(settings.get("tonight_weight", 0.0))
         if tonight > 0:
             # Required targets whose window tonight closes soon lose their chance for the
@@ -552,9 +682,19 @@ class Planner:
             science = np.max(expected_science_gains(reach[None, :], task.weight, state.best_score,
                                                     probabilities, mult, mismatch)[:, 0, :], axis=0)
         else:
-            science = task.weight * np.maximum(
-                0, science_value(reach, exponent, science_cap) - science_value(state.factor_estimate, exponent, science_cap)
-            )
+            # Elementwise, so the anchor search reuses its entries for each neighbourhood.
+            estimate_value = science_value(state.factor_estimate, exponent, science_cap)
+            science = task.weight * np.maximum(0, science_value(reach, exponent, science_cap) - estimate_value)
+        upgrade = float(settings.get("upgrade_weight", 0.0))
+        if upgrade > 0:
+            # A complete target scored under a mismatched or weaker program can still gain the
+            # multiplier difference; valued linearly in score and scaled down, so it only wins
+            # when new completions are scarce (long seasons).
+            top_multiplier = float(np.max(mult))
+            expected_top = np.max(expected_mult, axis=0)
+            complete = state.factor_estimate >= float(settings.get("upgrade_factor", 0.95))
+            linear = np.maximum(0, task.weight * expected_top * reach - state.best_score) / top_multiplier
+            science = np.where(complete, np.maximum(science, upgrade * linear), science)
         required_bonus = settings["required_bonus"] if self.scarcity is None else (
             settings["required_bonus"] * self.scarcity[night_index]
         )
@@ -570,7 +710,7 @@ class Planner:
             request_priority[indices] += term["bonus"] * reachable
             request_thresholds[indices] = np.maximum(request_thresholds[indices], term["threshold"])
         priority = (science + required + request_priority) * urgency * setting_boost * directional * terrain_free
-        priority *= np.maximum(0.25, 0.80 ** np.minimum(state.misses, 6))
+        priority *= MISS_FACTORS[np.minimum(state.misses, 6)]
         priority = np.where(visible & (task.last_night >= night_index), priority, 0)
         self._last_priority = priority
         cap = None
@@ -613,13 +753,19 @@ class Planner:
             glass_margin = min(glass_margin, self.pointing.uncertainty + settings.get("margin_floor_deg", 0.012))
         finalists = []
         used = []
+        # Rows of the anchors in use; vecdot forms each row's 3-term dot product as the
+        # one-dimensional matmul did, so the spread test sees the same cosines.
+        used_vectors = np.empty((max(count, 0), 3))
+        spread = math.cos(0.6 * RAD)
         fields_checked = 0
         for anchor in pool:
             if len(used) >= count:
                 break
             # Spread the search over distinct fields rather than repeatedly testing one cluster.
-            if any(float(task.vectors[anchor] @ task.vectors[j]) > math.cos(0.6 * RAD) for j in used):
+            anchor_vector = task.vectors[anchor]
+            if np.any(np.vecdot(used_vectors[:len(used)], anchor_vector) > spread):
                 continue
+            used_vectors[len(used)] = anchor_vector
             used.append(int(anchor))
             near = task.neighbors(int(anchor))
             near = near[visible[near] & (directional[near] > 0) & (terrain_free[near] > 0.02)]
@@ -642,30 +788,44 @@ class Planner:
                                         request_thresholds[near])
             if not len(durations):
                 continue
-            factors = np.minimum(1, durations[:, None] * self._rates(durations, near, rate))
+            factors = durations[:, None] * self._rates(durations, near, rate)
+            np.minimum(1, factors, out=factors)
             if settings.get("score_marginal", False):
                 science_gain = expected_science_gains(factors, task.weight[near], state.best_score[near],
                                                        probabilities[:, near], mult, mismatch)
             else:
                 near_cap = science_cap[near] if science_cap is not None else None
                 power = exponent if np.ndim(exponent) == 0 else exponent[near]
-                science_gain = task.weight[near] * np.maximum(
-                    0, science_value(factors, power, near_cap) - science_value(state.factor_estimate[near], power, near_cap)
-                )
+                # In place, in the order of weight * max(0, value - estimate).
+                science_gain = science_value(factors, power, near_cap)
+                science_gain -= estimate_value[near]
+                np.maximum(0, science_gain, out=science_gain)
+                science_gain *= task.weight[near]
+                if upgrade > 0:
+                    linear = np.maximum(
+                        0, task.weight[near] * expected_top[near] * factors - state.best_score[near]) / top_multiplier
+                    science_gain = np.where(complete[near][None, :], np.maximum(science_gain, upgrade * linear),
+                                            science_gain)
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
-            req_gain = incomplete[near][None, :] * (factors >= settings["required_safe_factor"]) * near_bonus
+            safe = factors >= settings["required_safe_factor"]
+            req_gain = incomplete[near][None, :] * safe * near_bonus
             request_gain = self._request_gains(request_terms, near, durations, factors, now)
-            fairness = (
-                (state.factor_lower[near][None, :] < threshold) & (factors >= settings["required_safe_factor"])
-            ) * uniformity[near]
-            gains = (science_gain + req_gain + request_gain + fairness) * urgency[near] * setting_boost[near]
-            gains = gains * self._terrain_open(durations, near, terrain_free)
-            gains = np.where(durations[:, None] <= setting_seconds[near][None, :], gains, 0)
-            if not np.any(gains > 0):
-                continue
+            fairness = ((state.factor_lower[near][None, :] < threshold) & safe) * uniformity[near]
+            # (science + required + request + fairness) * urgency * setting boost * terrain,
+            # accumulated in place in that order.
+            gains = science_gain
+            gains += req_gain
+            gains += request_gain
+            gains += fairness
+            gains *= urgency[near]
+            gains *= setting_boost[near]
+            gains *= self._terrain_open(durations, near, terrain_free)
+            np.copyto(gains, 0, where=~(durations[:, None] <= setting_seconds[near][None, :]))
             # Targets without a positive gain never fill a fibre; dropping them before the
             # geometry leaves every fibre maximum and choice unchanged.
             useful = np.any(gains > 0, axis=tuple(range(gains.ndim - 1)))
+            if not np.any(useful):
+                continue
             near, gains = near[useful], gains[..., useful]
             fibers, margin, _, _ = task.grid.classify(vectors[near], ca, cz)
             geometry_weight = np.where(fibers >= 0, 1.0, 0.0)
@@ -692,12 +852,8 @@ class Planner:
                 value = float(merit[center_i, duration_i])
             if value <= 0 or (len(finalists) >= 6 and value <= finalists[-1]["merit"]):
                 continue
-            selected = []
             gain = gains[program_i, duration_i] * geometry_weight[center_i] if program_i is not None else gains[duration_i] * geometry_weight[center_i]
-            for fiber in range(task.grid.n):
-                ids = np.flatnonzero((fibers[center_i] == fiber) & (gain > 0))
-                if len(ids):
-                    selected.append((fiber, int(near[ids[int(np.argmax(gain[ids]))]])))
+            selected = _fiber_choices(fibers[center_i], gain, near)
             candidate = {
                 "merit": value,
                 "alt": float(ca[center_i]),
@@ -798,27 +954,34 @@ class Planner:
     PROFILE_OFFSETS = (0.0, 300.0, 600.0, 900.0, 1350.0, 1800.0)
     TRACK_TIMES = (0.0, 300.0, 600.0, 900.0, 1350.0, 1800.0, 2700.0, 3600.0)
 
-    def _track(self, now: float, altitude0, azimuth0, subset) -> dict:
-        """Altitude and azimuth of the subset at fixed offsets after now; others keep now."""
+    def _track(self, now: float, altitude0, azimuth0, subset, horizon) -> dict:
+        """Altitude and azimuth of the subset at fixed offsets after now; others keep now.
+
+        ``horizon`` is task.horizon.take(subset).
+        """
         task = self.task
         alt = np.repeat(np.asarray(altitude0)[None, :], len(self.TRACK_TIMES), axis=0)
         az = np.repeat(np.asarray(azimuth0)[None, :], len(self.TRACK_TIMES), axis=0)
-        ra, dec = task.ra[subset], task.dec[subset]
         for j, offset in enumerate(self.TRACK_TIMES[1:], start=1):
-            alt[j, subset], az[j, subset] = altaz(horizontal_vectors(ra, dec, sidereal(now + offset, task.longitude),
-                                                                     task.latitude))
+            alt[j, subset], az[j, subset] = altaz(horizon.vectors(sidereal(now + offset, task.longitude)))
         return {"now": now, "alt": alt, "az": az}
 
-    def _k_profile(self, now: float, track: dict, subset):
-        """Lunar factor over airmass at exposure-midpoint offsets for the subset (1 elsewhere)."""
+    def _k_profile(self, now: float, altitude0, subset, horizon):
+        """Lunar factor over airmass at exposure-midpoint offsets for the subset (1 elsewhere).
+
+        The altitudes are those of the track (now at offset zero); ``horizon`` is
+        task.horizon.take(subset).
+        """
         task = self.task
         exponent = task.scoring["airmass_exponent"]
         model = task.scoring.get("lunar_model")
         rows = np.ones((len(self.PROFILE_OFFSETS), len(task.ids)))
-        ra, dec = task.ra[subset], task.dec[subset]
+        vectors = task.vectors[subset]
         for j, offset in enumerate(self.PROFILE_OFFSETS):
-            lunar = lunar_factors(ra, dec, now + max(offset, 60.0), task.latitude, task.longitude, model)
-            rows[j, subset] = lunar / (task.scoring["q0"] * airmass(np.maximum(track["alt"][j, subset], 1.0)) ** exponent)
+            lunar = lunar_factors(None, None, now + max(offset, 60.0), task.latitude, task.longitude, model,
+                                  vectors=vectors)
+            alt = altitude0[subset] if j == 0 else horizon.altitude(sidereal(now + offset, task.longitude))
+            rows[j, subset] = lunar / (task.scoring["q0"] * airmass(np.maximum(alt, 1.0)) ** exponent)
         # Midpoint sampling; time-resolved scoring differs only at second order in time.
         return np.array(self.PROFILE_OFFSETS), rows
 
@@ -847,9 +1010,11 @@ class Planner:
         """Expected unblocked fraction of each exposure length for the given targets."""
         profile = self._terrain_profile
         durations = np.asarray(durations, dtype=float)
-        result = np.ones((len(durations), len(indices)))
         if profile is None:
-            return result * fallback[indices][None, :] if fallback is not None else result
+            # 1 * f is f: the fallback row serves every duration.
+            return (np.broadcast_to(fallback[indices], (len(durations), len(indices))) if fallback is not None
+                    else np.ones((len(durations), len(indices))))
+        result = np.ones((len(durations), len(indices)))
         position = profile["position"][indices]
         inside = position >= 0
         if not np.any(inside):
@@ -871,7 +1036,12 @@ class Planner:
         j = np.clip(np.searchsorted(offsets, mid, side="right") - 1, 0, len(offsets) - 2)
         w = (mid - offsets[j]) / (offsets[j + 1] - offsets[j])
         sub = rates[:, indices]
-        return (1 - w)[:, None] * sub[j] + w[:, None] * sub[j + 1]
+        # (1 - w) * low + w * high, in place.
+        low, high = sub[j], sub[j + 1]
+        low *= (1 - w)[:, None]
+        high *= w[:, None]
+        low += high
+        return low
 
     def _center_up(self, alt: float, az: float, lst: float) -> float:
         ra, dec = to_equatorial(alt, az, lst, self.task.latitude)
@@ -894,14 +1064,14 @@ class Planner:
 
     def _durations(self, rate, required, left: float, request_thresholds=None):
         low, high = self.task.minimum_exposure, min(self.task.maximum_exposure, int(left))
-        values = list(self.settings["durations"])
+        values = {int(x) for x in [*self.settings["durations"], high] if low <= x <= high}
         if self.settings["adaptive_durations"]:
             thresholds = np.where(required, self.settings["required_safe_factor"], 1.0)
-            candidates = thresholds / np.maximum(rate, 1e-9)
-            values.extend(np.ceil(candidates / 30).astype(np.int64) * 30)
+            candidates = [thresholds / np.maximum(rate, 1e-9)]
             if request_thresholds is not None:
                 requested = request_thresholds > 0
-                candidates = request_thresholds[requested] / np.maximum(rate[requested], 1e-9)
-                values.extend(np.ceil(candidates / 30).astype(np.int64) * 30)
-        values.append(high)
-        return np.array(sorted({int(x) for x in values if low <= x <= high}), dtype=np.int32)
+                candidates.append(request_thresholds[requested] / np.maximum(rate[requested], 1e-9))
+            # The per-target durations are filtered and deduplicated as arrays.
+            steps = np.ceil(np.concatenate(candidates) / 30).astype(np.int64) * 30
+            values.update(np.unique(steps[(steps >= low) & (steps <= high)]).tolist())
+        return np.array(sorted(values), dtype=np.int32)

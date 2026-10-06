@@ -68,6 +68,12 @@
     "pace_floor": 0.8,
     "rollout_top": 0,
     "rollout_weight": 0.0,
+    "setting_boost": 0.35,
+    "rising_weight": 0.0,
+    "upgrade_weight": 0.0,
+    "upgrade_factor": 0.95,
+    "season_weight": 0.0,
+    "window_weight": 0.0,
     "level_safety_z": 1.5,
     "program_uncertainty_floor": 0.05
   },
@@ -90,6 +96,18 @@
       3600
     ]
   },
+  "structure": {
+    "enabled": true,
+    "late_fraction": 0.6,
+    "late_share_threshold": 0.34,
+    "late_overrides": {
+      "setting_boost": 0.0
+    },
+    "rich_fiber_hours": 4.0,
+    "rich_overrides": {
+      "upgrade_weight": 0.5
+    }
+  },
   "quality": {
     "prior": 0.78,
     "memory_hours": 1.5,
@@ -97,6 +115,7 @@
     "instrument_prior": 0.95,
     "directional_notices": true,
     "weather_feedback": true,
+    "stale_hours": 0,
     "level_model": true,
     "terrain_model": true,
     "sector_prior": true,
@@ -127,6 +146,9 @@
     "band_paid_llr": 8.0,
     "band_paid_shift": 0.45,
     "fallback_beyond_cap": true,
+    "stale_levels": 3,
+    "stale_floor": 1.0,
+    "stale_max_hours": 36,
     "probe_fractions": []
   },
   "observability": {

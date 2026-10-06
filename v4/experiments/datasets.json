@@ -363,6 +363,35 @@
       "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
     }
   },
+  "trial-b-only": {
+    "sealed": false,
+    "cards": [
+      "trial-b"
+    ],
+    "sources": {
+      "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
+    }
+  },
+  "trial-d-only": {
+    "sealed": false,
+    "cards": [
+      "trial-d"
+    ],
+    "sources": {
+      "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
+    }
+  },
+  "trial-acd": {
+    "sealed": false,
+    "cards": [
+      "trial-a",
+      "trial-c",
+      "trial-d"
+    ],
+    "sources": {
+      "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
+    }
+  },
   "trial-ac": {
     "sealed": false,
     "cards": [
@@ -373,13 +402,59 @@
       "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
     }
   },
-  "trial-b-only": {
+  "trial-ab": {
     "sealed": false,
     "cards": [
+      "trial-a",
       "trial-b"
     ],
     "sources": {
       "trial-*": "hackathon-survey26 bdb1031 trial practice cards v4-practice-a..d (old spec; same layouts and seasons as formal A-D), linked as v4/cards/trial-*"
+    }
+  },
+  "kind-validation-b": {
+    "sealed": true,
+    "count": 16,
+    "seed_base": 20300000,
+    "kinds": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "source": "kind-validation 中的 b 类卡（编号 1、5、9、13）",
+    "indices_of": "kind-validation"
+  },
+  "kv-bd": {
+    "sealed": true,
+    "cards": [
+      "kind-validation-r3-001",
+      "kind-validation-r3-003",
+      "kind-validation-r3-005",
+      "kind-validation-r3-007",
+      "kind-validation-r3-009",
+      "kind-validation-r3-011",
+      "kind-validation-r3-013",
+      "kind-validation-r3-015"
+    ],
+    "sources": {
+      "kind-validation-r3-*": "v4/evaluation/kinds.py, kind-validation seeds"
+    }
+  },
+  "kv-ac": {
+    "sealed": true,
+    "cards": [
+      "kind-validation-r3-000",
+      "kind-validation-r3-002",
+      "kind-validation-r3-004",
+      "kind-validation-r3-006",
+      "kind-validation-r3-008",
+      "kind-validation-r3-010",
+      "kind-validation-r3-012",
+      "kind-validation-r3-014"
+    ],
+    "sources": {
+      "kind-validation-r3-*": "v4/evaluation/kinds.py, kind-validation seeds"
     }
   }
 }

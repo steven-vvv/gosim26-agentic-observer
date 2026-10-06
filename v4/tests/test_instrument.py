@@ -95,6 +95,19 @@ def test_monitor_does_not_report_before_the_window_without_strong_evidence():
     assert monitor.decide(start + 6000, night) is None
 
 
+def test_stale_prediction_ignores_levels_older_than_the_age_limit():
+    task = _task()
+    monitor = InstrumentMonitor(task, {"enabled": True, "stale_levels": 3, "stale_floor": 1.0}, revision=2)
+    for night in (3, 4, 5):
+        monitor.add(_record(task.nights[night].start, 600, night, math.log(0.1)))
+    later = task.nights[8].start
+    level, _ = monitor.predict(later, 8, frozenset())
+    assert abs(level - math.log(0.1)) < 1e-9
+    monitor.settings["stale_max_hours"] = 36
+    assert monitor.predict(later, 8, frozenset()) is None
+    assert monitor.predict(task.nights[6].start, 6, frozenset()) is not None
+
+
 def test_fiber_totals_takes_best_target_per_fiber():
     fibers = np.array([[0, 0, 1, -1]])
     gains = np.array([[1.0, 3.0, 2.0, 9.0]])

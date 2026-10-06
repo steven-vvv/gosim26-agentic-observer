@@ -190,6 +190,7 @@ class InstrumentMonitor:
         self.free_allowance = int(reporting.get("false_report_free_allowance", 0)) if revision >= 2 else 0
         self.false_since_correct = 0
         self.records: list[dict] = []
+        self._band_cache: dict[int, tuple] = {}
         self.segment_start = 0
         self.pending = None
         self.repaired = False
@@ -317,7 +318,15 @@ class InstrumentMonitor:
         return levels[-1]["level"] - self.log_eff(levels[-1])
 
     def predict(self, now: float, night: int, signature: frozenset) -> tuple[float, float] | None:
-        """Predicted log(efficiency * sky) for an exposure starting now, with its spread."""
+        """Predicted log(efficiency * sky) for an exposure starting now, with its spread.
+
+        Without a fresh level, the latest level under the same notices (earthquakes aside)
+        gives the sky. With ``stale_levels`` above one it is the median of that many, skipping
+        exposures split by a notice change, and ``stale_floor`` (log units, 0 = off) keeps it
+        within that distance of the long-run median: one exposure spoilt by an unannounced
+        closure must not set the sky for the rest of the season, since a planner that then
+        sees nothing worth observing would never measure the sky again.
+        """
         log_eff = self.efficiency.log_efficiency(night, now)
         levels = self.segment()
         if (levels and levels[-1]["night"] == night and levels[-1]["signature"] == signature
@@ -325,14 +334,29 @@ class InstrumentMonitor:
             sky = float(np.median([r["level"] - self.log_eff(r) for r in levels[-3:]]))
             return sky + log_eff, float(self.settings.get("fresh_sigma", 0.05))
         reduced = signature - {"earthquake"}
+        count = int(self.settings.get("stale_levels", 1))
+        floor = float(self.settings.get("stale_floor", 0.0))
+        age = float(self.settings.get("stale_max_hours", 0.0)) * 3600.0
+        skies, same = [], False
         for record in reversed(self.records[-400:]):
             if record["level"] is None or (record["signature"] - {"earthquake"}) != reduced:
                 continue
-            sky = record["level"] - self.log_eff(record)
-            same = record["night"] == night
-            return sky + log_eff, float(self.settings.get("same_night_sigma" if same else "stale_sigma",
-                                                         0.08 if same else 0.15))
-        return None
+            if age > 0.0 and now - record["end"] > age:
+                break  # older than the accepted age: not evidence about the sky any more
+            if count > 1 and record.get("mixed"):
+                continue
+            if not skies:
+                same = record["night"] == night
+            skies.append(record["level"] - self.log_eff(record))
+            if len(skies) >= count and floor <= 0:
+                break
+        if not skies:
+            return None
+        sky = skies[0] if count <= 1 else float(np.median(skies[:count]))
+        if floor > 0:
+            sky = max(sky, float(np.median(skies)) - floor)
+        return sky + log_eff, float(self.settings.get("same_night_sigma" if same else "stale_sigma",
+                                                     0.08 if same else 0.15))
 
     def band_llr(self, records: list[dict], weather_shift: float) -> tuple[float, int]:
         """log P(band flags | instrument cut) - log P(band flags | weather drop of weather_shift).
@@ -502,9 +526,6 @@ class InstrumentMonitor:
         smallest shift that explains nearly all of the gain over no shift, since statuses that
         sit far inside a band only bound the shift from one side.
         """
-        bands = self.task.scoring["program"]["bands"]
-        dark, bright = math.log(float(bands["DARK"])), math.log(float(bands["BRIGHT"]))
-        sigma = float(self.settings.get("band_sigma", 0.06))
         prior = math.log(float(self.settings.get("instrument_prior", 0.95)))
         grid = np.linspace(-1.4, 0.3, 69)
         zero = int(np.argmin(np.abs(grid)))
@@ -514,25 +535,16 @@ class InstrumentMonitor:
             status, k = record.get("status"), record.get("band_k")
             if status is None or k is None or record["level"] is None:
                 continue
-            known = np.isfinite(status) & np.isfinite(k) & (k > 0)
-            if not np.any(known):
-                continue
             sky = record["level"] - prior - self.log_eff(record)
-            q = sky - grid[:, None] + np.log(k[known])[None, :]
-            upper = 1 / (1 + np.exp(-(q - dark) / sigma))
-            lower = 1 / (1 + np.exp(-(q - bright) / sigma))
-            if record["program"] == "DARK":
-                p = upper
-            elif record["program"] == "BRIGHT":
-                p = lower - upper
-            else:
-                p = 1 - lower
-            p = np.clip(p, 0.02, 0.98)
-            matched = status[known] > 0.5
-            likelihood = np.where(matched[None, :], p, 1 - p)
-            total += np.mean(np.log(likelihood), axis=1)
-            if float(np.mean(likelihood[zero])) < float(self.settings.get("band_surprise", 0.25)):
-                surprising += 1
+            # A record never changes once built, so its terms only move with its sky (a quake
+            # calibration shifts it); the identity check guards against a reused id.
+            cached = self._band_cache.get(id(record))
+            if cached is None or cached[0] is not record or cached[1] != sky:
+                cached = (record, sky, *self._band_terms(record, sky, grid, zero))
+                self._band_cache[id(record)] = cached
+            if cached[2] is not None:
+                total += cached[2]
+                surprising += cached[3]
         gain = float(np.max(total) - total[zero])
         if gain <= 0:
             return 0.0, 0.0, surprising
@@ -540,14 +552,42 @@ class InstrumentMonitor:
         shift = float(grid[enough[np.argmin(np.abs(grid[enough]))]])
         return shift, gain, surprising
 
+    def _band_terms(self, record: dict, sky: float, grid: np.ndarray, zero: int):
+        """Mean log-likelihood of one record's statuses on the shift grid and whether they
+        surprise without a shift; (None, False) when no status is known."""
+        status, k = record["status"], record["band_k"]
+        known = np.isfinite(status) & np.isfinite(k) & (k > 0)
+        if not np.any(known):
+            return None, False
+        bands = self.task.scoring["program"]["bands"]
+        dark, bright = math.log(float(bands["DARK"])), math.log(float(bands["BRIGHT"]))
+        sigma = float(self.settings.get("band_sigma", 0.06))
+        q = sky - grid[:, None] + np.log(k[known])[None, :]
+        upper = 1 / (1 + np.exp(-(q - dark) / sigma))
+        lower = 1 / (1 + np.exp(-(q - bright) / sigma))
+        if record["program"] == "DARK":
+            p = upper
+        elif record["program"] == "BRIGHT":
+            p = lower - upper
+        else:
+            p = 1 - lower
+        p = np.clip(p, 0.02, 0.98)
+        matched = status[known] > 0.5
+        likelihood = np.where(matched[None, :], p, 1 - p)
+        surprise = float(np.mean(likelihood[zero])) < float(self.settings.get("band_surprise", 0.25))
+        return np.mean(np.log(likelihood), axis=1), surprise
+
     def _band_records(self, since: float) -> list[dict]:
         hours = float(self.settings.get("band_hours", 6.0)) * 3600.0
-        records = [r for r in self.records if r["start"] >= since and r["level"] is not None]
-        if not records:
-            return []
-        # The most recent observing hours (exposure time, not wall time).
+        # The most recent observing hours (exposure time, not wall time). Records are added
+        # in time order (respond rejects time moving backwards), so the scan from the end
+        # stops at the first record that started before ``since``.
         chosen, spent = [], 0.0
-        for record in reversed(records):
+        for record in reversed(self.records):
+            if not record["start"] >= since:
+                break
+            if record["level"] is None:
+                continue
             chosen.append(record)
             spent += record["end"] - record["start"]
             if spent >= hours:
