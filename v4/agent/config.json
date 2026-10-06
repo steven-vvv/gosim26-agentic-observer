@@ -115,6 +115,7 @@
     "instrument_prior": 0.95,
     "directional_notices": true,
     "weather_feedback": true,
+    "stale_hours": 0,
     "level_model": true,
     "terrain_model": true,
     "sector_prior": true,
