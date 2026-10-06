@@ -68,3 +68,7 @@ telemetry-worker/coverage/
 # 最终排程另存 v3/agents/public_once/public_schedules.json
 v3/runs/omni/
 v3/tools/omni/dp.so
+
+# 远程机器凭据（10-06）：只放在 ~/.ssh，不进仓库
+*.pem
+/server
