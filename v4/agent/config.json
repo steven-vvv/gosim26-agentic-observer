@@ -118,14 +118,17 @@
       "anchors": 72,
       "anchor_pool": 768,
       "cluster_anchors": 24,
-      "refine_top": 8
+      "refine_top": 8,
+      "science_exponent": 1.8,
+      "revisit_increment": 1.0
     },
     "mid_overrides": {
       "setting_boost": 0.0,
-      "anchor_pool": 256,
-      "anchors": 32,
-      "cluster_anchors": 10,
-      "refine_top": 4,
+      "anchor_pool": 512,
+      "anchors": 48,
+      "cluster_anchors": 24,
+      "refine_top": 6,
+      "pace_shrink": 0.5,
       "upgrade_weight": 0.5,
       "science_horizon_hours": 240.0,
       "science_exponent": 1.65
