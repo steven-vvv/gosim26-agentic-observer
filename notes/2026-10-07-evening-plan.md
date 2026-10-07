@@ -149,3 +149,11 @@
   3. algo1（Opus）转做 _track/terrain 缓存（C1 型卡 2.8× CPU），只加新文件，50 分钟。
   4. perf3-log 要求收尾报告。
 - 预计 21:30 前定终包，22:00 前交用户上传；23:00 查默认最终版本指向。
+
+## 20:35 perf3-log 收尾（8280afa，可合入）
+- 24 对整卡、三台主机：a/c/d 三类 action_sha256 **全同**（Intel+AMD 都过）；b 类在 2/3 主机与基线不等。
+- b 类差异已归因：**基线自身跨主机就不同**（r3-001 决策 9829/9811/9837），因 pacing 读 remaining_seconds = 计费 CPU÷速度因子，b 卡压在预算边界。new 在固定虚拟钟下逐位可复现（9837/5a967a89b2a8）。
+- **判据调整**：凡是省 CPU 的改动都必然改变 b 类 pacing 时刻 → b 类"真实主机逐位一致"门槛不可达，不作为否决条件。改为要求整卡同机同窗口配对 + 每卡计费与终止原因（<900 s、非 wallclock_expired）。
+- CPU 倍率 new/base：a 0.962、c 0.964、b 0.938、d 0.854，合计 0.949。无一对 ≥900（最大 859.2 s adl3 base），48 次终止全为 survey_complete。
+- 改动文件：terrain.py（新增 mod360/wrapped_offset）、quality.py（4 处方位角回绕）、tests/test_mod360.py、experiments/datasets.json（kind-v6t）。
+- **终包合并集共三件（文件互不相交）**：perf3-core d11aba6（bound.py/durations.py/planning.py）+ logfp 39766b6（logrules.py/logbook.py）+ perf3-log 8280afa（terrain.py/quality.py）。terrain.py 归 perf3-log，algo1 只碰 planning.py 的 _track。
