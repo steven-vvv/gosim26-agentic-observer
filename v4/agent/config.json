@@ -127,7 +127,8 @@
       "cluster_anchors": 10,
       "refine_top": 4,
       "upgrade_weight": 0.5,
-      "science_horizon_hours": 240.0
+      "science_horizon_hours": 240.0,
+      "science_exponent": 1.65
     },
     "lean_split_fiber_hours": 0.43,
     "very_lean_overrides": {

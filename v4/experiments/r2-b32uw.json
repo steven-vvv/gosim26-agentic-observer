@@ -1,0 +1,1 @@
+{"structure": {"mid_overrides": {"setting_boost": 0.0, "anchor_pool": 256, "anchors": 32, "cluster_anchors": 10, "refine_top": 4, "upgrade_weight": 0.5, "science_horizon_hours": 240.0, "uniformity_weight": 0.0}}}

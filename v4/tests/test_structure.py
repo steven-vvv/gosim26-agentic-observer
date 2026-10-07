@@ -53,7 +53,7 @@ def test_default_config_overrides_and_bands_are_unchanged():
     wide = {"anchors": 72, "anchor_pool": 768, "cluster_anchors": 24, "refine_top": 8}
     narrow = {"anchors": 48, "anchor_pool": 512, "cluster_anchors": 16, "refine_top": 6}
     mid = {"setting_boost": 0.0, "anchor_pool": 256, "anchors": 32, "cluster_anchors": 10, "refine_top": 4,
-           "upgrade_weight": 0.5, "science_horizon_hours": 240.0}
+           "upgrade_weight": 0.5, "science_horizon_hours": 240.0, "science_exponent": 1.65}
     expected = {"c": {**lean, **narrow}, "a": {**lean, **wide}, "b": mid, "d": {"upgrade_weight": 0.5}}
     bands = {"c": "very_lean", "a": "lean", "b": "mid", "d": "rich"}
     for name in KINDS:
