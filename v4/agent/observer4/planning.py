@@ -7,6 +7,7 @@ import math
 
 import numpy as np
 
+from .durations import Durations
 from .geometry import (
     RAD,
     SIDEREAL_RATE,
@@ -21,6 +22,9 @@ from .geometry import (
     wrap180,
 )
 from .opportunity import OpportunityModel
+from .rates import RateProfile
+from .reach import Reach, spread_anchors
+from .sky import program_odds, visible_sky
 from .structure import card_structure
 
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
@@ -210,6 +214,7 @@ class Planner:
         self.settings = self._scaled_settings(config["policy"])
         self.scale_profile = self._scale_active()
         task.prepare_neighbors(self.settings["neighbor_radius_deg"])
+        self.reach = Reach(task)
         weight = self.settings.get("scarcity_weight", 0)
         self.scarcity = (scarcity_multipliers(task.visibility, task.required, task.minimum_exposure, weight)
                          if weight else None)
@@ -568,9 +573,10 @@ class Planner:
         ha = wrap180(lst - task.ra)
         setting_seconds = np.where(task.hmax >= 180, 1e9, (task.hmax - ha) / SIDEREAL_RATE)
         visible = (ha >= -task.hmax) & (setting_seconds >= task.minimum_exposure) & (task.hmax > 0)
-        vectors = task.horizon.vectors(lst, ha)
-        altitude, azimuth = altaz(vectors)
-        directional, clean = self.quality.direction_factors(altitude, azimuth)
+        # Only visible targets can enter a plan, so sky, tracks and profiles cover just them.
+        subset = np.flatnonzero(visible)
+        part = task.horizon.take(subset)
+        vectors, altitude, azimuth, directional, clean = visible_sky(task, self.quality, lst, ha, subset, part)
         terrain_free = self.quality.terrain_free
         local_clean = self.quality.local_clean
         notice_clean = self.quality.notice_clean
@@ -585,9 +591,7 @@ class Planner:
         exponent = self._science_exponents(night_index)
         overhead = float(settings.get("duration_overhead", 0.0))
         terrain = self.quality.terrain_model
-        # Only visible targets can enter a plan, so tracks and profiles cover just them.
-        subset = np.flatnonzero(visible)
-        horizon = task.horizon.take(subset) if (predicted is not None or terrain is not None) else None
+        horizon = part if (predicted is not None or terrain is not None) else None
         track = self._track(now, altitude, azimuth, subset, horizon) if terrain is not None else None
         self._terrain_profile = None
         if terrain is not None:
@@ -603,23 +607,21 @@ class Planner:
             scale = self.quality.scale(now)
             safety = settings["quality_safety"]
             profile = None
-            probabilities = self.quality.program_probabilities(base_quality)
+            probabilities = program_odds(self.quality, base_quality, subset)
         else:
             scale, sigma = predicted
             safety = math.exp(-settings.get("level_safety_z", 1.5) * sigma)
-            profile = self._k_profile(now, altitude, subset, horizon)
-            base_quality = profile[1][1]
+            profile = RateProfile(task, now, altitude, subset, horizon, scale, safety, directional, zero_point)
+            base_quality = profile.k
             try:
                 correction = self.quality.band_correction(now)
             except Exception:  # noqa: BLE001 - the level-based bands remain available
                 correction = 0.0
-            probabilities = (self.quality.program_probabilities(
-                base_quality, max(settings.get("program_uncertainty_floor", 0.05), sigma), correction)
-                if correction else self.quality.program_probabilities(
-                base_quality, max(settings.get("program_uncertainty_floor", 0.05), sigma)))
+            uncertainty = max(settings.get("program_uncertainty_floor", 0.05), sigma)
+            probabilities = program_odds(self.quality, base_quality, subset, *((uncertainty, correction) if correction else (uncertainty,)))
         rate = task.flux * base_quality * scale * directional * safety / zero_point
         if profile is not None:
-            self._rate_profile = (profile[0], task.flux * profile[1] * scale * directional * safety / zero_point)
+            self._rate_profile = (profile.offsets, profile)
         else:
             self._rate_profile = None
         # Targets that have already set get a negative span; they are masked out below, and a
@@ -752,23 +754,14 @@ class Planner:
             # down, the edge penalty shrinks to the remaining uncertainty.
             glass_margin = min(glass_margin, self.pointing.uncertainty + settings.get("margin_floor_deg", 0.012))
         finalists = []
-        used = []
-        # Rows of the anchors in use; vecdot forms each row's 3-term dot product as the
-        # one-dimensional matmul did, so the spread test sees the same cosines.
-        used_vectors = np.empty((max(count, 0), 3))
-        spread = math.cos(0.6 * RAD)
+        used = spread_anchors(task, pool, count)
+        fields = [(anchor, *self.reach.field(settings, anchor, visible, directional, terrain_free)) for anchor in used]
+        if profile is not None and fields:
+            profile.prepare(np.concatenate([cropped for _, _, cropped in fields]))
         fields_checked = 0
-        for anchor in pool:
-            if len(used) >= count:
-                break
-            # Spread the search over distinct fields rather than repeatedly testing one cluster.
-            anchor_vector = task.vectors[anchor]
-            if np.any(np.vecdot(used_vectors[:len(used)], anchor_vector) > spread):
-                continue
-            used_vectors[len(used)] = anchor_vector
-            used.append(int(anchor))
-            near = task.neighbors(int(anchor))
-            near = near[visible[near] & (directional[near] > 0) & (terrain_free[near] > 0.02)]
+        candidates = Durations(task, settings, left if cap is None else min(left, cap), rate, incomplete,
+                               request_thresholds, subset)
+        for anchor, near, cropped in fields:
             if not len(near):
                 continue
             ca, cz = task.grid.centers_for_target(float(altitude[anchor]), float(azimuth[anchor]))
@@ -782,11 +775,14 @@ class Planner:
                 continue
             if settings["refine_centers"]:
                 ca = np.concatenate((ca, ca + 0.12, ca - 0.12))
-                cz = np.tile(cz, 3)
+                cz = np.concatenate((cz, cz, cz))
             fields_checked += len(ca)
-            durations = self._durations(rate[near], incomplete[near], left if cap is None else min(left, cap),
-                                        request_thresholds[near])
+            durations = candidates(near)
             if not len(durations):
+                continue
+            # The durations came from every neighbour; geometry and gains need only those in reach.
+            near = cropped
+            if not len(near):
                 continue
             factors = durations[:, None] * self._rates(durations, near, rate)
             np.minimum(1, factors, out=factors)
@@ -951,7 +947,6 @@ class Planner:
         }
         return action
 
-    PROFILE_OFFSETS = (0.0, 300.0, 600.0, 900.0, 1350.0, 1800.0)
     TRACK_TIMES = (0.0, 300.0, 600.0, 900.0, 1350.0, 1800.0, 2700.0, 3600.0)
 
     def _track(self, now: float, altitude0, azimuth0, subset, horizon) -> dict:
@@ -965,25 +960,6 @@ class Planner:
         for j, offset in enumerate(self.TRACK_TIMES[1:], start=1):
             alt[j, subset], az[j, subset] = altaz(horizon.vectors(sidereal(now + offset, task.longitude)))
         return {"now": now, "alt": alt, "az": az}
-
-    def _k_profile(self, now: float, altitude0, subset, horizon):
-        """Lunar factor over airmass at exposure-midpoint offsets for the subset (1 elsewhere).
-
-        The altitudes are those of the track (now at offset zero); ``horizon`` is
-        task.horizon.take(subset).
-        """
-        task = self.task
-        exponent = task.scoring["airmass_exponent"]
-        model = task.scoring.get("lunar_model")
-        rows = np.ones((len(self.PROFILE_OFFSETS), len(task.ids)))
-        vectors = task.vectors[subset]
-        for j, offset in enumerate(self.PROFILE_OFFSETS):
-            lunar = lunar_factors(None, None, now + max(offset, 60.0), task.latitude, task.longitude, model,
-                                  vectors=vectors)
-            alt = altitude0[subset] if j == 0 else horizon.altitude(sidereal(now + offset, task.longitude))
-            rows[j, subset] = lunar / (task.scoring["q0"] * airmass(np.maximum(alt, 1.0)) ** exponent)
-        # Midpoint sampling; time-resolved scoring differs only at second order in time.
-        return np.array(self.PROFILE_OFFSETS), rows
 
     def _terrain_track(self, track: dict, terrain) -> dict:
         """Unblocked probability along each envelope target's track."""
@@ -1061,17 +1037,3 @@ class Planner:
         ra = (lst - np.arctan2(sh, ch) / RAD) % 360.0
         hmax = max_hour_angle(dec / RAD, latitude, self.task.minimum_altitude + 0.1)
         return np.where(hmax < 180, (hmax - wrap180(lst - ra)) / SIDEREAL_RATE, 1e9)
-
-    def _durations(self, rate, required, left: float, request_thresholds=None):
-        low, high = self.task.minimum_exposure, min(self.task.maximum_exposure, int(left))
-        values = {int(x) for x in [*self.settings["durations"], high] if low <= x <= high}
-        if self.settings["adaptive_durations"]:
-            thresholds = np.where(required, self.settings["required_safe_factor"], 1.0)
-            candidates = [thresholds / np.maximum(rate, 1e-9)]
-            if request_thresholds is not None:
-                requested = request_thresholds > 0
-                candidates.append(request_thresholds[requested] / np.maximum(rate[requested], 1e-9))
-            # The per-target durations are filtered and deduplicated as arrays.
-            steps = np.ceil(np.concatenate(candidates) / 30).astype(np.int64) * 30
-            values.update(np.unique(steps[(steps >= low) & (steps <= high)]).tolist())
-        return np.array(sorted(values), dtype=np.int32)
