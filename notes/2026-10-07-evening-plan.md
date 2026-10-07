@@ -354,3 +354,30 @@
 | **tw05** (`timing_weight=0.5`) | lean（a/c） | c +91.3 [+51.9,+126.6] 21/24；a +59.3 [+26.3,+92.3] 13/20；叠 ov25 最坏 c 卡 692/900 s、零 pacing | **合入** |
 | **rs4** (`required_stretch=4`) | mid（b） | b +47.5 [+11,+83] 17/24；CPU ×1.047；最坏 689 s | **合入（已在 claude）** |
 | dome-z1w1800 | 待限定 | a +46.1（CI 跨 0）、b +43.4、**d −50.6** | **暂缓**，等限定带版本 |
+
+## 03:00 紧急发现：评奖资格证据被源码预算挤出（int2 只剩 46 字符余量）
+
+**机制**（读 `/tmp/hs26-clean/scripts/review-agent-usage.py` 实测）：
+- `select_files()` 有 `DEFAULT_MAX_CHARS = 400_000` 总预算，按 `priority()` 顺序累加，超了就把文件标 `budget` 省略。
+- `priority()` = `(low, tier, len(parts), path)`：`low` 是"低优先目录"（challenge/scenarios/tests/examples/docs），`tier` 里 README=0、CONFIG_NAMES=1、`.py`=2、PROMPT 后缀=.md/.json=3。
+- **`config.json` 不在 `CONFIG_NAMES` 里**（那里只有 `observer.project.json`/`observer.json`/`project.json`），所以它按 `.json` 落到 **tier 3，排在所有 .py 之后**——是整棵树里最后一个被计入的文件。
+- 另外 `DEFAULT_MAX_FILE_CHARS = 60_000` 单文件上限（planning.py 57,254，已 95%）。
+- 预算数的是**字符**不是字节（中文注释让字节虚高约 3,400）。
+
+**实测**：
+
+| 树 | 计入字符 | 余量 | config.json 可见 |
+|---|---|---|---|
+| claude | 398,362 | 1,638 | 是 |
+| **int2** | **399,954** | **46** | 是（悬于一线）|
+| 已上传 de30 包 | — | — | 是（安全）|
+
+**结论：任何 .py 代码增长都会把 `config.json` 顶出可见集**，而 config.json 是评奖资格审计的关键证据（model 段 24 次调用配额、fault 段、structure 段）。而 fault/gate/finish/lexp 四条线都在加代码 → 必须腾余量。
+
+**根治办法**：删掉 bx 已否决实验留下的**默认关闭死代码**
+- `observer4/extension.py`（2,458 字符）— bx-e20/e35/e50 强负
+- `observer4/transit.py`（1,208 字符）— bx-tw1/2/3 强负
+- 合计 3,666 字符；调用点被 `if lam > 0 or ratio > 0` / `if transit > 0` 守着，默认永不执行。
+- 保留 `required.py`（rs4，已确认合入）与 `matching.py`（ov25，已合入）——这两个是活的。
+
+**待办**：给集成线加**构建时预算闸**——包构建时若 `config.json` 不在可见集就硬失败，别让它静默发生。
