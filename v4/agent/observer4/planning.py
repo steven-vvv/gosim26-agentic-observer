@@ -266,10 +266,20 @@ class Planner:
         value = float(merit[center_i, duration_i])
         if value <= item["merit"] * (1.0 + 1e-9):
             return len(ca)
-        selected = _fiber_choices(fibers[center_i], gains[duration_i] * geometry_weight[center_i], near)
+        gain = self._matched(gains[duration_i] * geometry_weight[center_i], int(durations[duration_i]), near,
+                             self._last_rate)
+        selected = _fiber_choices(fibers[center_i], gain, near)
         item.update({"merit": value, "alt": float(ca[center_i]), "az": float(cz[center_i]),
                      "duration": int(durations[duration_i]), "selected": selected, "refined": True})
         return len(ca)
+
+    def _matched(self, gain, duration: int, near, rate):
+        """Fibre-choice gains with the unneeded part of the exposure discounted (choice_gamma)."""
+        gamma = float(self.settings.get("choice_gamma", 0.0))
+        if gamma <= 0:
+            return gain
+        raw = duration * self._rates(np.array([duration]), near, rate)[0]
+        return gain * overexposure_weights(raw, gamma)
 
     def _arrival_cap(self, now, left, incomplete, visible, reach, ha, scale, safety, zero_point, open_now):
         """Latest end for this exposure so that a burst of required targets finds the telescope free.
@@ -548,6 +558,7 @@ class Planner:
         # factor below zero would only produce NaN in the convex science value.
         reach = np.clip(rate * np.minimum(np.minimum(task.maximum_exposure, setting_seconds), left), 0, 1)
         self._last_reach, self._last_directional = reach, directional * terrain_free
+        self._last_rate = rate
         mult = np.array([task.scoring["program"]["multipliers"][name] for name in PROGRAMS])
         mismatch = task.scoring["program"]["mismatch_multiplier"]
         expected_mult = mismatch + (mult[:, None] - mismatch) * probabilities
@@ -773,6 +784,7 @@ class Planner:
             if value <= 0 or (len(finalists) >= 6 and value <= finalists[-1]["merit"]):
                 continue
             gain = gains[program_i, duration_i] * geometry_weight[center_i] if program_i is not None else gains[duration_i] * geometry_weight[center_i]
+            gain = self._matched(gain, int(durations[duration_i]), near, rate)
             selected = _fiber_choices(fibers[center_i], gain, near)
             candidate = {
                 "merit": value,
