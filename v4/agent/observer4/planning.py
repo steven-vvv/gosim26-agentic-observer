@@ -9,6 +9,7 @@ import numpy as np
 
 from .bound import surviving_durations
 from .durations import Durations
+from .extension import extend
 from .fibers import _segments, fiber_totals
 from .geometry import (
     RAD,
@@ -27,8 +28,10 @@ from .matching import overexposure_weights
 from .opportunity import OpportunityModel
 from .rates import RateProfile
 from .reach import Reach, spread_anchors
+from .required import stretched
 from .sky import program_odds, visible_sky
 from .structure import card_structure
+from .transit import transit_weights
 from .valuation import science_gains
 
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
@@ -242,7 +245,7 @@ class Planner:
                 gains[:, selected] += term["bonus"] * valid * (factors[:, selected] >= term["threshold"])
         return gains
 
-    def _refine(self, item, vectors, glass_margin, lst, relaxed, floor) -> int:
+    def _refine(self, item, vectors, glass_margin, lst, relaxed, floor, fine: float = 1.0) -> int:
         """Try small centre shifts around a finalist; keep the best field (local search).
 
         Without gaps a shift of a fraction of a cell moves targets between cells, which
@@ -253,7 +256,7 @@ class Planner:
             return 0
         near, gains, durations = search
         task, settings = self.task, self.settings
-        steps = np.asarray(settings.get("refine_shifts", [-0.24, -0.12, 0.12, 0.24]), dtype=float)
+        steps = np.asarray(settings.get("refine_shifts", [-0.24, -0.12, 0.12, 0.24]), dtype=float) * fine
         da, dz = np.meshgrid(np.r_[0.0, steps], np.r_[0.0, steps], indexing="ij")
         da, dz = da.ravel()[1:], dz.ravel()[1:]
         ca = item["alt"] + da
@@ -611,6 +614,11 @@ class Planner:
             later = (ha < 0) & (transit <= min(night.end, task.end))
             setting_boost = setting_boost * np.where(
                 later, 1.0 - rising * np.clip(-ha / np.maximum(1, task.hmax), 0.0, 1.0), 1.0)
+        transit = float(settings.get("transit_weight", 0.0))
+        if transit > 0:
+            # Prefer targets near their transit altitude while they have hours left (transit.py).
+            share = np.clip(self._remaining_hours(night_index) / float(settings.get("transit_hours", 100.0)), 0, 1)
+            setting_boost = setting_boost * transit_weights(task, altitude, transit, share)
         tonight = float(settings.get("tonight_weight", 0.0))
         if tonight > 0:
             # Required targets whose window tonight closes soon lose their chance for the
@@ -748,6 +756,7 @@ class Planner:
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
             safe = factors >= settings["required_safe_factor"]
             req_gain = incomplete[near][None, :] * safe * near_bonus
+            req_gain = stretched(req_gain, safe, durations, float(settings.get("required_stretch", 0)))
             request_gain = self._request_gains(request_terms, near, durations, factors, now)
             fairness = ((state.factor_lower[near][None, :] < threshold) & safe) * uniformity[near]
             # (science + required + request + fairness) * urgency * setting boost * terrain,
@@ -818,16 +827,29 @@ class Planner:
         if refine > 0 and finalists:
             relaxed = getattr(task, "revision", 1) >= 2 and settings.get("free_center", True)
             floor = 0.0 if relaxed else task.minimum_altitude + 0.4
+            # Additional iterations re-search the same neighbourhood; ``refine_fine`` (default 1)
+            # shrinks each later round's shift by that factor, so a coarse round can be followed
+            # by a finer one instead of repeating it (a step of 0 never moves, the shift is scaled).
+            scale_fine = max(1e-3, float(settings.get("refine_fine", 1.0)))
             for item in finalists[:refine]:
-                for _ in range(max(1, int(settings.get("refine_iterations", 1)))):
+                for iteration in range(max(1, int(settings.get("refine_iterations", 1)))):
                     before = item["merit"]
-                    fields_checked += self._refine(item, vectors, glass_margin, lst, relaxed, floor)
+                    fields_checked += self._refine(item, vectors, glass_margin, lst, relaxed, floor,
+                                                   scale_fine ** iteration)
                     if item["merit"] <= before:
                         break
             finalists.sort(key=lambda entry: entry["merit"], reverse=True)
         if not finalists:
             self.last_trace = {"reason": "no_profitable_field", "anchors": len(used), "fields": fields_checked}
             return None
+        lam, ratio = float(settings.get("extend_rate", 0.0)), float(settings.get("extend_ratio", 0.0))
+        if lam > 0 or ratio > 0:
+            # Lengthen the finalists at a shadow price of telescope time (extension.py).
+            free = getattr(task, "revision", 1) >= 2 and settings.get("free_center", True)
+            pick = lambda f, g, n, d: _fiber_choices(f, self._matched(g, d, n, rate), n)
+            for item in finalists:
+                limit = 1e9 if free else float(self._centers_up(np.array([item["alt"]]), np.array([item["az"]]), lst)[0])
+                extend(item, lam + ratio * item["merit"], task.grid, vectors, glass_margin, limit, pick)
         for item in finalists:
             selected = np.array([i for _, i in item["selected"]], dtype=np.int32)
             item_rate = self._rates(np.array([item["duration"]]), selected, rate)[0]
