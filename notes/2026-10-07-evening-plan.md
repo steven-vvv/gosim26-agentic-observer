@@ -135,3 +135,17 @@
 - d 卡科学分 32,322/32,760 = 98.7%，已饱和，无大杠杆。
 - 净推荐：**d 类什么都不改**（保持 upgrade_weight 0.5）。
 - 副产物：richd 修了 generate.py 对已存在 published 卡的复用（否则整批 FileNotFoundError），commit 5503c56。
+
+## 20:28 用户落地；收线与再派
+- 正式榜：CCB 32,441.4 第 7（未变）；榜首 Pleiades 33,675.5。
+- 收到结论：
+  - logfp 39766b6（logrules/logbook）：真日志重放失效时数 325.7h→31.1h（≈+2400 分量级），但合成 kind-v6l 端到端 −234（005 卡由 pacing 抖动引起）；逐位验收只完成一半。
+  - perf3-core d11aba6（bound.py/durations/planning）：决策级 sha 全同，CPU 0.72–0.91；整卡对照的 gosim 进程挂了（日志 0 字节）。
+  - algo1：只有 ov25（lean overexposure_gamma 0.25）筛查集 +34.3 [+2.9,+63.9]，CPU ×1.17，未确认。
+  - perf3-log 关键发现：pacing 读 remaining_seconds = 计费 CPU÷速度因子 → 提速会改变 pacing 时刻，决策级逐位≠整卡逐位。
+- 20:25 再派：
+  1. Sonnet「终包合并与整卡验收」：claude HEAD + perf3-core + logfp，四臂 × trial-a..d 及 add_duty_log 造的 a1..d1 日志卡，整卡配对。
+  2. Sonnet「ov25 确认集」：big-ac48v 48 卡配对。
+  3. algo1（Opus）转做 _track/terrain 缓存（C1 型卡 2.8× CPU），只加新文件，50 分钟。
+  4. perf3-log 要求收尾报告。
+- 预计 21:30 前定终包，22:00 前交用户上传；23:00 查默认最终版本指向。
