@@ -156,6 +156,33 @@ def test_pacing_cuts_only_below_the_fair_share_floor():
     assert planner._paced_anchors(500.0, 5, 100.0, extra=4) == 24
 
 
+def test_pace_shrink_shrinks_the_whole_search_once_pacing_is_needed():
+    planner = object.__new__(Planner)
+    nights = [SimpleNamespace(start=100.0 * k, end=100.0 * k + 50.0) for k in range(10)]
+    planner.task = SimpleNamespace(nights=nights)
+    planner.settings = {"anchors": 20, "budget_reserve_seconds": 5.0, "pace_budget": True, "pace_floor": 0.8,
+                        "pace_shrink": 0.5}
+    planner._pace_origin = None
+    planner.paced_plans, planner.pace_headroom, planner.pace_headroom_at, planner.paced_nights = 0, None, None, []
+    planner.shrunk_at = None
+    # Above the floor nothing changes, as without the setting.
+    assert planner._paced_anchors(0.0, 0, 900.0, extra=4) == 24
+    assert planner._paced_anchors(250.0, 2, 520.0, extra=4) == 24
+    assert planner.shrunk_at is None and planner._shrunk(512) == 512 and planner._shrunk(6, 0) == 6
+    # The first plan below the floor shrinks the search for the rest of the run: the cut
+    # applies to the halved base, and a recovered budget keeps the halved search.
+    assert planner._paced_anchors(500.0, 5, 0.71 * 437.5 + 25.0, extra=4) == 9
+    assert planner.shrunk_at == 5
+    assert planner._shrunk(512) == 256 and planner._shrunk(6, 0) == 3
+    assert planner._paced_anchors(600.0, 6, 800.0, extra=4) == 12
+    assert planner.shrunk_at == 5
+    # Without the setting the planner never shrinks.
+    planner.settings.pop("pace_shrink")
+    planner.shrunk_at = None
+    assert planner._paced_anchors(500.0, 5, 0.71 * 437.5 + 25.0, extra=4) == 18
+    assert planner.shrunk_at is None
+
+
 def test_structure_switch_selects_window_urgency_only_on_lean_seasons():
     from pathlib import Path
 

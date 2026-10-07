@@ -136,6 +136,8 @@ class Planner:
         self.pace_headroom = None
         self.pace_headroom_at = None
         self.paced_nights = []
+        # Night from which the search runs shrunk by pace_shrink (None: never).
+        self.shrunk_at = None
         self._future_hours = None
         self.horizon_limit = None
         self.active_requests = []
@@ -340,6 +342,7 @@ class Planner:
         base = int(settings["anchors"]) + extra
         if remaining_wallclock < settings["budget_reserve_seconds"] + 15:
             self.paced_plans += 1
+            self._shrink(night_index)
             return min(base, 2)
         if not settings.get("pace_budget", True):
             return base
@@ -357,6 +360,9 @@ class Planner:
             self.pace_headroom = ratio
             self.pace_headroom_at = {"night": int(night_index), "remaining": round(remaining_wallclock, 1)}
         floor = settings.get("pace_floor", 0.8)
+        if ratio < floor:
+            self._shrink(night_index)
+        base = self._shrunk(base, 2)
         if ratio >= floor:
             return base
         # Anchors are about a quarter of the plan time, so the cut is steep: none at the
@@ -367,8 +373,20 @@ class Planner:
             self.paced_nights.append(int(night_index))
         return count
 
+    def _shrink(self, night_index: int) -> None:
+        # A card whose fixed cost per decision leaves little for the search cannot be held by
+        # cutting anchors alone: the first time pacing is needed, the whole search (anchors,
+        # pool, refinement) shrinks by pace_shrink for the rest of the run.
+        if self.settings.get("pace_shrink", 0) > 0 and self.shrunk_at is None:
+            self.shrunk_at = int(night_index)
+
+    def _shrunk(self, value: int, low: int = 1) -> int:
+        if getattr(self, "shrunk_at", None) is None:
+            return value
+        return max(low, round(value * float(self.settings.get("pace_shrink", 1.0))))
+
     def pacing_status(self) -> dict:
-        return {"paced_plans": int(self.paced_plans),
+        return {"paced_plans": int(self.paced_plans), "shrunk_at": self.shrunk_at,
                 "headroom_min": None if self.pace_headroom is None else round(float(self.pace_headroom), 3),
                 "headroom_at": self.pace_headroom_at, "paced_nights": self.paced_nights}
 
@@ -632,7 +650,7 @@ class Planner:
         if not len(pool):
             self.last_trace = {"reason": "no_positive_visible_target"}
             return None
-        limit = min(len(pool), settings["anchor_pool"])
+        limit = min(len(pool), self._shrunk(settings["anchor_pool"]))
         pool = pool[np.argpartition(priority[pool], -limit)[-limit:]]
         pool = pool[np.lexsort((pool, -priority[pool]))]
         # Budget pacing uses measured time in the runtime; this is a predictable fallback.
@@ -761,7 +779,7 @@ class Planner:
             finalists.append(candidate)
             finalists.sort(key=lambda entry: entry["merit"], reverse=True)
             del finalists[6:]
-        refine = int(settings.get("refine_top", 0))
+        refine = self._shrunk(int(settings.get("refine_top", 0)), 0)
         if refine > 0 and finalists:
             relaxed = getattr(task, "revision", 1) >= 2 and settings.get("free_center", True)
             floor = 0.0 if relaxed else task.minimum_altitude + 0.4
