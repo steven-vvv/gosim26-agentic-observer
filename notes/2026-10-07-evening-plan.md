@@ -48,3 +48,9 @@
 
 - Cloudflare D1：用户已升级 Workers Paid（此前 D1 到上限）。当前 D1 89.8 MB、24 h 写入 105,870 行，写入量前列均为 observer-v4 的 decision_trace/decision/night_plan/logbook_quiet；付费后配额充裕，暂时不动保留策略（用户："先这样凑合着跑，反正就一天，账单问题应该不大"）。若再逼近上限，二线缓解：TELEMETRY_RETENTION_DAYS 30→3，或裁剪 high-volume event_type（decision_trace 19,479 行/21 MB），或关掉事件类型白名单中最吵的几类。
 - 阿里云节点是竞价实例，可能被释放：终包构建与四卡验收不要只依赖该节点；gosim（128 核）与 adl1/adl3/adl4 为主力，验收可随时改投 gosim（b/d 就是这么救回来的）。
+
+## 17:43 巡检
+
+- 主机负载（32 核除 gosim 128）：adl1 46、adl3 47、adl4 75、epyc 52、gosim 56 —— 已回到不超额的水平，adl4/epyc 的降并发要求生效。
+- 子代理按 19:00 / 20:00 / 20:30 三个节点推进中；b/d 验收（gosim）已完成并入 6c58 表。
+- 无新事项。
