@@ -199,3 +199,8 @@
   - **acx 发现**：季初 1/3 约 60% 曝光由必观测驱动（时长 = 最慢必观测目标安全时长 ×1.11），同场科学目标 43–53% 只拍到部分，a 约半数必观测目标被重拍。候选 M1 required_stretch（required.py），scr-ac32 筛查 23:10 出。已转告 bx 查 b 的短曝光是否也由必观测驱动。
 - ov25 确认集 35 卡 +91.0 [下界 +70.5]、31/4；cg50 33 卡 +73.7 [+46.3]；ov25 让最重 c 卡触发节奏收缩到约 875 s 但分数仍更高；C1 型计时 22:05 前后出。
 - 候选分支 GOSIM26-final 上 cand-ov（= 1945 + ovconf 合并，默认关闭，327 测试过）已备好，待计时结论后改 lean_overrides。
+
+## 22:10 本机磁盘清理（用户要求）；保活巡检已停
+- 删除 v4/results 下各运行的大产物（actions.jsonl / observations.csv / messages.jsonl / agent_events.jsonl / decisions.csv，共 32,032 个、约 9.2 GB），保留 summary.json / score_report.json / workflow_result.json。GOSIM26 13G → 4.0G，根分区剩 20G。
+- 失误：排除 platform 目录的 `-prune` 因 `-delete` 隐含 `-depth` 而失效，platform 下的原始文件也被删；已从各 attempt 目录自带的原始 ZIP 逐个解压恢复（10-04 两次本来只有 ZIP，恢复后照原样只留 ZIP），platform 回到 314M，与删前一致。
+- 保活 cron（104db1a4）已删除：用户已落地；之前连续几次巡检是会话忙时错过的触发在空闲时集中补发。
