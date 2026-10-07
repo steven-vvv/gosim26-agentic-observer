@@ -1,22 +1,25 @@
 # 提交产物
 
 本目录保存 v4 的可交付包；除本说明外的构建产物不进入版本库。包中仅包含运行实现、明确允许的配置和固定运行依赖。
+顶层只放当前候选包，被取代的包按构建日期移入 `archive/<日期>/`。
 
-当前候选包（2026-10-06）：
+当前候选包（2026-10-07，用户已上传）：
 
-- `observer4-full-locked-b3fbb73baeb4.zip`（32,078,588 字节，26 个文件）
-- 源码：分支 `rel` 提交 `5a55c4d`，`python -m v4.evaluation.package --profile full --locked-full --wheels /tmp/wheels`
-- profile：`full`；云控关闭并锁定（`remote_config.enabled=false`, `locked=true`），启动不会请求远端覆盖
-- 相对 10-04 的 full 包：开启结构切换（`structure.enabled`），过期水平取近 3 次中位、长期下限 1.0、年龄上限 36 小时
-- 官方本地 runner 验收（Python 3.12、全新 venv、包内 wheel）：试验卡 a/b/c/d（= 正式 A–D 同种子）
-  25,586.86 / 41,594.41 / 26,898.47 / 33,039.21，全部 `survey_complete`，计费 175 / 168 / 247 / 169 秒，
-  与本地配对验证逐位一致
-- SHA-256：`b3fbb73baeb47e4e4446d89e4a8cea2c2dee6ff624d601e2ac6f0e02e19163a5`
+- `observer4-full-locked-164732f33258.zip`（32,097,603 字节，28 个文件）
+- 源码：分支 `claude` 提交 `7f1032b`，`python -m v4.evaluation.package --locked-full`
+- profile：`full`；云控关闭并锁定，启动不会请求远端覆盖
+- 相对 10-06 的 b3fbb73 包：值班日志 v2（预约/取消/安静窗）+ 规则读取器兜底与双读者分层报修、死机规则、
+  默认宽搜索（a/c 类）+ 落下加成 0（规模档 b/d 仍为 0.35）
+- 官方本地 runner 验收（gosim，`pool verify`）：试验卡 a/b/c/d（= 正式 A–D 同种子）
+  26,204.37 / 41,882.96 / 27,655.72 / 32,974.84，全部 `survey_complete`，计费 441 / 204 / 631 / 180 秒
+- 平台在线评测 c66e4c73（10-07）：A–D 26,125.7 / 41,906.9 / 27,655.7 / 32,998.5，
+  A1–C1 35,793.3 / 52,880.1 / 27,352.4（C1 计费 877.9 / 900 秒），详见 `v4/results/platform/2026-10-07/attempt-04-final/`
+- SHA-256：`164732f33258f4701b7166d2f72f0a1f9fe29804fdfd43592ec3966e19d4a989`
 
-保留的上一版包：
+归档（`archive/`，均已被取代，不作为提交包使用）：
 
-- `observer4-f7a2a2cf4bf4.zip`
-- profile：`formal_conservative`；10-04 平台正式评测用的就是它（远程切换 full 未发起），不能作为最终版本
-- SHA-256：`f7a2a2cf4bf45cd1506a8f11612ed74c2ebfa0cf890796d07fe026bbf7f6d087`
-
-`observer4-full-locked-d2c64f69fd5e.zip`（10-04 的 full 包）已被上面的候选包取代。历史 observer/replay 包不作为当前提交包使用。
+- `2026-10-07/observer4-full-locked-6b13acc7e09c.zip`：日志 v2 首版，被 164732 取代
+- `2026-10-06/observer4-full-locked-{b3fbb73baeb4,aa787a728feb,829694ca66cd}.zip`：结构切换、模型读值班日志等中间版本
+- `2026-10-05/observer4-full-locked-d2c64f69fd5e.zip`：10-04/05 的 full 包
+- `2026-10-04/observer4-f7a2a2cf4bf4.zip`：`formal_conservative` 档，10-04 平台正式评测所用，不能作为最终版本
+- `2026-10-04/` 其余：更早的 observer/replay 包
