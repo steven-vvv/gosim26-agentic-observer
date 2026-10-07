@@ -78,3 +78,9 @@
 - 候选 L：值班日志漏报/迟报修复（Sonnet logfp，20:00）。
 - 候选 P：perf3-log / perf3-core 逐位一致提速（20:00），只要 action_sha256 全等即可直接合。
 - 安全阀：lean 带 pace_shrink 0.5（视 formal-stress 000/002 与 C1 计时结果而定）。
+
+## 18:13 巡检
+
+- a/c 子代理已构建 901b4f（= HEAD + lean/mid 均开 pace_shrink 0.5 的候选安全阀包），在 gosim 同机并跑 df7f / 6c58 / 901b4f × formal-stress-000/002 三组计时对比，19:00 前一并交。
+- algo2：阈值 0.7 明显优于 0.5，正在试更温和的一档。
+- 主机：adl1 44、adl3 42、adl4 78、epyc 55、gosim 76（32/32/32/32/128）。gosim 因为被 a/c 的三组验收 + algo 队列同时使用而升到 76，仍不超额；20:45 终包验收前要再确认 gosim 空闲。
