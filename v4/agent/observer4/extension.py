@@ -10,6 +10,10 @@ more than ``lam``, the credited gain per second of the last exposures the season
 afford. A finalist therefore keeps its field and centre (and its rank, which stays the
 gain per second of its own length) and is exposed for the candidate length ``T' >= T``
 with the largest ``total(T') - lam * T'``. ``lam = 0`` (the default) changes no plan.
+
+The price is ``extend_rate + extend_ratio * merit``: a fixed rate, and a share of the
+finalist's own gain per second, which follows the season (an extra second is taken while
+it earns that share of the field's average).
 """
 
 from __future__ import annotations
