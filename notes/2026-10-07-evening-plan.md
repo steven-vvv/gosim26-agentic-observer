@@ -68,3 +68,13 @@
 - algo2 中期：b 空闲光纤是结构性的（91% 空闲格内无目标，可分未分仅 1.5%），extend_rate 无稳正，score_marginal 线性 −900 排除；已转向"完成度缺口/时间分配"（20:30 定论）。
 - 过载：epyc 121/32（logfp 20 进程）、adl4 73/32（logfp 20 + algo2/algo2b 26）；已分别要求降到 ≤8 / ≤10，新批次派 gosim（负载约 15/128）。各代理各自 dispatch，pool_hosts.json 槽位按单代理设计，多代理并发时会叠加超额——终包验收只用 gosim 并先查负载。
 - a/c：trial-c 三方计费在 adl3 同机并跑，19:00 前出。perf3-log 在做 kind-v6/kind-v6l 孪生卡剖析；perf3-core 拿到热点表。
+
+## 18:05 终包候选清单（20:45 决策用）
+
+- 已在 claude：a/c x18+ri（lean）、b w48c+ps0.5（mid）——6c58 验收 +105。
+- **候选 B1：b 类叠 x18+ri**（mid_overrides 加 science_exponent 1.8 替换 1.65 + revisit_increment 1.0）。a/c 子代理：big-b24v 前 20/24 +51 [+26,+77] 15/20 胜，CPU ×1.08；kind-v6l b 日志卡 4 张 +13（噪声），CPU ×1.00。等 24/24 与 B1 型计时后决定；**判据：区间下限 > 0 且 B1 型最大 charged 不超 880**。
+- 候选 B2：b 类 finish_bonus（algo2，19:00 筛选结果；要在 w48c+x18+ri 之上配对证明可叠加）。
+- 候选 D：rich 档参数（Sonnet richd，19:30）。
+- 候选 L：值班日志漏报/迟报修复（Sonnet logfp，20:00）。
+- 候选 P：perf3-log / perf3-core 逐位一致提速（20:00），只要 action_sha256 全等即可直接合。
+- 安全阀：lean 带 pace_shrink 0.5（视 formal-stress 000/002 与 C1 计时结果而定）。
