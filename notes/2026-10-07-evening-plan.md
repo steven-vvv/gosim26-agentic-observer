@@ -383,3 +383,20 @@
 **待办**：给集成线加**构建时预算闸**——包构建时若 `config.json` 不在可见集就硬失败，别让它静默发生。
 
 **03:00 修复已验证**：集成线删掉 `extension.py`+`transit.py` 并摘除调用点后，int2 计入字符 399,954 → **396,529，余量 46 → 3,471**；`config.json` 可见、无文件被截断、`planning.py` 距 60,000 单文件上限尚有 3,871。已要求集成线在包构建路径加硬闸（config.json 不可见或 planning.py 被截断即拒绝构建）。
+
+## 03:15 主代理自查：LLM 环节"到底算不算数"的代码级判据
+
+用户 10-08 01:xx 的疑问是"存在 LLM 解码和假选择环节"。读到代码后的判据如下（**尚未用实跑计数验证**，计数探针在跑）。
+
+### 已确认：两个"选择型"环节的输出都真的改变了动作
+- **行动决策**（`advice.action()` → `policy.py:166-171`）：模型返回 `C1`，`policy.py` 立刻 `action = self.planner.alternatives[choice]["action"]` 并 `self.pending = selected["pending"]`——**直接换掉要执行的观测**，并置 `decision_source = "model-v4"`、记 `last_trace["model_action_candidate"]`。平台实测有 `accepted_choice:C1` vs `deterministic_choice:C0` 的采纳实例。**这个环节是硬的。**
+- **周策略**（`advice.weekly()` → `planner.set_strategy()` → `planning.py:416-418`）：模型的策略字符串直接重算 `settings = _scaled_settings(strategy_settings(policy, strategy))`，作用于 `required_bonus`/`required_safe_factor`。**也真的改动作。**
+
+### 真正的薄弱点：机会率（受配额与早退门控）
+- `action()` 有三道门：夜次未去过、`len(alternatives) >= 2`、`available(remaining)`，再加 **merit 差距 ≤ `action_merit_tolerance = 0.03`（3%）**。3% 是**很窄的窗口**——`planner.alternatives` 只在 merit 几乎并列时才有第二个候选。
+- `weekly()` 每份预报触发一次，但受 `max_stage_calls = 16` 与 `max_total_calls = 24` 限制，且 `available()` 还要求 `remaining >= minimum_budget_seconds(60) + timeout_seconds(10)`。
+- **风险形态**：如果 `action()` 的门常年不满足，平台上 24 次调用配额就浪费了，"行动决策"这个环节就从"每次都真选"退化成"偶发"。这不是假选择，是**低机会率**。
+- 因此我在跑一个 stub-advisor 探针（`$CLAUDE_JOB_DIR/tmp/probe_gate.py`）：把 `ModelAdvisor` 换成记录调用、返回固定合法答案的桩，跑一张正式卡，**统计 `weekly()`/`action()` 各被真正调用几次**（`advisor.choose()` 命中数），以及 merit gap 的分布。这给出的是"调用机会"，与平台实测的 `advisor.calls=24` 可以互相印证。
+
+### 候选的最小加固（不改数值行为）
+若探针显示行动决策机会太低，**最小改动是放宽 `action_merit_tolerance`**（如 0.03 → 0.08）：只增加"模型被问到"的次数，不改变确定性基线（模型若返回 C0 或不可用，动作与今天一致），也不动规划器数值。**代价**：每次调用要走真实网络，`duration_ms` 会进入决策时间；`max_total_calls` 是 24，**机会变多只会让配额用满而不是超支**（`enabled` 属性里有 `self.calls < max_total_calls` 硬门）。这条要等探针数据再定。
