@@ -245,7 +245,7 @@ class Planner:
                 gains[:, selected] += term["bonus"] * valid * (factors[:, selected] >= term["threshold"])
         return gains
 
-    def _refine(self, item, vectors, glass_margin, lst, relaxed, floor) -> int:
+    def _refine(self, item, vectors, glass_margin, lst, relaxed, floor, fine: float = 1.0) -> int:
         """Try small centre shifts around a finalist; keep the best field (local search).
 
         Without gaps a shift of a fraction of a cell moves targets between cells, which
@@ -256,7 +256,7 @@ class Planner:
             return 0
         near, gains, durations = search
         task, settings = self.task, self.settings
-        steps = np.asarray(settings.get("refine_shifts", [-0.24, -0.12, 0.12, 0.24]), dtype=float)
+        steps = np.asarray(settings.get("refine_shifts", [-0.24, -0.12, 0.12, 0.24]), dtype=float) * fine
         da, dz = np.meshgrid(np.r_[0.0, steps], np.r_[0.0, steps], indexing="ij")
         da, dz = da.ravel()[1:], dz.ravel()[1:]
         ca = item["alt"] + da
@@ -827,10 +827,15 @@ class Planner:
         if refine > 0 and finalists:
             relaxed = getattr(task, "revision", 1) >= 2 and settings.get("free_center", True)
             floor = 0.0 if relaxed else task.minimum_altitude + 0.4
+            # Additional iterations re-search the same neighbourhood; ``refine_fine`` (default 1)
+            # shrinks each later round's shift by that factor, so a coarse round can be followed
+            # by a finer one instead of repeating it (a step of 0 never moves, the shift is scaled).
+            scale_fine = max(1e-3, float(settings.get("refine_fine", 1.0)))
             for item in finalists[:refine]:
-                for _ in range(max(1, int(settings.get("refine_iterations", 1)))):
+                for iteration in range(max(1, int(settings.get("refine_iterations", 1)))):
                     before = item["merit"]
-                    fields_checked += self._refine(item, vectors, glass_margin, lst, relaxed, floor)
+                    fields_checked += self._refine(item, vectors, glass_margin, lst, relaxed, floor,
+                                                   scale_fine ** iteration)
                     if item["merit"] <= before:
                         break
             finalists.sort(key=lambda entry: entry["merit"], reverse=True)
