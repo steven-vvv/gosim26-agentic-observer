@@ -110,7 +110,20 @@
     },
     "lean_fiber_hours": 0.7,
     "lean_overrides": {
-      "window_weight": 0.5
+      "window_weight": 0.5,
+      "upgrade_weight": 0.5,
+      "science_horizon_hours": 120.0,
+      "science_cap_quality": 0.6,
+      "refine_iterations": 2
+    },
+    "mid_overrides": {
+      "setting_boost": 0.0,
+      "anchor_pool": 256,
+      "anchors": 32,
+      "cluster_anchors": 10,
+      "refine_top": 4,
+      "upgrade_weight": 0.5,
+      "science_horizon_hours": 240.0
     }
   },
   "quality": {

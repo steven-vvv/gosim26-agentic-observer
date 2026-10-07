@@ -48,7 +48,11 @@ def patched(structure):
 
 def test_default_config_overrides_and_bands_are_unchanged():
     default = load(CONFIG)["structure"]
-    expected = {"c": {"window_weight": 0.5}, "a": {"window_weight": 0.5}, "b": {}, "d": {"upgrade_weight": 0.5}}
+    lean = {"window_weight": 0.5, "upgrade_weight": 0.5, "science_horizon_hours": 120.0, "science_cap_quality": 0.6,
+            "refine_iterations": 2}
+    mid = {"setting_boost": 0.0, "anchor_pool": 256, "anchors": 32, "cluster_anchors": 10, "refine_top": 4,
+           "upgrade_weight": 0.5, "science_horizon_hours": 240.0}
+    expected = {"c": lean, "a": lean, "b": mid, "d": {"upgrade_weight": 0.5}}
     bands = {"c": "lean", "a": "lean", "b": "mid", "d": "rich"}
     for name in KINDS:
         found = card_structure(kind(name), default)
@@ -56,7 +60,7 @@ def test_default_config_overrides_and_bands_are_unchanged():
         assert found["band"] == bands[name]
     late = card_structure(kind("a", late_only=True), default)
     assert late["late_share"] == 1.0
-    assert late["overrides"] == {"setting_boost": 0.0, "window_weight": 0.5}
+    assert late["overrides"] == {"setting_boost": 0.0, **lean}
 
 
 def test_new_keys_select_overrides_by_band():
@@ -166,11 +170,11 @@ def test_neighbor_radius_policy_floor_is_one_degree():
 
 
 def test_patch_merges_group_fields_and_leaves_the_default_untouched():
-    merged = patched({"lean_overrides": {"anchors": 20}, "mid_overrides": {"anchors": 8}})
-    assert merged["lean_overrides"] == {"window_weight": 0.5, "anchors": 20}
-    assert merged["mid_overrides"] == {"anchors": 8}
     default = load(CONFIG)["structure"]
-    assert "mid_overrides" not in default and "very_lean_overrides" not in default
+    merged = patched({"lean_overrides": {"anchors": 20}, "mid_overrides": {"anchors": 8}})
+    assert merged["lean_overrides"] == {**default["lean_overrides"], "anchors": 20}
+    assert merged["mid_overrides"] == {**default["mid_overrides"], "anchors": 8}
+    assert "very_lean_overrides" not in default
     assert "lean_split_fiber_hours" not in default
     with pytest.raises(ValueError):
         load(CONFIG, {"structure": {"enabled": True, "surprise": 1}})
@@ -179,7 +183,8 @@ def test_patch_merges_group_fields_and_leaves_the_default_untouched():
 def test_default_config_file_has_no_new_structure_keys():
     structure = json.loads(CONFIG.read_text(encoding="utf-8"))["structure"]
     assert set(structure) == {"enabled", "late_fraction", "late_share_threshold", "late_overrides",
-                              "rich_fiber_hours", "rich_overrides", "lean_fiber_hours", "lean_overrides"}
+                              "rich_fiber_hours", "rich_overrides", "lean_fiber_hours", "lean_overrides",
+                              "mid_overrides"}
 
 
 def scaled_planner(overrides):
