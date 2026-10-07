@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -91,6 +93,39 @@ def sources(
     return result
 
 
+def review_gate(clone: Path, data: dict[str, bytes]) -> None:
+    """Refuse to build when the organizer's source review would truncate or drop our files.
+
+    The reviewer keeps a total character budget and a per-file cap; a file over the per-file cap
+    is sent truncated, and a file past the total budget is dropped outright. ``config.json`` is a
+    plain ``.json`` (tier 3, sorted last), so it is the first casualty of any overflow, and a
+    truncated ``planning.py`` breaks the reviewer's own assertions. This gate is a build-time
+    hard stop: it protects the award-eligibility review from a silent regression.
+    """
+    script = clone / "scripts" / "review-agent-usage.py"
+    if not script.is_file():
+        raise ValueError(f"organizer review script missing: {script}")
+    spec = importlib.util.spec_from_file_location("gosim_v4_review_gate", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    selected, omitted = module.select_files(data)
+    included = {name: text for name, text, _ in selected}
+    budget = sum(len(text) for _, text, _ in selected)
+    # Every source file must reach the review whole. Only packaged binaries (the NumPy wheels,
+    # skipped by directory or suffix) may be left out; anything else dropped or truncated would
+    # hide our logic from the award-eligibility review and crash the reviewer's own assertions.
+    source = {name for name in data if name.endswith((".py", ".json", ".md"))}
+    dropped = sorted(source - set(included))
+    truncated = sorted(name for name, _, cut in selected if cut and name in source)
+    if dropped or truncated:
+        reasons = {name: reason for name, reason in omitted if name in dropped}
+        raise ValueError(
+            f"organizer source review would drop {dropped} (budget {budget}) or truncate {truncated}; "
+            f"drop dead code or trim prose before building (reasons: {reasons})")
+    print(f"review gate ok: {len(included)} files, {budget} chars included, nothing dropped or truncated",
+          file=sys.stderr)
+
+
 def build(
     wheels: Path,
     out: Path,
@@ -105,6 +140,7 @@ def build(
         raise ValueError(f"output is not a directory: {out}")
     out.mkdir(parents=True, exist_ok=True)
     data = sources(wheels, replay, profile, locked_full)
+    review_gate(clone, data)
     with tempfile.TemporaryDirectory(prefix=".observer4-", dir=out) as temporary:
         stage = Path(temporary) / "project.zip"
         with zipfile.ZipFile(stage, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:

@@ -65,6 +65,7 @@ request context at 60,000 bytes, leaving room below the upstream 64 KiB request 
 | --- | --- | --- |
 | Task planning / plan adaptation | `observer4/advice.py`, `ModelGuidance.weekly` | At each new weekly forecast, the survey strategy for the coming week: `steady` (the tuned season policy), `required_push` (required-target bonus +30 % and a safer completion factor) or `science_push` (bonus −25 %). The model weighs the forecast notices, the required-target deficit against the nights left, active requests and the wall clock; its choice sets the planner weights until the next forecast. |
 | Action decision | `observer4/advice.py`, `ModelGuidance.action` | Once per night, when the planner's two best observations are within 3 % of each other, which one to execute, from their pointings, programs, durations and predicted targets (required flags, science weights, prior best scores). |
+| Duty log reading | `observer4/logbook.py` | The duty-log texts that cards A1–D1 publish as zero-reward request reasons: the model reads each new entry into appointments, cancellations, quiet windows and past drops, so the fault report is due at the announced engineering moment. |
 
 The model is told that the controller's merits and fallback are evidence, not a verdict.
 Every call has a time-out, schema validation and a circuit breaker after consecutive
