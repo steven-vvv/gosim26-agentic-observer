@@ -21,6 +21,7 @@ from .geometry import (
     wrap180,
 )
 from .opportunity import OpportunityModel
+from .reach import Reach
 from .structure import card_structure
 
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
@@ -210,6 +211,7 @@ class Planner:
         self.settings = self._scaled_settings(config["policy"])
         self.scale_profile = self._scale_active()
         task.prepare_neighbors(self.settings["neighbor_radius_deg"])
+        self.reach = Reach(task)
         weight = self.settings.get("scarcity_weight", 0)
         self.scarcity = (scarcity_multipliers(task.visibility, task.required, task.minimum_exposure, weight)
                          if weight else None)
@@ -767,8 +769,9 @@ class Planner:
                 continue
             used_vectors[len(used)] = anchor_vector
             used.append(int(anchor))
-            near = task.neighbors(int(anchor))
-            near = near[visible[near] & (directional[near] > 0) & (terrain_free[near] > 0.02)]
+            around = task.neighbors(int(anchor))
+            usable = visible[around] & (directional[around] > 0) & (terrain_free[around] > 0.02)
+            near = around[usable]
             if not len(near):
                 continue
             ca, cz = task.grid.centers_for_target(float(altitude[anchor]), float(azimuth[anchor]))
@@ -787,6 +790,10 @@ class Planner:
             durations = self._durations(rate[near], incomplete[near], left if cap is None else min(left, cap),
                                         request_thresholds[near])
             if not len(durations):
+                continue
+            # The durations came from every neighbour; geometry and gains need only those in reach.
+            near = self.reach.crop(settings, int(anchor), around, usable, near)
+            if not len(near):
                 continue
             factors = durations[:, None] * self._rates(durations, near, rate)
             np.minimum(1, factors, out=factors)
