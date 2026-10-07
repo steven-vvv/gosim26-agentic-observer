@@ -1,10 +1,10 @@
 {
   "hosts": {
-    "adl1": {"jobs": 32, "enabled": true},
-    "adl2": {"jobs": 32, "enabled": true},
-    "adl3": {"jobs": 32, "enabled": true},
-    "adl4": {"jobs": 32, "enabled": true},
-    "epyc": {"jobs": 32, "enabled": true},
-    "gosim": {"jobs": 128, "enabled": true}
+    "adl1": {"jobs": 30, "enabled": true},
+    "adl2": {"jobs": 30, "enabled": true},
+    "adl3": {"jobs": 30, "enabled": true},
+    "adl4": {"jobs": 30, "enabled": true},
+    "epyc": {"jobs": 30, "enabled": true},
+    "gosim": {"jobs": 120, "enabled": true}
   }
 }
