@@ -19,6 +19,10 @@ class Durations:
                  open_factor=None):
         self.low, self.high = task.minimum_exposure, min(task.maximum_exposure, int(left))
         self.fixed = {int(x) for x in [*settings["durations"], self.high] if self.low <= x <= self.high}
+        # Steps are exact multiples of STEP; a Boolean table of step index marks the values inside
+        # [low, high], so the union of the steps present is one write per index and the sorted
+        # unique values are the set bits, in the layout ``np.unique`` gave.
+        self._table = np.zeros(self.high // STEP + 1, dtype=bool)
         self.steps = None
         self.completing = None
         if open_factor is not None:
@@ -39,11 +43,19 @@ class Durations:
             self.steps = own, asked
 
     def __call__(self, near) -> np.ndarray:
-        values = self.fixed
-        if self.steps is not None:
-            steps = np.concatenate((self.steps[0][near], self.steps[1][near]))
-            values = values | set(np.unique(steps[(steps >= self.low) & (steps <= self.high)]).tolist())
-        if self.completing is not None:
-            steps = self.completing[near]
-            values = values | set(np.unique(steps[(steps >= self.low) & (steps <= self.high)]).tolist())
+        values = set(self.fixed)
+        if self.steps is not None or self.completing is not None:
+            # Every step is a multiple of STEP, so marking the ones inside [low, high] in a table of
+            # step index and reading its set bits gives exactly the sorted unique in-range steps.
+            table = self._table
+            table[:] = False
+            low, high = self.low, self.high
+            columns = list(self.steps) if self.steps is not None else []
+            if self.completing is not None:
+                columns.append(self.completing)
+            for column in columns:
+                steps = column[near]
+                inside = steps[(steps >= low) & (steps <= high)]
+                table[inside // STEP] = True
+            values |= set(((np.flatnonzero(table) * STEP)).tolist())
         return np.array(sorted(values), dtype=np.int32)

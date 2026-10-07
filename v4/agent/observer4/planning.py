@@ -7,6 +7,7 @@ import math
 
 import numpy as np
 
+from .bound import surviving_durations
 from .durations import Durations
 from .fibers import _segments, fiber_totals
 from .geometry import (
@@ -91,7 +92,14 @@ def science_value(factor: np.ndarray, exponent: float, cap: np.ndarray | None) -
         result = np.ones(np.broadcast_shapes(np.shape(factor), np.shape(exponent)))
         return np.power(factor, exponent, out=result, where=np.not_equal(factor, 1.0))
     ratio = np.minimum(factor / cap, 1.0)
-    return np.where(factor >= cap, factor, cap * ratio ** exponent)
+    # The power runs only below the cap (it is elementwise, so every value is the one the full
+    # evaluation gave). The test stays ``factor >= cap``: ``ratio`` rounds up to 1 for some
+    # factors just below the cap.
+    saturated = factor >= cap
+    np.power(ratio, exponent, out=ratio, where=~saturated)
+    ratio *= cap
+    np.copyto(ratio, factor, where=saturated)
+    return ratio
 
 
 def scarcity_multipliers(visibility: np.ndarray, required: np.ndarray, minimum: float, weight: float) -> np.ndarray:
@@ -741,6 +749,14 @@ class Planner:
             if not np.any(useful):
                 continue
             near, gains = near[useful], gains[..., useful]
+            if len(finalists) >= 6 and gains.ndim == 2:
+                # Lengths whose merit bound stays below the sixth finalist are dropped before the
+                # geometry; see bound.py.
+                alive = surviving_durations(gains, durations, overhead, task.grid.n, finalists[-1]["merit"])
+                if alive is not None:
+                    if not len(alive):
+                        continue
+                    gains, durations = gains[alive], durations[alive]
             fibers, margin, _, _ = task.grid.classify(vectors[near], ca, cz)
             geometry_weight = np.where(fibers >= 0, 1.0, 0.0)
             geometry_weight *= np.where(margin >= glass_margin, 1.0, 0.45)
