@@ -1,6 +1,6 @@
 # bx（b 类 lossF/unobs）进度
 
-分支 `bx`，worktree `C:\Users\steven\code\GOSIM26-bx`。基线 = claude（含 perf3-core/logfp/perf3-log）+ mid 带 x18+ri（science_exponent 1.8、revisit_increment 1.0）。
+分支 `bx`，worktree `/home/steven/code/GOSIM26-bx`。基线 = claude（含 perf3-core/logfp/perf3-log）+ mid 带 x18+ri（science_exponent 1.8、revisit_increment 1.0）。
 
 ## 23:35 进度（第 1 次）
 
@@ -24,3 +24,21 @@
 - 全知校准 b = 42,337 < 我们 ~42,760：榜首 B 卡 44,446 很可能来自离线排程（A–D 真值可重建），不代表前向可达。
 
 在跑：S6 gosim（default/rs4/ri2/ri3t8，16 卡）、S7 adl/epyc（upgrade_weight 0.8/1.2，8 卡）。
+
+## 00:20 进度（第 2 次）
+
+注意：mid 的 science_horizon_hours 实为 240（基础 policy 才是 60）。
+
+| 变体 | 机制 | n | Δ均值 | CI | 胜 | 结论 |
+|---|---|---|---|---|---|---|
+| bx-ri2 | refine_iterations 2（lean 已用） | 5 | +55 | [−34, +152] | 3/5 | **正，进确认** |
+| bx-rs4 | required_stretch 4 | 16 | +30 | [−20, +77] | 10/16 | **偏正，进确认** |
+| bx-rs2 / rs100 | 同上 2 / 100 | 8 | −5 / −19 | 跨 0 | 4/8 | 中性 |
+| bx-ri3t8 | refine 3 次 + top 8 | 5 | +7 | [−111, +144] | 2/5 | CPU ×1.17，停 |
+| bx-w64 | 搜索加宽 | 8 | −29 | [−131, +62] | 4/8 | CPU ×1.18，2 张 shrink，停 |
+| bx-upg08 / upg12 | upgrade_weight 0.8 / 1.2（mid 0.5） | 6 | −82 / −78 | 上界 < 0 | 1/6 | 负，停 |
+| bx-hz120 / hz360 | 视野 120 / 360（mid 240） | 8/6 | −39 / −15 | 跨 0 | 2/8, 3/6 | 240 已在最优附近 |
+
+在跑：
+- bxc1：gosim，big-b24v 24 卡，default / ri2 / rs4，约 01:30 出结果。
+- S9 bxs9：adl/epyc，scr-b16 16 卡，default / ww05（window_weight 0.5）/ scq06（science_cap_quality 0.6）/ ri2rs4 组合。
