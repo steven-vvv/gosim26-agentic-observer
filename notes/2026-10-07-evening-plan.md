@@ -173,3 +173,34 @@
 - 01:00 UTC 只锁定/冻结/关闭正式赛，**不自动启动 E–H**；决赛时间另行公告。
 - 第 13 条明文建议"避免依赖运行速度或机器性能的策略"——对应我们 pacing 读计费 CPU 的速度非确定性；决赛每卡 3 次同时跑在全新托管机上。
 - **影响**：从约 3 h 延到约 12 h。21:30 定终包的硬约束解除；改为「先上传已验收的保底包，再在窗口内迭代」。上传配额 15 版，按需使用，不浪费。
+
+## 21:20 用户指令：目标至少前三；利用到 10-08 09:00 的窗口
+- 新派 Opus ×2（与 algo1 地形缓存合计 Opus 3/4）：
+  - **bx**（worktree GOSIM26-bx）：b 类 lossF/unobs，筛 scr-b16、确认 big-b24v。
+  - **acx**（worktree GOSIM26-acx）：a/c 类 superseded+overexposed 与 QSO 欠曝，筛 scr-ac32、确认 big-ac48v + formal-stress 计时。
+  - 两者每 60–90 min 进度，最晚 10-08 05:30 交结论。
+- 在跑 Sonnet：终包三件合并+整卡验收、ov25 确认集。
+- 节奏：先上传「三件合并」验收通过的包作保底（替换 df7f 默认），再按算法线结论迭代；15 版额度留足。09:00 前最后一次上传须留出一次完整在线评测（约 1 h）的时间 → **最后上传 ≤ 07:30**。
+
+## 21:45 保底包 05f4 验收完成；候选 1945 在验
+- **05f4**（`v4/dist/observer4-full-locked-05f417bfd8b9.zip`，claude 958ad80 = 6c58 + perf3-core + perf3-log + logfp）：gosim 官方 runner a/b/c/d = 26,480.7 / 42,762.3 / 27,856.1 / 32,974.8，**与 6c58 逐分相同**（A–D 均分 32,518.5，对线上 df7f +77.1）；计费 710.9 / 607.6 / 715.5 / 148.5 s，全部 survey_complete。327 测试过、ruff 干净。
+- 合并验收线（Sonnet）结论：perf3-core 八卡逐位一致可合；logfp 在本地合成日志卡上零差异（合成卡不含它修的句式），收益要靠平台 A1–C1 真日志看。A1–D1 不影响默认最终版本的选取，所以一起上传无 A–D 风险。
+- **1945**（GOSIM26-final 分支 final-cand 8d74b0d = 05f4 + mid science_exponent 1.8 + revisit_increment 1.0；big-b24v 已确认 +54 [+26,+86]）：gosim 在验 trial-b 与本地造的 trial-b1。
+- ov25/cg50（a/c，Sonnet 确认线）28/48 卡中期：ov25 +85.2 [下界 +62]、24/4，CPU ×1.16；cg50 +78.8 [下界 +50]、23/5，CPU ×1.03。在补叠加变体与 C1 型计时（rebase 到 958ad80）。
+- 截止前上传不占截止后 15 版额度。
+- 资源：gosim 64 物理核、负载 12，放宽到每线 ≤20；adl/epyc 超载，每线 ≤6。
+
+## 22:05 分数不够——结构诊断与在跑杠杆
+- 05f4 各项：要求奖励 600（6/6）、报修 +100/+200、必观测罚 −50/−100、均匀性≈0 → **差距全在 sum_best_scores**。
+- 1945 trial-b：42,911.6（对 05f4 +149.3），计费 633.8 s，survey_complete；b1 两包在跑。
+- 结构数据（trial 卡，actions/observations）：
+  - b：望远镜时间受限（曝光 1,421 h + 雨天关圆顶等待 265 h）；泊松空闲（λ≈0.40/格）；每指向 11.2 观测；曝光中位 660 s、25% ≤300 s；访问 1.46 次/目标。
+  - a/c：光纤时间受限（c 整季光纤小时≈完成全部所需，未扣雨天；c 雨天等待 198 h）；得分密度 ∝ w·flux，暗 QSO 最低 → 不追暗 QSO，杠杆在利用率。
+  - **acx 发现**：季初 1/3 约 60% 曝光由必观测驱动（时长 = 最慢必观测目标安全时长 ×1.11），同场科学目标 43–53% 只拍到部分，a 约半数必观测目标被重拍。候选 M1 required_stretch（required.py），scr-ac32 筛查 23:10 出。已转告 bx 查 b 的短曝光是否也由必观测驱动。
+- ov25 确认集 35 卡 +91.0 [下界 +70.5]、31/4；cg50 33 卡 +73.7 [+46.3]；ov25 让最重 c 卡触发节奏收缩到约 875 s 但分数仍更高；C1 型计时 22:05 前后出。
+- 候选分支 GOSIM26-final 上 cand-ov（= 1945 + ovconf 合并，默认关闭，327 测试过）已备好，待计时结论后改 lean_overrides。
+
+## 22:10 本机磁盘清理（用户要求）；保活巡检已停
+- 删除 v4/results 下各运行的大产物（actions.jsonl / observations.csv / messages.jsonl / agent_events.jsonl / decisions.csv，共 32,032 个、约 9.2 GB），保留 summary.json / score_report.json / workflow_result.json。GOSIM26 13G → 4.0G，根分区剩 20G。
+- 失误：排除 platform 目录的 `-prune` 因 `-delete` 隐含 `-depth` 而失效，platform 下的原始文件也被删；已从各 attempt 目录自带的原始 ZIP 逐个解压恢复（10-04 两次本来只有 ZIP，恢复后照原样只留 ZIP），platform 回到 314M，与删前一致。
+- 保活 cron（104db1a4）已删除：用户已落地；之前连续几次巡检是会话忙时错过的触发在空闲时集中补发。

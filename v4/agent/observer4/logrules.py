@@ -40,7 +40,7 @@ QUIET_RUMOR_RE = re.compile(r"有人说|有人說|没见|沒見|没看到|没看
 RUMOR_RE = re.compile(r"听说|聽說|有人说|有人說|有传言|有傳言|传言|傳言|据说|沒确认|没确认|没確認|未確認|うわさ|未确认")
 CANCEL_RE = re.compile(r"取消")
 POSTPONE_RE = re.compile(r"推迟|推遲|postponed", re.IGNORECASE)
-CORRECTION_RE = re.compile(r"记错|記錯|搞错|搞錯|更正|纠正|糾正")
+CORRECTION_RE = re.compile(r"记错|記錯|搞错|搞錯|更正|纠正|糾正|弄错|弄錯|记岔|記岔|记混|記混|搞混|弄混|搞岔|有误|有誤|不对|不對|错了|錯了")
 RELATIVE_PREV_DELTA_RE = re.compile(r"比.{0,14}(?:前面|上面|上述).{0,14}(早|晚).{0,14}(?:分钟?|小时)")
 RELATIVE_PREV_SAME_RE = re.compile(r"(?:与|與).{0,14}(?:前面|上面|上述).{0,14}相同")
 RELATIVE_PREV_RE = re.compile(rf"(?:{RELATIVE_PREV_DELTA_RE.pattern})|(?:{RELATIVE_PREV_SAME_RE.pattern})")
@@ -253,8 +253,19 @@ def _handle_guider(
     rain_pending: dict,
     quiet_first_end: dict,
 ) -> None:
+    if "【灯】" in line and not re.search(r"报修|報修|故障|report", line, re.IGNORECASE):
+        # The absent-minded colleague's own recollection (even "didn't I get it right?") is never a notice.
+        return
+
     if CANCEL_RE.search(line):
         pairs = _date_time_pairs(line)
+        if not pairs:
+            # A cancellation that names its clock by solfege ("8/1 （按谱子：re : fa sol） 那次...取消了").
+            solfege = _SOLFEGE_TIME_RE.search(line)
+            cn_date = _DATE_RE.search(line)
+            if solfege and cn_date:
+                pairs = [(int(cn_date.group(1)), int(cn_date.group(2)),
+                          int(solfege.group(1)), int(solfege.group(2)), 0)]
         if pairs:
             month, day, hour, minute, _ = pairs[0]
             ts = _to_utc(datetime(_year_for(month, day, anchor), month, day, hour, minute), offset_hours)  # noqa: DTZ001 - local wall clock; _to_utc() applies the real offset
@@ -312,8 +323,16 @@ def _handle_guider(
                 wallclock_by_date[key] = (new_dt.hour, new_dt.minute)
         return
 
-    if RAIN_CONDITIONAL_RE.search(line):
-        match = RAIN_CONDITIONAL_RE.search(line)
+    rain = RAIN_CONDITIONAL_RE.search(line)
+    if rain is None and "下雨" in line and "顺延" in line:
+        # The same sentence with the clock sung as solfege ("排在 8/18 ♪re do : mi 休止♪；若 8/18 当晚下雨，则顺延一天").
+        sung = _SOLFEGE_TIME_RE.search(line)
+        planned = re.search(r"(?:排在|定于|定在|安排在|預定于|预定于)\s*(\d{1,2})/(\d{1,2})", line)
+        if sung and planned:
+            rain = re.match(r"(?P<mo>\d+)/(?P<da>\d+) (?P<h>\d+):(?P<mi>\d+)",
+                            f"{planned.group(1)}/{planned.group(2)} {sung.group(1)}:{sung.group(2)}")
+    if rain is not None:
+        match = rain
         month, day = int(match.group("mo")), int(match.group("da"))
         hour, minute = int(match.group("h")), int(match.group("mi"))
         ts = _to_utc(datetime(_year_for(month, day, anchor), month, day, hour, minute), offset_hours)  # noqa: DTZ001 - local wall clock; _to_utc() applies the real offset

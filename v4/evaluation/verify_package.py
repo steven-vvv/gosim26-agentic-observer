@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -45,7 +46,7 @@ def run(package: Path, cards: list[Path], python: str, out: Path) -> list[dict]:
             completed = subprocess.run(
                 [python, str(runner), "--card", str(card), "--agent", agent, "--agent-cwd", str(project),
                  "--out", str(target), "--quiet"],
-                capture_output=True, text=True, timeout=1500, check=False)
+                capture_output=True, text=True, timeout=float(os.environ.get("VERIFY_TIMEOUT", "1500")), check=False)
             try:
                 report = json.loads((target / "score_report.json").read_text(encoding="utf-8"))
                 result = json.loads((target / "workflow_result.json").read_text(encoding="utf-8"))

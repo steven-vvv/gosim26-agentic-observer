@@ -118,7 +118,7 @@ def decode_log(text: str) -> str:
     lines = []
     for line in text.split("\n"):
         notes = []
-        for segment in re.findall(r"[A-Za-z][A-Za-z0-9 ,.;:/()'~-]{11,}", line):
+        for segment in re.findall(r"[A-Za-z][A-Za-z0-9 ,.;:/()'~+-]{11,}", line):
             plain = caesar_plain(segment)
             if plain:
                 notes.append("凯撒解码：" + plain.strip())
