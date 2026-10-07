@@ -212,7 +212,8 @@ def pick_tasks(pending: list[dict], host: str, n: int) -> list[dict]:
 
 
 def dispatch_round(queues: list[tuple[Path, dict]], hosts_cfg: dict, timeout: float, chunk: int,
-                   now: float | None = None, max_per_host: int | None = None) -> bool:
+                   now: float | None = None, max_per_host: int | None = None,
+                   host_caps: dict[str, int] | None = None) -> bool:
     """One round over all queues. Returns True if any task became done (a pull is then worthwhile)."""
     now = time.time() if now is None else now
     any_done = False
@@ -237,9 +238,10 @@ def dispatch_round(queues: list[tuple[Path, dict]], hosts_cfg: dict, timeout: fl
         reserved = sum(1 for _, q in queues for t in q["tasks"]
                        if t["state"] == "running" and t["host"] == host and now - t["dispatched_at"] < GRACE)
         state[host] = free_slots(hosts_cfg["hosts"][host]["jobs"], procs, reserved)
-        if max_per_host is not None:  # cap on this invocation's own running tasks per host
+        cap = (host_caps or {}).get(host, max_per_host)
+        if cap is not None:  # cap on this invocation's own running tasks per host
             mine = sum(1 for _, q in queues for t in q["tasks"] if t["state"] == "running" and t["host"] == host)
-            state[host] = min(state[host], max(0, max_per_host - mine))
+            state[host] = min(state[host], max(0, cap - mine))
     for host in sorted(state, key=lambda h: (-state[h], h)):
         for path, queue in wanted:
             if state[host] <= 0:
@@ -289,14 +291,14 @@ def cmd_status(tags: list[str] | None) -> None:
 
 
 def cmd_dispatch(loop: int | None, tags: list[str] | None, timeout: float, chunk: int, pull: bool = True,
-                 max_per_host: int | None = None) -> None:
+                 max_per_host: int | None = None, host_caps: dict[str, int] | None = None) -> None:
     while True:
         queues = load_queues(tags)
         if not queues:
             print("dispatch: no unfinished queues")
             return
         hosts_cfg = pool.load_hosts()
-        any_done = dispatch_round(queues, hosts_cfg, timeout, chunk, max_per_host=max_per_host)
+        any_done = dispatch_round(queues, hosts_cfg, timeout, chunk, max_per_host=max_per_host, host_caps=host_caps)
         for path, queue in queues:
             print(f"{path.name}: {counts(queue)}")
         everything_done = all(finished(q) for _, q in queues)
