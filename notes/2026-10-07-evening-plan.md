@@ -54,3 +54,11 @@
 - 主机负载（32 核除 gosim 128）：adl1 46、adl3 47、adl4 75、epyc 52、gosim 56 —— 已回到不超额的水平，adl4/epyc 的降并发要求生效。
 - 子代理按 19:00 / 20:00 / 20:30 三个节点推进中；b/d 验收（gosim）已完成并入 6c58 表。
 - 无新事项。
+
+## 17:53 b-final 最终结论（Opus，已收工）
+
+- 维持 claude 上 f4422e8 的 mid_overrides（w48c + pace_shrink 0.5，不带 anchor_bound），无需改动。
+- 普通 b（big-b24v 24 张）+227 [+188,+264]，charged 均值 634、最大 683；守卫不触发，动作与 w48c 逐位同。
+- B1 型（kind-v6l b 日志卡 12 张）：ps0.5 +48（5/12 胜），charged 最大 876，0 expired、2 张应急档；不加守卫 +183 但 3 张应急、最大 883；w64 3/4 expired（禁用）。
+- formal-stress 001/003（mid 带）ps0.5 −11，持平；000/002 落 lean 带。
+- anchor_bound（w48cxs）在 B1 型 +221 但样本小、需再合 bound.py，终包不带。
