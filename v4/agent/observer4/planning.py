@@ -22,6 +22,7 @@ from .geometry import (
     to_equatorial,
     wrap180,
 )
+from .matching import overexposure_weights
 from .opportunity import OpportunityModel
 from .rates import RateProfile
 from .reach import Reach, spread_anchors
@@ -508,6 +509,7 @@ class Planner:
                        if typical > 0 else None)
         exponent = self._science_exponents(night_index)
         overhead = float(settings.get("duration_overhead", 0.0))
+        over_gamma = float(settings.get("overexposure_gamma", 0.0))
         terrain = self.quality.terrain_model
         horizon = part if (predicted is not None or terrain is not None) else None
         track = self._track(now, altitude, azimuth, subset, horizon) if terrain is not None else None
@@ -705,6 +707,8 @@ class Planner:
             if not len(near):
                 continue
             factors = durations[:, None] * self._rates(durations, near, rate)
+            # Optional: discount the unneeded part of the exposure (matching.py); off by default.
+            match = overexposure_weights(factors, over_gamma) if over_gamma > 0 else None
             np.minimum(1, factors, out=factors)
             if settings.get("score_marginal", False):
                 science_gain = expected_science_gains(factors, task.weight[near], state.best_score[near],
@@ -720,6 +724,8 @@ class Planner:
                         0, task.weight[near] * expected_top[near] * factors - state.best_score[near]) / top_multiplier
                     science_gain = np.where(complete[near][None, :], np.maximum(science_gain, upgrade * linear),
                                             science_gain)
+            if match is not None:
+                science_gain = science_gain * match
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
             safe = factors >= settings["required_safe_factor"]
             req_gain = incomplete[near][None, :] * safe * near_bonus
