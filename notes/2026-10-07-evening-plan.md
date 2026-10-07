@@ -157,3 +157,9 @@
 - CPU 倍率 new/base：a 0.962、c 0.964、b 0.938、d 0.854，合计 0.949。无一对 ≥900（最大 859.2 s adl3 base），48 次终止全为 survey_complete。
 - 改动文件：terrain.py（新增 mod360/wrapped_offset）、quality.py（4 处方位角回绕）、tests/test_mod360.py、experiments/datasets.json（kind-v6t）。
 - **终包合并集共三件（文件互不相交）**：perf3-core d11aba6（bound.py/durations.py/planning.py）+ logfp 39766b6（logrules.py/logbook.py）+ perf3-log 8280afa（terrain.py/quality.py）。terrain.py 归 perf3-log，algo1 只碰 planning.py 的 _track。
+
+## 20:58 perf3-log b 类闭环（8280afa 四类全过）
+- 固定虚拟钟（每回合固定计费）跑 kind-v6l-r3-001：gosim(AMD) 与 adl3(Intel) 上 new = base = 5a967a89b2a8382a、9837 决策。b 类差异纯属基线速度非确定。
+- 8280afa 结论：a/c/d 真实主机两类 CPU 逐位、b 固定钟两类 CPU 逐位 → **合入**。perf3-log 线结束。
+- 已把固定虚拟钟作为判据交给合并验收线，用来给 d11aba6（perf3-core）做代码等价性定性：固定钟下 sha 全同 = 代码等价，真实主机 total 变化即为省 CPU 的节奏收益；不同 = 真行为改变，不合入。
+- 时间紧时验收砍到两臂：6c58 旧码 vs 三件全合。
