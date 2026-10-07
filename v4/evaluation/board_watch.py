@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,8 +35,15 @@ def _call(key: str, rpc: str, phase: str, slug: str | None, limit: int) -> dict:
         method="POST",
         headers={**board_read.HEADERS, "apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.loads(response.read())
+    # The board RPC answers 500 now and then under load; a short retry usually succeeds.
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            if error.code < 500 or attempt == 3:
+                raise
+            time.sleep(3 * (attempt + 1))
 
 
 def _phase_id(key: str) -> str:
