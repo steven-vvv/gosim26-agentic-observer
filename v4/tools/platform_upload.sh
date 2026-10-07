@@ -2,12 +2,14 @@
 # 用法：platform_upload.sh <zip> [标题]
 # 上传 → 轮询准备与公开测试 → 通过后确认并标记为最终版本。
 # 不触发在线评测，也不做「选定冻结」（不可逆）。令牌只在本进程内从 secret 读入，不回显、不落盘。
+# 续跑：REV=<版本号> 时跳过上传，直接对已有版本继续走轮询与后续步骤（不重复占用上传额度）。
 set -euo pipefail
 
 ZIP="${1:?用法: platform_upload.sh <zip> [标题]}"
 TITLE="${2:-$(basename "$ZIP" .zip)}"
 INTERVAL="${POLL_INTERVAL:-30}"
 TIMEOUT="${POLL_TIMEOUT:-1800}"
+REV="${REV:-}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SECRET="${SECRET_FILE:-$ROOT/secret}"
@@ -26,16 +28,21 @@ unzip -tq "$ZIP" >/dev/null
 
 jget() { python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][sys.argv[1]])' "$1"; }
 
-rev=$(survey26 project upload "$ZIP" --title "$TITLE" --yes --json | jget revision_id)
-echo "已上传，版本 $rev"
+if [ -n "$REV" ]; then
+  rev="$REV"
+  echo "续跑已有版本 $rev，跳过上传"
+else
+  rev=$(survey26 project upload "$ZIP" --title "$TITLE" --yes --json | jget revision_id)
+  echo "已上传，版本 $rev"
+fi
 
-# 准备（构建 + 公开测试）：排队可能较久，自行轮询以便打印进度
+# 准备（构建 + 公开测试）：排队与准备都算未完成（CLI 中 pending = queued + preparing）
 start=$(date +%s)
 while :; do
   info=$(survey26 project show "$rev" --json)
   status=$(printf '%s' "$info" | jget raw_status)
   echo "$(date +%T) 状态 $status"
-  [ "$status" = preparing ] || break
+  case "$status" in queued|preparing) ;; *) break;; esac
   [ $(( $(date +%s) - start )) -lt "$TIMEOUT" ] || { echo "等待超时" >&2; exit 7; }
   sleep "$INTERVAL"
 done
