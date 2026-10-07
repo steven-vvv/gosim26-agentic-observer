@@ -8,6 +8,7 @@ import math
 import numpy as np
 
 from .durations import Durations
+from .extension import extend
 from .fibers import _segments, fiber_totals
 from .geometry import (
     RAD,
@@ -812,6 +813,14 @@ class Planner:
         if not finalists:
             self.last_trace = {"reason": "no_profitable_field", "anchors": len(used), "fields": fields_checked}
             return None
+        lam = float(settings.get("extend_rate", 0.0))
+        if lam > 0:
+            # Lengthen the finalists at a shadow price of telescope time (extension.py).
+            free = getattr(task, "revision", 1) >= 2 and settings.get("free_center", True)
+            pick = lambda f, g, n, d: _fiber_choices(f, self._matched(g, d, n, rate), n)
+            for item in finalists:
+                limit = 1e9 if free else float(self._centers_up(np.array([item["alt"]]), np.array([item["az"]]), lst)[0])
+                extend(item, lam, task.grid, vectors, glass_margin, limit, pick)
         for item in finalists:
             selected = np.array([i for _, i in item["selected"]], dtype=np.int32)
             item_rate = self._rates(np.array([item["duration"]]), selected, rate)[0]
