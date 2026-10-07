@@ -84,3 +84,11 @@
 - a/c 子代理已构建 901b4f（= HEAD + lean/mid 均开 pace_shrink 0.5 的候选安全阀包），在 gosim 同机并跑 df7f / 6c58 / 901b4f × formal-stress-000/002 三组计时对比，19:00 前一并交。
 - algo2：阈值 0.7 明显优于 0.5，正在试更温和的一档。
 - 主机：adl1 44、adl3 42、adl4 78、epyc 55、gosim 76（32/32/32/32/128）。gosim 因为被 a/c 的三组验收 + algo 队列同时使用而升到 76，仍不超额；20:45 终包验收前要再确认 gosim 空闲。
+
+## 18:20 本机磁盘满（ENOSPC）处置
+
+- /dev/vda4 69G 100% 满，logfp 子代理报告 Bash 无法写输出；主代理自己的 Bash 也一度全部失败。
+- 清理后 7.7G 可用：删除已收工 worktree（regress、perf、perf-r2、perf2、perf2base、perf2ft、fix2、season、struct、rel、req、bfinal；fix/integ/bopus 有未提交改动或被锁，保留），/tmp 下旧打包与验收目录、/tmp/research、/tmp/xm，以及 /tmp/ac3 下 a/c 子代理的临时 worktree（zp/head/headps）和一个 6a1ce7133042 临时包——已通知 a/c 子代理如缺失告诉我重建。
+- algo1、algo2 两个 Opus 子代理因写盘失败停止，已通过 SendMessage 自动恢复。其余子代理已通知重试。
+- 防再发：要求所有子代理 pull 只拉 summary/score_report/workflow_result，临时产物用完即删；巡检加查 df（< 3G 即清理 v4/results/research 5.3G 中最旧的批次）。
+- 保留：v4/dist 下 6c58 与 df7f 两个包完好。
