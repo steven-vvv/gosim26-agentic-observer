@@ -725,3 +725,12 @@ mid_overrides       = {…无 required_stretch…}
 | ~~`mid.required_stretch 4`~~ | `c5c93bd`，**已证正式 b 卡符号为负，de30 里已删** | 已处理 |
 
 **注意**：**policy 默认 anchors 48/512/16/6 与 mid/very_lean 的取值相同**，所以 `mid` 的搜索宽度覆盖其实是**空操作**；de30 相对默认的真实增量集中在 lean 那一层（a/c）。
+
+## 05:58 C4 已上传并设为最终版本
+
+- **版本号 `a2be567e-3ecc-4dad-8bf1-a7c95709153d`**（标题 `observer4-C4-697abf1fca70`），状态 `reviewable` → 公开测试 **passed（score 490.926761）** → 已 `confirm` 并 `final set`。
+- **最终版本 = `a2be567e`，`locked: False`、`frozen_at: None` —— 保留了到 09:00（北京；平台 `deadline` 显示 `2026-10-08T01:00:00+00:00`）之前继续换版的空间。**
+- 平台历史：`fc048ba9`（de30）→ 本次 `a2be567e`（C4）。截止后额度已用 **3**（05f4 于 23:59 前创建不计），**还剩 12 次**。
+- 线上评测额度：`online 已用 2 剩余 9997` —— **未触发线上评测**（按用户要求，非必要不评测）。
+
+**恢复方式（若需要回退或续跑）**：`REV=<版本号> bash v4/tools/platform_upload.sh <zip>` 可跳过上传直接走轮询与确认，不重复占用额度。
