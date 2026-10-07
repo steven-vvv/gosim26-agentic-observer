@@ -175,16 +175,55 @@ class FiberGrid:
         return ca[valid] / RAD, (cz[valid] / RAD) % 360.0
 
     def classify(self, vectors, center_alt, center_az):
+        """Fibre, glass margin and tangent offsets of every (centre, target) pair.
+
+        Depth, north and east each take their own matrix product, with the operand shapes of
+        the plain formulation: BLAS may round a stacked product differently on some CPUs
+        (the kernel depends on the matrix shape), which would move targets across a fibre
+        edge. The other arithmetic is that formulation's elementwise sequence, in place and
+        without repeated trigonometry.
+        """
         ca, cz = np.asarray(center_alt) * RAD, np.asarray(center_az) * RAD
-        center = np.stack((np.cos(ca) * np.cos(cz), np.cos(ca) * np.sin(cz), np.sin(ca)), axis=-1)
-        north = np.stack((-np.sin(ca) * np.cos(cz), -np.sin(ca) * np.sin(cz), np.cos(ca)), axis=-1)
-        east = np.stack((-np.sin(cz), np.cos(cz), np.zeros_like(cz)), axis=-1)
-        depth = center @ np.asarray(vectors).T
-        divisor = np.where(depth > 0, depth, 1.0)
-        dn, de = (north @ np.asarray(vectors).T) / divisor / RAD, (east @ np.asarray(vectors).T) / divisor / RAD
-        row = np.clip(np.floor(dn / self.pitch + self.side / 2), 0, self.side - 1).astype(np.int32)
-        col = np.clip(np.floor(de / self.pitch + self.side / 2), 0, self.side - 1).astype(np.int32)
-        fiber = row * self.side + col
-        margin = self.glass / 2 - np.maximum(np.abs(dn - self.north[fiber]), np.abs(de - self.east[fiber]))
-        valid = (depth > 0) & (np.abs(dn) <= self.fov / 2) & (np.abs(de) <= self.fov / 2) & (margin >= 0)
+        sa, co_a, sz, co_z = np.sin(ca), np.cos(ca), np.sin(cz), np.cos(cz)
+        center, north, east = (np.empty(ca.shape + (3,)) for _ in range(3))
+        np.multiply(co_a, co_z, out=center[..., 0])
+        np.multiply(co_a, sz, out=center[..., 1])
+        center[..., 2] = sa
+        np.multiply(-sa, co_z, out=north[..., 0])
+        np.multiply(-sa, sz, out=north[..., 1])
+        north[..., 2] = co_a
+        east[..., 0] = -sz
+        east[..., 1] = co_z
+        east[..., 2] = 0.0
+        target = np.asarray(vectors).T
+        depth = center @ target
+        positive = depth > 0
+        divisor = np.where(positive, depth, 1.0)
+        dn = north @ target
+        dn /= divisor
+        dn /= RAD
+        de = east @ target
+        de /= divisor
+        de /= RAD
+        side, half = self.side, self.side / 2
+        cells = []
+        for offset in (dn, de):
+            cell = offset / self.pitch
+            cell += half
+            np.floor(cell, out=cell)
+            np.maximum(cell, 0, out=cell)
+            np.minimum(cell, side - 1, out=cell)
+            cells.append(cell.astype(np.int32))
+        fiber = cells[0] * side + cells[1]
+        error_n = dn - self.north.take(fiber)
+        np.abs(error_n, out=error_n)
+        error_e = de - self.east.take(fiber)
+        np.abs(error_e, out=error_e)
+        np.maximum(error_n, error_e, out=error_n)
+        margin = self.glass / 2 - error_n
+        limit = self.fov / 2
+        valid = positive
+        valid &= np.abs(dn) <= limit
+        valid &= np.abs(de) <= limit
+        valid &= margin >= 0
         return np.where(valid, fiber, -1), margin, dn, de
