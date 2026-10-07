@@ -654,3 +654,41 @@ b 的 charged **654–658 s**（远低于 850，rs4 删除后风险归零）；*
 
 **四项全非负，严格支配 C1（c 同、a 不再亏 −82）**，且相对 de30 是**纯 c 增益**（+8.8/卡 @新种子口径）。
 待集成线 29 项检查（含 a/b/d 的 `action_sha256` 逐位比对）返回后即可上传。
+
+## 05:50 基线校准：de30 的确切配置，以及一条新实验线
+
+**de30 = `observer4-full-locked-de30972dd303.zip`（解压核对 `config.json`）**：
+
+```
+lean_overrides      = {anchors 72, anchor_pool 768, cluster_anchors 24, refine_top 8, refine_iterations 2,
+                       revisit_increment 1.0, science_cap_quality 0.6, science_exponent 1.8,
+                       science_horizon_hours 120, upgrade_weight 0.5, window_weight 0.5,
+                       overexposure_gamma 0.25}
+very_lean_overrides = {anchor_pool 512, anchors 48, cluster_anchors 16, refine_top 6}
+mid_overrides       = {…无 required_stretch…}
+无任何 timing_weight
+```
+
+**与 `claude` 分支 HEAD 的两处漂移（会误导任何以 HEAD 当基线的实验）**：
+1. de30 **有** `lean_overrides.overexposure_gamma 0.25`；**claude HEAD 没有**（ov25 在 `bec641f`，只在 `cand-ov`/`integ2`/`c3`/`c4` 上）。
+2. de30 的 mid **无** `required_stretch`；**claude HEAD 有 `=4`**（`c5c93bd`，已证正式 b 卡符号为负）。
+
+**de30 的精确还原**：int2 的 `d2eb16b`（=C1）**删掉 `lean_overrides.timing_weight`**。C1/C4 的 lean/mid 与上表逐字一致，差别只在 tw05 落点：C1 在 lean、**C4 在 very_lean**、de30 无。
+
+**C4 机制已从代码确认**（`config.py:296-309`）：结构覆盖的校验是**全局 `OVERRIDE_BOUNDS` 查表，没有分组白名单**，`timing_weight` 在表内 `(0,10)`；`structure.py` 的 very_lean 层是 lean 之后的追加 update → **挪层完全合法，a 拿不到、c 照拿**。
+
+### 新派：de30 分量消融线（Sonnet）
+
+动机：tw05 的教训说明**单个 trial 卡会掩盖大效应**（样本 +59.3 → 真实 −82.3），而 de30 里**多数结构覆盖值当初是用自造确认集选的**，而自造集已被证明**系统性高估 2–4 倍且符号不可靠**。所以在 **`kind-validation-r3` 16 张卡**上逐分量消融：
+
+| 变体 | 改动 | 作用域 |
+|---|---|---|
+| **ab-ov** | 删 `lean.overexposure_gamma` | a + c |
+| ab-uw | 删 `lean.upgrade_weight` + `mid.upgrade_weight` | a + b + c |
+| ab-sx | `science_exponent` 1.8 → 1.65（lean+mid） | a + b + c |
+| ab-anch | lean 搜索宽度 → 512/48/16/6 | a |
+| ab-ww | 删 `lean.window_weight` | a + c |
+| ab-sh | `lean.science_horizon_hours` 120 → 240 | a + c |
+
+**ab-ov 是重点**（ov25 是自造集选的 `big-ac48v +88.0`，**极可能重复 tw05 的模式：a 上为负**），已要求先做先报。
+判据：Δ 均值 ≥ +20/卡 且 ≥3/4 为正 → 新发现，加做 `trial-*` 复验；b/d 若出现非零 Δ 说明我把分带写错了，也是有价值信息。
