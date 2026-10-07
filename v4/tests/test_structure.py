@@ -53,7 +53,8 @@ def test_default_config_overrides_and_bands_are_unchanged():
     wide = {"anchors": 72, "anchor_pool": 768, "cluster_anchors": 24, "refine_top": 8}
     narrow = {"anchors": 48, "anchor_pool": 512, "cluster_anchors": 16, "refine_top": 6}
     mid = {"setting_boost": 0.0, "anchor_pool": 512, "anchors": 48, "cluster_anchors": 24, "refine_top": 6, "pace_shrink": 0.5,
-           "upgrade_weight": 0.5, "science_horizon_hours": 240.0, "science_exponent": 1.65}
+           "upgrade_weight": 0.5, "science_horizon_hours": 240.0, "science_exponent": 1.8,
+           "revisit_increment": 1.0}
     expected = {"c": {**lean, **narrow}, "a": {**lean, **wide}, "b": mid, "d": {"upgrade_weight": 0.5}}
     bands = {"c": "very_lean", "a": "lean", "b": "mid", "d": "rich"}
     for name in KINDS:
@@ -146,7 +147,7 @@ def test_every_whitelisted_override_accepts_its_bounds_and_nothing_beyond():
         for value in (low - step, high + step):
             with pytest.raises(ValueError):
                 patched({"mid_overrides": {field: cast(value)}})
-    assert len(OVERRIDE_BOUNDS) == 26
+    assert len(OVERRIDE_BOUNDS) == 34
 
 
 def test_structure_override_bounds_match_policy_bounds():
