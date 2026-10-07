@@ -1,1 +1,0 @@
-{"structure": {"lean_overrides": {"window_weight": 0.5, "upgrade_weight": 0.5, "science_horizon_hours": 120.0, "science_cap_quality": 0.6, "refine_iterations": 2, "anchors": 72, "anchor_pool": 768, "cluster_anchors": 24, "refine_top": 8, "timing_weight": 0.5, "overexposure_gamma": 0.25}}}

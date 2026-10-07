@@ -31,7 +31,6 @@ from .reach import Reach, spread_anchors
 from .required import stretched
 from .sky import program_odds, visible_sky
 from .structure import card_structure
-from .timing import QualityTiming
 from .transit import transit_weights
 from .valuation import science_gains
 
@@ -599,11 +598,6 @@ class Planner:
                 typical = float(np.median(nights_left[up]))
                 scarce = np.clip(typical / np.maximum(nights_left, 1.0), 1.0, 4.0) - 1.0
                 urgency = urgency * (1.0 + window * np.where(up, scarce, 0.0))
-        timing = float(settings.get("timing_weight", 0.0))
-        if timing > 0:
-            # Rank a target that only the better skies complete ahead while they last (timing.py).
-            self.timing = getattr(self, "timing", None) or QualityTiming()
-            urgency = urgency * self.timing.boost(rate * np.minimum(np.minimum(task.maximum_exposure, setting_seconds), left), scale, timing)
         if self.opportunity is not None and self.instrument is not None:
             try:
                 chances = self.opportunity.urgency(night_index, self.instrument.sky_levels(), threshold,

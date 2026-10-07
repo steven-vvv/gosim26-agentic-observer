@@ -53,7 +53,7 @@ OVERRIDE_BOUNDS = {
     "anchors": (1, 128), "anchor_pool": (1, 4096), "cluster_anchors": (0, 128), "refine_top": (0, 32),
     "refine_iterations": (1, 8), "refine_fine": (0.25, 1), "pace_shrink": (0, 1), "revisit_increment": (0, 1), "extend_rate": (0, 1), "extend_ratio": (0, 1),
     "transit_weight": (0, 4), "transit_hours": (1, 2000), "required_stretch": (0, 100),
-    "overexposure_gamma": (0, 4), "choice_gamma": (0, 4), "timing_weight": (0, 10),
+    "overexposure_gamma": (0, 4), "choice_gamma": (0, 4),
 }
 OVERRIDE_INTEGERS = frozenset({"anchors", "anchor_pool", "cluster_anchors", "refine_top", "refine_iterations"})
 STRUCTURE_GROUPS = ("late_overrides", "rich_overrides", "lean_overrides", "very_lean_overrides", "mid_overrides")
@@ -237,8 +237,7 @@ def validate(config: dict) -> None:
     for name, (low, high) in {"rollout_top": (0, 2), "rollout_weight": (0, 2), "setting_boost": (0, 2),
                               "rising_weight": (0, 1), "upgrade_weight": (0, 2), "upgrade_factor": (0.5, 1),
                               "season_weight": (0, 2), "window_weight": (0, 2),
-                              "revisit_increment": (0, 1), "required_stretch": (0, 100),
-                              "timing_weight": (0, 10)}.items():
+                              "revisit_increment": (0, 1), "required_stretch": (0, 100)}.items():
         if name in config["policy"]:
             value = config["policy"][name]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
