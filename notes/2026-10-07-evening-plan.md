@@ -692,3 +692,36 @@ mid_overrides       = {…无 required_stretch…}
 
 **ab-ov 是重点**（ov25 是自造集选的 `big-ac48v +88.0`，**极可能重复 tw05 的模式：a 上为负**），已要求先做先报。
 判据：Δ 均值 ≥ +20/卡 且 ≥3/4 为正 → 新发现，加做 `trial-*` 复验；b/d 若出现非零 Δ 说明我把分带写错了，也是有价值信息。
+
+## 05:52 C4 验收完成：`697abf1fca70`（`aed66be`，标签 `c4-final-candidate`）
+
+**逐位验证（用 `actions.jsonl` 的 sha256 作指纹，比总分更严）**：
+
+| 卡 | de30 | C4 | Δ | actions |
+|---|---|---|---|---|
+| trial-a / r3-000 / r3-004 / r3-008 / r3-012 | — | 与 de30 相同 | **0.0000** | **SAME**（5 张）|
+| trial-b / trial-d | — | 与 de30 相同 | **0.0000** | **SAME** |
+| trial-c | 28,014.8077 | **28,075.5781** | **+60.77** | DIFF（增益）|
+| r3 c 四张 | — | — | **+35.21**（4/4 正）| — |
+
+**c 型 5 张卡上 C4 与 C1 逐位相同** → tw05 的 c 增益被完整保留，而 a 的 −82.34 回归被完全消除（`very_lean` 隔离如预期）。
+
+**质量门**：pytest **331 passed**、ruff 全过、源码预算 **396,523/400,000（余 3,477）**、`config.json` 可见（5,912 字符）、`planning.py` 56,129 未截断。
+**计费**：全部 < 850 s（c 型最重 704）。
+
+**结论：C4 是唯一"零回归 + 带正收益"的候选，严格支配 de30 与 C1。上传候选。**
+
+**de30 覆盖值来源审计（配合消融线）**——每个值当初用什么选的：
+
+| 值 | 来源 | 风险 |
+|---|---|---|
+| `lean.overexposure_gamma 0.25` | **`big-ac48v` +88.0**（自造集） | **高**（tw05 同样来自该集：样本 +59.3 → 真实 −82.3）|
+| `lean` 搜索宽度 72/768/24/8 | **`big-ac48v` a +75/+188**（自造集），c 加宽为负故拆 very_lean | **高** |
+| `lean.science_exponent 1.8` + `revisit_increment 1.0` | **`big-ac48v` a +96 23/24、c +108 24/24**（自造集） | **高** |
+| `mid.science_exponent 1.8` + `revisit_increment 1.0` | **`big-b24v` +54 [+26,+86]**（自造集） | **高** |
+| `lean.window_weight 0.5` | 精简季（≤0.7 纤时）启用 | 中 |
+| `lean.science_horizon_hours 120` | 早期轮次 | 中 |
+| `mid.pace_shrink 0.5` / `setting_boost 0` / `anchors 48/512/16/6` | 早前 | 低 |
+| ~~`mid.required_stretch 4`~~ | `c5c93bd`，**已证正式 b 卡符号为负，de30 里已删** | 已处理 |
+
+**注意**：**policy 默认 anchors 48/512/16/6 与 mid/very_lean 的取值相同**，所以 `mid` 的搜索宽度覆盖其实是**空操作**；de30 相对默认的真实增量集中在 lean 那一层（a/c）。
