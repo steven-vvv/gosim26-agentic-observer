@@ -92,3 +92,10 @@
 - algo1、algo2 两个 Opus 子代理因写盘失败停止，已通过 SendMessage 自动恢复。其余子代理已通知重试。
 - 防再发：要求所有子代理 pull 只拉 summary/score_report/workflow_result，临时产物用完即删；巡检加查 df（< 3G 即清理 v4/results/research 5.3G 中最旧的批次）。
 - 保留：v4/dist 下 6c58 与 df7f 两个包完好。
+
+## 18:53 巡检
+
+- **algo2（b 空闲光纤，Opus）收工**：16 个变体在 scr-b16 上无一区间下限 > 0，全部不合入；证据表 GOSIM26-algo2 分支 558dc50 的 v4/experiments/algo2-final.json。空闲光纤是结构性的（91% 空闲格无目标），完成度缺口上限约 760 分/卡（且需扣时间）。
+- **ENOSPC 余波**：本机所有 pool dispatch 进程在 18:20 前后退出，五台主机上已没有我们的 batch/run_local 进程。adl4 93、epyc 131 的负载来自同宿主其他租户，不是我们的。已通知 a/c、algo1、richd、perf3 重启各自 dispatch，优先派 gosim（负载 0）。
+- a/c 子代理：6 个 formal-stress 验收在 gosim 并跑撞上验收器 1500 s 超时，全被杀；已要求每台 ≤2 并发、只保留 6c58/901b4f × 000/002，19:00 先交已有数据。
+- 磁盘 7.7G 可用，稳定。
