@@ -40,6 +40,26 @@ PROFILE_PATCHES = {
 }
 
 
+# Policy fields a card-structure group may override (structure.<group>_overrides).  The bounds are
+# those of the same policy field (test_structure_override_bounds_match_policy_bounds); the knobs the
+# policy section leaves unchecked get the bounds given here.  The integer knobs must be ints.
+OVERRIDE_BOUNDS = {
+    "setting_boost": (0, 2), "rising_weight": (0, 1), "upgrade_weight": (0, 2), "upgrade_factor": (0.5, 1),
+    "season_weight": (0, 2), "window_weight": (0, 2), "science_exponent": (1, 4),
+    "science_horizon_hours": (0, 2000), "level_safety_z": (0, 5), "deadline_weight": (0, 20),
+    "uniformity_weight": (0, 10), "quality_safety": (0.3, 1.5), "required_bonus": (0, 500),
+    "neighbor_radius_deg": (1.0, 10), "cluster_radius_deg": (0.1, 5), "glass_margin_deg": (0, 0.25),
+    "program_uncertainty_floor": (0, 1), "request_weight": (0, 100), "science_cap_quality": (0, 2),
+    "anchors": (1, 128), "anchor_pool": (1, 4096), "cluster_anchors": (0, 128), "refine_top": (0, 32),
+    "refine_iterations": (1, 8),
+}
+OVERRIDE_INTEGERS = frozenset({"anchors", "anchor_pool", "cluster_anchors", "refine_top", "refine_iterations"})
+STRUCTURE_GROUPS = ("late_overrides", "rich_overrides", "lean_overrides", "very_lean_overrides", "mid_overrides")
+# Keys of the structure section that a configuration may omit; a patch may add them.
+STRUCTURE_OPTIONAL = frozenset({"lean_fiber_hours", "lean_overrides", "very_lean_overrides", "mid_overrides",
+                                "lean_split_fiber_hours"})
+
+
 def profile_patch(name: str) -> dict:
     try:
         return copy.deepcopy(PROFILE_PATCHES[name])
@@ -55,8 +75,26 @@ def merge(base: dict, patch: dict) -> dict:
         if isinstance(result[key], dict) and isinstance(value, dict):
             if key == "events":
                 result[key].update(value)
+            elif key == "structure":
+                result[key] = merge_structure(result[key], value)
             else:
                 result[key] = merge(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def merge_structure(base: dict, patch: dict) -> dict:
+    """Merge a structure patch: it may add the optional keys, and an override group takes new fields.
+
+    The fields of a group are bounded by validate(), not by what the file it patches already holds.
+    """
+    result = copy.deepcopy(base)
+    for key, value in patch.items():
+        if key not in result and key not in STRUCTURE_OPTIONAL:
+            raise ValueError(f"unknown configuration field: {key}")
+        if key in STRUCTURE_GROUPS and isinstance(value, dict) and isinstance(result.get(key, {}), dict):
+            result[key] = {**result.get(key, {}), **copy.deepcopy(value)}
         else:
             result[key] = copy.deepcopy(value)
     return result
@@ -115,7 +153,7 @@ def validate(config: dict) -> None:
         "policy": {
             "anchors": (1, 128),
             "anchor_pool": (1, 4096),
-            "neighbor_radius_deg": (3.5, 10),
+            "neighbor_radius_deg": (1.0, 10),
             "science_exponent": (1, 4),
             "required_bonus": (0, 500),
             "required_safe_factor": (0.5, 1),
@@ -244,22 +282,28 @@ def validate(config: dict) -> None:
         if not isinstance(structure, dict) or type(structure.get("enabled")) is not bool:
             raise ValueError("structure configuration must be an object with a boolean enabled")
         for name, (low, high) in {"late_fraction": (0, 1), "late_share_threshold": (0, 1),
-                                  "rich_fiber_hours": (0, 1e9), "lean_fiber_hours": (0, 1e9)}.items():
-            if name == "lean_fiber_hours" and name not in structure:
+                                  "rich_fiber_hours": (0, 1e9), "lean_fiber_hours": (0, 1e9),
+                                  "lean_split_fiber_hours": (0, math.inf)}.items():
+            if name in STRUCTURE_OPTIONAL and name not in structure:
                 continue
             value = structure.get(name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
                 raise ValueError(f"invalid configuration field: structure.{name}")
-        allowed = {"setting_boost", "rising_weight", "upgrade_weight", "upgrade_factor", "season_weight",
-                   "window_weight"}
-        for name in ("late_overrides", "rich_overrides", "lean_overrides"):
-            if name == "lean_overrides" and name not in structure:
+        for name in STRUCTURE_GROUPS:
+            if name in STRUCTURE_OPTIONAL and name not in structure:
                 continue
             overrides = structure.get(name)
-            if not isinstance(overrides, dict) or not set(overrides) <= allowed or any(
-                    isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
-                    for value in overrides.values()):
-                raise ValueError(f"invalid configuration field: structure.{name}")
+            if not isinstance(overrides, dict):
+                raise ValueError(f"invalid configuration field: structure.{name}")  # noqa: TRY004
+            for field, value in overrides.items():
+                if field not in OVERRIDE_BOUNDS:
+                    raise ValueError(f"invalid configuration field: structure.{name}.{field}")
+                low, high = OVERRIDE_BOUNDS[field]
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) \
+                        or not low <= value <= high:
+                    raise ValueError(f"invalid configuration field: structure.{name}.{field}")
+                if field in OVERRIDE_INTEGERS and type(value) is not int:
+                    raise ValueError(f"integer configuration required in structure.{name}.{field}")
     for name in ("forecast_guard", "quake_cooldown"):
         if name in config["fault"] and type(config["fault"][name]) is not bool:
             raise ValueError(f"boolean configuration required for fault.{name}")
