@@ -422,3 +422,28 @@
 **待办**：不紧急，但要在 notes 里留档——（1）d 卡的故障类结论今后一律走官方 runner；（2）若时间允许，在新上游上重跑一次 `screen-r3-*` 的加速/官方逐字节对照，确认等价性是否还能恢复。**不在 09:00 前做。**
 
 **顺带**：`generate()` 在 published 卡（trial-*）上抛 `FileNotFoundError`（trial-* 无 `research-manifest.json`）会让整批下发失败——已修（commit 3cbfd66，分支 `fault`，含回归测试，328 单测过）。这是**真实缺陷修复**，值得合入集成树。
+
+## 03:40 LLM 环节评估定稿（用户 10-08 交办）：真驱动，但"机会率"是唯一薄弱点
+
+### 实测：调用机会率（stub 替换模型客户端，`screen-000` 6 夜小卡）
+
+| 环节 | 进入函数次数 | 真正 `choose()` | 说明 |
+|---|---|---|---|
+| `weekly()` | 49 | **1** | 只在**新预报**时越过 `last_forecast` 门；6 夜卡只有 1 份预报 |
+| `action()` | 26 | **4** | 26 次里只有 4 次满足 **gap ≤ 3%** |
+
+`action()` 的 4 次 gap：最大 **0.0022**（阈值 0.03）——门槛打开时确实是在"几乎并列"的两个观测间做选择，不是走过场。
+
+### 判定：两个环节都是**真驱动**，不是假选择
+- **输出真的改变动作**：`action()` 返回 C1 → `policy.py` 直接替换 `action` 与 `self.pending`；`weekly()` 返回策略 → `set_strategy()` 重算 `settings`（`required_bonus`/`required_safe_factor`）。
+- **平台运行时证据**：`accepted_choice:C1` vs `deterministic_choice:C0`，且 `model_action_candidate` 落进 `last_trace`。
+
+### 但有一个**此前审计没点破**的限制：**logbook 在普通卡上从不触发**
+- `collect()` 只收 `len(reason) >= min_chars(40)` 的请求文本；实测 trial-a 的请求 `reason` 长度中位 **23 字符（最大 23，≥40 的 0 个）**。
+- 所以 `logbook`（= 自然语言理解 + 数据解析两条）**只存在于发值班日志的 A1–D1/版本 5 卡**上；**普通卡（含 A–D 与隐藏 E–H 的常规型号）上它一次都不跑**。
+- 含义：**排名卡上真正活着的环节只有 2 个（weekly + action）**，正好卡在"六项中至少两项"的要求线上。
+
+### 结论与建议
+1. **不改代码**。理由：(a) `weekly` + `action` 在排名卡上确实各 1 个、是真驱动，满足门槛；(b) 任何提高机会率的改动都要动 `action_merit_tolerance` 或 `weekly` 触发条件，**直接改变排名卡的动作**，在 7 小时内无法充分验证，风险远大于收益。
+2. **唯一零风险动作**：`PACKAGE_README.md` 补一行把 `logbook` 列为第三个 LLM 环节（纯文档，不改数值），避免评审只看到两项。
+3. 若评审要求"排名卡上的运行时证据"，`action` 的 4 次/卡（大卡更多）足以取证——`model_action_candidate` 与 `accepted_choice` 都在 trace 里。
