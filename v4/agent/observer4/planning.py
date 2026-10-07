@@ -27,6 +27,7 @@ from .geometry import (
 from .matching import overexposure_weights
 from .opportunity import OpportunityModel
 from .rates import RateProfile
+from .required import stretched
 from .reach import Reach, spread_anchors
 from .sky import program_odds, visible_sky
 from .structure import card_structure
@@ -755,6 +756,7 @@ class Planner:
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
             safe = factors >= settings["required_safe_factor"]
             req_gain = incomplete[near][None, :] * safe * near_bonus
+            req_gain = stretched(req_gain, safe, durations, float(settings.get("required_stretch", 0)))
             request_gain = self._request_gains(request_terms, near, durations, factors, now)
             fairness = ((state.factor_lower[near][None, :] < threshold) & safe) * uniformity[near]
             # (science + required + request + fairness) * urgency * setting boost * terrain,
