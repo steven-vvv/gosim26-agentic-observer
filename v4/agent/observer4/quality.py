@@ -8,7 +8,7 @@ from collections import deque
 import numpy as np
 
 from .geometry import altaz, horizontal_vectors, sidereal
-from .terrain import TerrainModel
+from .terrain import TerrainModel, wrapped_offset
 
 DIRECTIONS = {"N": 0.0, "NE": 45.0, "E": 90.0, "SE": 135.0, "S": 180.0, "SW": 225.0, "W": 270.0, "NW": 315.0}
 
@@ -119,7 +119,7 @@ class QualityModel:
         tracker = self.sector_tracker
         if tracker is not None and (kind, direction) in tracker.events:
             return tracker.events[(kind, direction)].expected_factor(alt, az)
-        offset = (az - DIRECTIONS[direction] + 180) % 360 - 180
+        offset = wrapped_offset(az, DIRECTIONS[direction])
         if self.settings.get("sector_prior", False) and kind in {"rain", "overcast", "haze", "storm", "rocket_launch"}:
             inside = sector_inside_probability(kind, offset, alt)
             return 1.0 - inside * (1.0 - _mean_sector_factor(kind))
@@ -151,14 +151,14 @@ class QualityModel:
         if self.terrain_model is None:
             for direction in sorted(self.terrain):
                 if direction in DIRECTIONS:
-                    near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 58.0
+                    near = np.abs(wrapped_offset(az, DIRECTIONS[direction])) <= 58.0
                     factor[(alt < 50.3) & near] = 0.0
                     clean[(alt < 50.3) & near] = False
         self.notice_clean = np.ones_like(alt, dtype=bool)
         for kind, direction in sorted(self.notices):
             if direction in DIRECTIONS:
                 # Sector events reach up to 60 deg beyond a centre quantized to 22.5 deg.
-                near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 83.0
+                near = np.abs(wrapped_offset(az, DIRECTIONS[direction])) <= 83.0
                 self.notice_clean &= ~(near & (alt < 81.0))
         if not self.settings["directional_notices"]:
             self.local_clean = clean.copy()
@@ -170,7 +170,7 @@ class QualityModel:
                 continue
             if direction not in DIRECTIONS:
                 continue
-            near = np.abs((az - DIRECTIONS[direction] + 180) % 360 - 180) <= 72.0
+            near = np.abs(wrapped_offset(az, DIRECTIONS[direction])) <= 72.0
             affected = (alt < 80.0) & near
             clean[affected] = False
             self.local_clean[affected] = False
@@ -351,7 +351,7 @@ class QualityModel:
             alt = np.array([sample[0][0] for sample in samples])
             if not np.any(model.envelope(az, alt)):
                 continue
-            if any(np.any((np.abs((az - center + 180) % 360 - 180) <= 83.0) & (alt < 81.0)) for center in excluded):
+            if any(np.any((np.abs(wrapped_offset(az, center)) <= 83.0) & (alt < 81.0)) for center in excluded):
                 continue
             score = float(record["scores"][j])
             ratio = score / float(task.weight[i])

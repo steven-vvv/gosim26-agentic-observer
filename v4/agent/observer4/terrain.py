@@ -16,8 +16,37 @@ DIRECTIONS = {"N": 0.0, "NE": 45.0, "E": 90.0, "SE": 135.0, "S": 180.0, "SW": 22
 HALF_SECTOR = 22.5
 
 
+def mod360(t):
+    """``t % 360.0`` bit for bit, in place, for a float64 array the caller just made.
+
+    np.remainder is the slow step of every azimuth test. While every value lies in (-360, 720) the
+    floor modulo is one exact addition or subtraction of 360 (the same operation np.remainder
+    performs after its exact fmod), so a masked in-place add does the same work much faster.
+    Anything else (other dtypes, scalars, NaN, infinities, far-away values) takes the plain operator.
+    """
+    if not isinstance(t, np.ndarray) or t.dtype != np.float64 or t.ndim == 0 or not t.size:
+        return t % 360.0
+    if not (t.min() > -360.0 and t.max() < 720.0):  # also false for NaN
+        return t % 360.0
+    below, above = t < 0.0, t >= 360.0  # both before any change: -1e-20 + 360 is 360.0 and stays so
+    np.add(t, 360.0, out=t, where=below)
+    np.subtract(t, 360.0, out=t, where=above)
+    return t
+
+
+def wrapped_offset(az, center):
+    """``(az - center + 180) % 360 - 180``: the signed azimuth offset in [-180, 180)."""
+    shifted = az - center
+    if isinstance(shifted, np.ndarray) and shifted.dtype == np.float64 and shifted.ndim:
+        shifted += 180.0
+        wrapped = mod360(shifted)
+        wrapped -= 180.0
+        return wrapped
+    return (az - center + 180.0) % 360.0 - 180.0
+
+
 def _inside(az, center, half):
-    return np.abs((az - center + 180.0) % 360.0 - 180.0) <= half
+    return np.abs(wrapped_offset(az, center)) <= half
 
 
 class TerrainModel:
@@ -136,7 +165,9 @@ class TerrainModel:
         free = np.ones(az.shape)
         for sector in self.sectors:
             grid = self._grid(sector)
-            offset = (az - DIRECTIONS[sector["direction"]] + 180.0) % 360.0 - 180.0 + self.AZ_SPAN
+            offset = az - DIRECTIONS[sector["direction"]]
+            offset += 180.0
+            offset = mod360(offset) - 180.0 + self.AZ_SPAN
             inside = (offset >= 0) & (offset <= 2 * self.AZ_SPAN) & (alt >= 0) & (alt < self.ALT_TOP)
             if not np.any(inside):
                 continue

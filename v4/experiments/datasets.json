@@ -1042,5 +1042,59 @@
       "kind-big-r3-145"
     ],
     "source": "the three big-b24v b cards whose late_share is below the 0.34 late-override threshold (setting_boost 0.35 still active)"
+  },
+  "kind-v6t": {
+    "sealed": true,
+    "count": 4,
+    "seed_base": 26100000,
+    "kinds": [
+      "c",
+      "b"
+    ],
+    "source": "kind-v6l with six terrain sectors on every card (the real C1 card has six; the log path and terrain model together cost most there), c and b kinds alternating",
+    "weather_patch": {
+      "instrument_fault": {
+        "count": 40,
+        "instrument_efficiency_multiplier_range": [
+          0.003,
+          0.35
+        ]
+      },
+      "terrain_obstruction": {
+        "sector_count": [
+          6,
+          6
+        ],
+        "width_deg_range": [
+          30.0,
+          70.0
+        ],
+        "max_altitude_deg_range": [
+          32.0,
+          42.0
+        ]
+      },
+      "earthquake": {
+        "count": 8,
+        "magnitude_range": [
+          4.5,
+          7.0
+        ],
+        "impact_coefficient": 0.75,
+        "reference_magnitude": 6.8,
+        "max_degradation": 0.95,
+        "decay_nights": 4.0,
+        "negligible_degradation": 0.01,
+        "seeing_impact_coefficient": 0.0,
+        "transparency_impact_coefficient": 0.0,
+        "sky_quality_impact_coefficient": 0.0
+      }
+    },
+    "flats": {
+      "per_night": 3
+    },
+    "dutylog": {
+      "every_nights": 3
+    }
   }
 }
