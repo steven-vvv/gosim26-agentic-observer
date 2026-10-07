@@ -62,3 +62,9 @@
 - B1 型（kind-v6l b 日志卡 12 张）：ps0.5 +48（5/12 胜），charged 最大 876，0 expired、2 张应急档；不加守卫 +183 但 3 张应急、最大 883；w64 3/4 expired（禁用）。
 - formal-stress 001/003（mid 带）ps0.5 −11，持平；000/002 落 lean 带。
 - anchor_bound（w48cxs）在 B1 型 +221 但样本小、需再合 bound.py，终包不带。
+
+## 17:58 巡检
+
+- algo2 中期：b 空闲光纤是结构性的（91% 空闲格内无目标，可分未分仅 1.5%），extend_rate 无稳正，score_marginal 线性 −900 排除；已转向"完成度缺口/时间分配"（20:30 定论）。
+- 过载：epyc 121/32（logfp 20 进程）、adl4 73/32（logfp 20 + algo2/algo2b 26）；已分别要求降到 ≤8 / ≤10，新批次派 gosim（负载约 15/128）。各代理各自 dispatch，pool_hosts.json 槽位按单代理设计，多代理并发时会叠加超额——终包验收只用 gosim 并先查负载。
+- a/c：trial-c 三方计费在 adl3 同机并跑，19:00 前出。perf3-log 在做 kind-v6/kind-v6l 孪生卡剖析；perf3-core 拿到热点表。
