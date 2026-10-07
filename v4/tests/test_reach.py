@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from v4.agent.observer4.geometry import RAD, FiberGrid
-from v4.agent.observer4.reach import Reach, reach_degrees
+from v4.agent.observer4.reach import Reach, reach_degrees, spread_anchors
 
 INSTRUMENTS = {
     "a": {"grid_side": 4, "n_fibers": 16, "fiber_area_deg2": 0.4, "gap_deg": 0.0},
@@ -135,3 +135,48 @@ def test_one_refinement_shift_moves_the_centre_less_than_the_bound_at_any_altitu
     moved_az = az + dz / np.maximum(0.05, np.cos(alt * RAD))
     moved = np.degrees(np.arccos(np.clip(np.einsum("ij,ij->i", unit(alt, az), unit(moved_alt, moved_az)), -1, 1)))
     assert moved.max() <= 0.24 * math.sqrt(2) * 1.05
+
+
+def spread_loop(task, pool, count):
+    """The anchor loop's own selection before the choice was made ahead of the search."""
+    used, used_vectors, spread = [], np.empty((max(count, 0), 3)), math.cos(0.6 * RAD)
+    for anchor in pool:
+        if len(used) >= count:
+            break
+        anchor_vector = task.vectors[anchor]
+        if np.any(np.vecdot(used_vectors[:len(used)], anchor_vector) > spread):
+            continue
+        used_vectors[len(used)] = anchor_vector
+        used.append(int(anchor))
+    return used
+
+
+@pytest.mark.parametrize("count", [-1, 0, 1, 2, 6, 48, 5000])
+def test_spread_anchors_follow_the_pool_order_and_the_spacing_rule(count):
+    random = np.random.default_rng(13)
+    vectors = unit(random.uniform(20, 26, 700), random.uniform(0, 8, 700))
+    task = SimpleNamespace(vectors=vectors)
+    pool = random.permutation(700)[:512]
+    chosen = spread_anchors(task, pool, count)
+    assert chosen == spread_loop(task, pool, count)
+    assert len(chosen) <= max(count, 0)
+    if len(chosen) > 1:
+        gaps = separation(vectors[chosen], vectors[chosen])
+        assert gaps[~np.eye(len(chosen), dtype=bool)].min() > 0.6 - 1e-9
+
+
+def test_field_returns_the_usable_neighbours_and_the_cropped_set():
+    grid = FiberGrid(INSTRUMENTS["b"])
+    random = np.random.default_rng(6)
+    vectors = unit(random.uniform(20, 30, 600), random.uniform(0, 12, 600))
+    around = np.flatnonzero(separation(vectors, vectors[3][None, :])[:, 0] <= 4.2).astype(np.int32)
+    task = SimpleNamespace(grid=grid, vectors=vectors, neighbors=lambda anchor: around)
+    settings = {"refine_centers": True, "refine_top": 6, "refine_iterations": 1, "neighbor_radius_deg": 4.2}
+    visible = random.random(600) < 0.8
+    directional = random.uniform(-0.2, 1, 600)
+    terrain_free = random.uniform(0, 1, 600)
+    near, cropped = Reach(task).field(settings, 3, visible, directional, terrain_free)
+    usable = visible[around] & (directional[around] > 0) & (terrain_free[around] > 0.02)
+    np.testing.assert_array_equal(near, around[usable])
+    inside = separation(vectors[near], vectors[3][None, :])[:, 0] <= reach_degrees(grid, settings)
+    np.testing.assert_array_equal(cropped, near[inside])

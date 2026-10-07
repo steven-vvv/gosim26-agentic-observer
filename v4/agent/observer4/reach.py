@@ -29,11 +29,37 @@ def reach_degrees(grid, settings: dict) -> float:
     return float(np.max(np.hypot(grid.north, grid.east))) + grid.fov / 2 * math.sqrt(2) + shift + 0.05
 
 
+def spread_anchors(task, pool, count: int) -> list[int]:
+    """The first ``count`` pool anchors more than 0.6 deg from every anchor chosen before.
+
+    Spreading the search over distinct fields rather than repeatedly testing one cluster. The
+    choice depends on the pool only, so the planner makes it before searching. vecdot forms
+    each row's 3-term dot product as the one-dimensional matmul did, so the test sees the
+    same cosines.
+    """
+    chosen, rows, spread = [], np.empty((max(count, 0), 3)), math.cos(0.6 * RAD)
+    for anchor in pool:
+        if len(chosen) >= count:
+            break
+        if np.any(np.vecdot(rows[:len(chosen)], task.vectors[anchor]) > spread):
+            continue
+        rows[len(chosen)] = task.vectors[anchor]
+        chosen.append(int(anchor))
+    return chosen
+
+
 class Reach:
     """Per-anchor masks of the neighbours inside the reach, cached for the run."""
 
     def __init__(self, task):
         self.task, self.source, self.radius, self.masks = task, None, None, {}
+
+    def field(self, settings: dict, anchor: int, visible, directional, terrain_free):
+        """The usable neighbours of ``anchor`` and those of them within its reach."""
+        around = self.task.neighbors(anchor)
+        usable = visible[around] & (directional[around] > 0) & (terrain_free[around] > 0.02)
+        near = around[usable]
+        return near, self.crop(settings, anchor, around, usable, near)
 
     def crop(self, settings: dict, anchor: int, around, usable, near):
         """``near`` (= ``around[usable]``) without the targets beyond the reach of ``anchor``."""
