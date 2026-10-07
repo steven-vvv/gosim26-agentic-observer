@@ -548,9 +548,15 @@ def pull_roots(host: str) -> list[str]:
     return found if probe.returncode == 0 and found else [DEFAULT_REMOTE_PROJECT]
 
 
+# Only the small result files come back; actions.jsonl, observations.csv, agent_events.jsonl and
+# the other per-card artefacts stay on the host (they filled the local disk on 10-07).
+PULL_FILTER = ["--prune-empty-dirs", "--include=*/", "--include=summary.json", "--include=score_report.json",
+               "--include=workflow_result.json", "--exclude=*"]
+
+
 def pull_once(hosts_cfg: dict) -> None:
     """Pulled layout: v4/results/remote/<dataset>-r2/<tag>/<variant>/<card>/ holds that card's
-    summary.json, score_report.json and agent_events.jsonl ("-r2" is batch.py's own
+    summary.json, score_report.json and workflow_result.json ("-r2" is batch.py's own
     results-schema tag, independent of a dataset's card-generation revision). Run logs land
     under v4/results/remote/runs/<host>/. verify's output mirrors the remote path verbatim,
     landing at v4/results/package-verify/<package-stem>/<card>/ instead. Every code root a host has
@@ -565,11 +571,10 @@ def pull_once(hosts_cfg: dict) -> None:
         verify_dest = ROOT / "v4" / "results" / "package-verify"
         verify_dest.mkdir(parents=True, exist_ok=True)
         for project in pull_roots(host):
-            subprocess.run(["rsync", "-a", "--prune-empty-dirs", "--include=*/", "--include=summary.json",
-                             "--include=score_report.json", "--include=agent_events.jsonl", "--exclude=*",
-                             "-e", RSYNC_SSH, f"{host}:{project}/v4/results/", f"{dest}/"], check=False)
-            subprocess.run(["rsync", "-a", "-e", RSYNC_SSH, f"{host}:{project}/v4/results/package-verify/",
-                             f"{verify_dest}/"], check=False)
+            subprocess.run(["rsync", "-a", *PULL_FILTER, "-e", RSYNC_SSH,
+                            f"{host}:{project}/v4/results/", f"{dest}/"], check=False)
+            subprocess.run(["rsync", "-a", *PULL_FILTER, "-e", RSYNC_SSH,
+                            f"{host}:{project}/v4/results/package-verify/", f"{verify_dest}/"], check=False)
         log_dest = dest / "runs" / host
         log_dest.mkdir(parents=True, exist_ok=True)
         subprocess.run(["rsync", "-a", "-e", RSYNC_SSH, f"{host}:{REMOTE_HOME}/runs/*.log", f"{log_dest}/"], check=False)
@@ -654,7 +659,7 @@ def main() -> None:
     verify.add_argument("--cards", nargs="+", required=True)
     verify.add_argument("--host", default="gosim")
 
-    pull = sub.add_parser("pull", help="rsync summary/score/event files and run logs back to this machine")
+    pull = sub.add_parser("pull", help="rsync summary/score/workflow files and run logs back to this machine")
     pull.add_argument("--loop", type=int, help="repeat every SEC seconds instead of pulling once")
 
     submit = sub.add_parser("submit", help="queue (card,variant) tasks locally; 'dispatch' feeds them to hosts "
@@ -670,6 +675,9 @@ def main() -> None:
     dispatch.add_argument("--tags", nargs="+", help="only these tags (default every unfinished queue)")
     dispatch.add_argument("--chunk", type=int, default=8, help="max tasks handed to one host per round")
     dispatch.add_argument("--timeout", type=int, default=6 * 3600, help="re-queue a task running longer than this")
+    dispatch.add_argument("--max-per-host", type=int, help="cap this invocation's running tasks on each host")
+    dispatch.add_argument("--host-cap", nargs="+", default=[], metavar="HOST=N",
+                          help="per-host override of --max-per-host, e.g. gosim=4 adl1=6")
     dispatch.add_argument("--no-pull", action="store_true")
     dispatch.add_argument("--status", action="store_true", help="print queue counts and exit (no ssh)")
 
@@ -699,7 +707,8 @@ def main() -> None:
         if args.status:
             pool_dispatch.cmd_status(args.tags)
         else:
-            pool_dispatch.cmd_dispatch(args.loop, args.tags, args.timeout, args.chunk, not args.no_pull)
+            pool_dispatch.cmd_dispatch(args.loop, args.tags, args.timeout, args.chunk, not args.no_pull,
+                                       args.max_per_host, {k: int(v) for k, _, v in (x.partition("=") for x in args.host_cap)})
     elif args.command == "verify":
         cmd_verify(args.package, args.cards, args.host)
     elif args.command == "pull":
