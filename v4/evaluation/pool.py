@@ -657,6 +657,22 @@ def main() -> None:
     pull = sub.add_parser("pull", help="rsync summary/score/event files and run logs back to this machine")
     pull.add_argument("--loop", type=int, help="repeat every SEC seconds instead of pulling once")
 
+    submit = sub.add_parser("submit", help="queue (card,variant) tasks locally; 'dispatch' feeds them to hosts "
+                                            "as slots free up (root and r2 tag rule: see pool_dispatch.py)")
+    submit.add_argument("--dataset", required=True)
+    submit.add_argument("--variants", nargs="+", required=True)
+    submit.add_argument("--tag", required=True)
+    submit.add_argument("--hosts", help="comma-separated; default all enabled")
+    submit.add_argument("--cards", nargs="+")
+
+    dispatch = sub.add_parser("dispatch", help="dispatch queued tasks to hosts with free slots")
+    dispatch.add_argument("--loop", type=int, help="repeat every SEC seconds until every queue is finished")
+    dispatch.add_argument("--tags", nargs="+", help="only these tags (default every unfinished queue)")
+    dispatch.add_argument("--chunk", type=int, default=8, help="max tasks handed to one host per round")
+    dispatch.add_argument("--timeout", type=int, default=6 * 3600, help="re-queue a task running longer than this")
+    dispatch.add_argument("--no-pull", action="store_true")
+    dispatch.add_argument("--status", action="store_true", help="print queue counts and exit (no ssh)")
+
     sub.add_parser("status", help="online/load/process-count and tail of each host's run logs")
 
     args = parser.parse_args()
@@ -675,6 +691,15 @@ def main() -> None:
         cmd_run(args.dataset, args.variants, args.tag, args.hosts, args.cards)
     elif args.command == "requeue":
         cmd_requeue(args.dataset, args.variants, args.tag)
+    elif args.command == "submit":
+        from . import pool_dispatch
+        pool_dispatch.cmd_submit(args.dataset, args.variants, args.tag, args.hosts, args.cards)
+    elif args.command == "dispatch":
+        from . import pool_dispatch
+        if args.status:
+            pool_dispatch.cmd_status(args.tags)
+        else:
+            pool_dispatch.cmd_dispatch(args.loop, args.tags, args.timeout, args.chunk, not args.no_pull)
     elif args.command == "verify":
         cmd_verify(args.package, args.cards, args.host)
     elif args.command == "pull":
