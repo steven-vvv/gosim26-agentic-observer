@@ -134,8 +134,7 @@
       "upgrade_weight": 0.5,
       "science_horizon_hours": 240.0,
       "science_exponent": 1.8,
-      "revisit_increment": 1.0,
-      "required_stretch": 4
+      "revisit_increment": 1.0
     },
     "lean_split_fiber_hours": 0.43,
     "very_lean_overrides": {
