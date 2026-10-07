@@ -114,7 +114,11 @@
       "upgrade_weight": 0.5,
       "science_horizon_hours": 120.0,
       "science_cap_quality": 0.6,
-      "refine_iterations": 2
+      "refine_iterations": 2,
+      "anchors": 72,
+      "anchor_pool": 768,
+      "cluster_anchors": 24,
+      "refine_top": 8
     },
     "mid_overrides": {
       "setting_boost": 0.0,
@@ -124,6 +128,13 @@
       "refine_top": 4,
       "upgrade_weight": 0.5,
       "science_horizon_hours": 240.0
+    },
+    "lean_split_fiber_hours": 0.43,
+    "very_lean_overrides": {
+      "anchors": 48,
+      "anchor_pool": 512,
+      "cluster_anchors": 16,
+      "refine_top": 6
     }
   },
   "quality": {

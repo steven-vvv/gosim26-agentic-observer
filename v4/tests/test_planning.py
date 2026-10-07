@@ -171,6 +171,7 @@ def test_structure_switch_selects_window_urgency_only_on_lean_seasons():
 
     # Kinds a, c, b, d: 16 fibres / 0.504, 9 / 0.356, 25 / 0.843, 100 / 9.6 fibre hours per target.
     assert card_structure(task(16, 1000, 31.5), switch)["overrides"] == switch["lean_overrides"]
-    assert card_structure(task(9, 1000, 39.6), switch)["overrides"] == switch["lean_overrides"]
+    assert card_structure(task(9, 1000, 39.6), switch)["overrides"] == {**switch["lean_overrides"],
+                                                                        **switch["very_lean_overrides"]}
     assert "window_weight" not in card_structure(task(25, 1000, 33.7), switch)["overrides"]
     assert card_structure(task(100, 1000, 96.1), switch)["overrides"] == {"upgrade_weight": 0.5}

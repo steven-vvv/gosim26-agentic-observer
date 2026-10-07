@@ -50,17 +50,19 @@ def test_default_config_overrides_and_bands_are_unchanged():
     default = load(CONFIG)["structure"]
     lean = {"window_weight": 0.5, "upgrade_weight": 0.5, "science_horizon_hours": 120.0, "science_cap_quality": 0.6,
             "refine_iterations": 2}
+    wide = {"anchors": 72, "anchor_pool": 768, "cluster_anchors": 24, "refine_top": 8}
+    narrow = {"anchors": 48, "anchor_pool": 512, "cluster_anchors": 16, "refine_top": 6}
     mid = {"setting_boost": 0.0, "anchor_pool": 256, "anchors": 32, "cluster_anchors": 10, "refine_top": 4,
            "upgrade_weight": 0.5, "science_horizon_hours": 240.0}
-    expected = {"c": lean, "a": lean, "b": mid, "d": {"upgrade_weight": 0.5}}
-    bands = {"c": "lean", "a": "lean", "b": "mid", "d": "rich"}
+    expected = {"c": {**lean, **narrow}, "a": {**lean, **wide}, "b": mid, "d": {"upgrade_weight": 0.5}}
+    bands = {"c": "very_lean", "a": "lean", "b": "mid", "d": "rich"}
     for name in KINDS:
         found = card_structure(kind(name), default)
         assert found["overrides"] == expected[name]
         assert found["band"] == bands[name]
     late = card_structure(kind("a", late_only=True), default)
     assert late["late_share"] == 1.0
-    assert late["overrides"] == {"setting_boost": 0.0, **lean}
+    assert late["overrides"] == {"setting_boost": 0.0, **lean, **wide}
 
 
 def test_new_keys_select_overrides_by_band():
@@ -174,8 +176,7 @@ def test_patch_merges_group_fields_and_leaves_the_default_untouched():
     merged = patched({"lean_overrides": {"anchors": 20}, "mid_overrides": {"anchors": 8}})
     assert merged["lean_overrides"] == {**default["lean_overrides"], "anchors": 20}
     assert merged["mid_overrides"] == {**default["mid_overrides"], "anchors": 8}
-    assert "very_lean_overrides" not in default
-    assert "lean_split_fiber_hours" not in default
+    assert default["lean_split_fiber_hours"] == 0.43
     with pytest.raises(ValueError):
         load(CONFIG, {"structure": {"enabled": True, "surprise": 1}})
 
@@ -184,7 +185,7 @@ def test_default_config_file_has_no_new_structure_keys():
     structure = json.loads(CONFIG.read_text(encoding="utf-8"))["structure"]
     assert set(structure) == {"enabled", "late_fraction", "late_share_threshold", "late_overrides",
                               "rich_fiber_hours", "rich_overrides", "lean_fiber_hours", "lean_overrides",
-                              "mid_overrides"}
+                              "mid_overrides", "lean_split_fiber_hours", "very_lean_overrides"}
 
 
 def scaled_planner(overrides):
