@@ -27,8 +27,8 @@ from .geometry import (
 from .matching import overexposure_weights
 from .opportunity import OpportunityModel
 from .rates import RateProfile
-from .required import stretched
 from .reach import Reach, spread_anchors
+from .required import stretched
 from .sky import program_odds, visible_sky
 from .structure import card_structure
 from .transit import transit_weights
