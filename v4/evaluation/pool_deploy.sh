@@ -7,7 +7,14 @@ set -e
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=20"
 t0=$(date +%s); step(){ echo "[$(( $(date +%s)-t0 ))s] $*"; }
 step "mkdir"
-$SSH $H 'mkdir -p /root/.uvpy /root/.local/bin /root/gosim/GOSIM26' < /dev/null
+# AutoDL 容器：系统盘仅 30G，/root/autodl-tmp 是 50G 数据盘。全新主机上先把 /root/gosim 建成指向数据盘的符号链接，
+# 之后所有写死 /root/gosim 的路径（pool.py、本脚本）无需改动就落到数据盘；已有真实目录的旧主机用 pool_migrate.sh 迁移。
+# 阿里云 gosim 没有 /root/autodl-tmp，不受影响。
+$SSH $H 'mkdir -p /root/.uvpy /root/.local/bin
+  if [ ! -e /root/gosim ] && [ ! -L /root/gosim ] && [ -d /root/autodl-tmp ]; then
+    mkdir -p /root/autodl-tmp/gosim && ln -s /root/autodl-tmp/gosim /root/gosim && echo "data-disk link: /root/gosim -> /root/autodl-tmp/gosim"
+  fi
+  mkdir -p /root/gosim/GOSIM26' < /dev/null
 step "ensure git"
 $SSH $H 'command -v git >/dev/null || (command -v dnf >/dev/null && dnf -y -q install git || (apt-get update -qq && apt-get install -y -qq git))' < /dev/null
 step "python 3.14.7"
