@@ -22,6 +22,7 @@ from .geometry import (
     to_equatorial,
     wrap180,
 )
+from .matching import overexposure_weights
 from .opportunity import OpportunityModel
 from .rates import RateProfile
 from .reach import Reach, spread_anchors
@@ -265,10 +266,20 @@ class Planner:
         value = float(merit[center_i, duration_i])
         if value <= item["merit"] * (1.0 + 1e-9):
             return len(ca)
-        selected = _fiber_choices(fibers[center_i], gains[duration_i] * geometry_weight[center_i], near)
+        gain = self._matched(gains[duration_i] * geometry_weight[center_i], int(durations[duration_i]), near,
+                             self._last_rate)
+        selected = _fiber_choices(fibers[center_i], gain, near)
         item.update({"merit": value, "alt": float(ca[center_i]), "az": float(cz[center_i]),
                      "duration": int(durations[duration_i]), "selected": selected, "refined": True})
         return len(ca)
+
+    def _matched(self, gain, duration: int, near, rate):
+        """Fibre-choice gains with the unneeded part of the exposure discounted (choice_gamma)."""
+        gamma = float(self.settings.get("choice_gamma", 0.0))
+        if gamma <= 0:
+            return gain
+        raw = duration * self._rates(np.array([duration]), near, rate)[0]
+        return gain * overexposure_weights(raw, gamma)
 
     def _arrival_cap(self, now, left, incomplete, visible, reach, ha, scale, safety, zero_point, open_now):
         """Latest end for this exposure so that a burst of required targets finds the telescope free.
@@ -508,6 +519,7 @@ class Planner:
                        if typical > 0 else None)
         exponent = self._science_exponents(night_index)
         overhead = float(settings.get("duration_overhead", 0.0))
+        over_gamma = float(settings.get("overexposure_gamma", 0.0))
         terrain = self.quality.terrain_model
         horizon = part if (predicted is not None or terrain is not None) else None
         track = self._track(now, altitude, azimuth, subset, horizon) if terrain is not None else None
@@ -546,6 +558,7 @@ class Planner:
         # factor below zero would only produce NaN in the convex science value.
         reach = np.clip(rate * np.minimum(np.minimum(task.maximum_exposure, setting_seconds), left), 0, 1)
         self._last_reach, self._last_directional = reach, directional * terrain_free
+        self._last_rate = rate
         mult = np.array([task.scoring["program"]["multipliers"][name] for name in PROGRAMS])
         mismatch = task.scoring["program"]["mismatch_multiplier"]
         expected_mult = mismatch + (mult[:, None] - mismatch) * probabilities
@@ -705,6 +718,8 @@ class Planner:
             if not len(near):
                 continue
             factors = durations[:, None] * self._rates(durations, near, rate)
+            # Optional: discount the unneeded part of the exposure (matching.py); off by default.
+            match = overexposure_weights(factors, over_gamma) if over_gamma > 0 else None
             np.minimum(1, factors, out=factors)
             if settings.get("score_marginal", False):
                 science_gain = expected_science_gains(factors, task.weight[near], state.best_score[near],
@@ -720,6 +735,8 @@ class Planner:
                         0, task.weight[near] * expected_top[near] * factors - state.best_score[near]) / top_multiplier
                     science_gain = np.where(complete[near][None, :], np.maximum(science_gain, upgrade * linear),
                                             science_gain)
+            if match is not None:
+                science_gain = science_gain * match
             near_bonus = required_bonus if self.scarcity is None else required_bonus[near]
             safe = factors >= settings["required_safe_factor"]
             req_gain = incomplete[near][None, :] * safe * near_bonus
@@ -767,6 +784,7 @@ class Planner:
             if value <= 0 or (len(finalists) >= 6 and value <= finalists[-1]["merit"]):
                 continue
             gain = gains[program_i, duration_i] * geometry_weight[center_i] if program_i is not None else gains[duration_i] * geometry_weight[center_i]
+            gain = self._matched(gain, int(durations[duration_i]), near, rate)
             selected = _fiber_choices(fibers[center_i], gain, near)
             candidate = {
                 "merit": value,
