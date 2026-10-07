@@ -99,3 +99,13 @@
 - **ENOSPC 余波**：本机所有 pool dispatch 进程在 18:20 前后退出，五台主机上已没有我们的 batch/run_local 进程。adl4 93、epyc 131 的负载来自同宿主其他租户，不是我们的。已通知 a/c、algo1、richd、perf3 重启各自 dispatch，优先派 gosim（负载 0）。
 - a/c 子代理：6 个 formal-stress 验收在 gosim 并跑撞上验收器 1500 s 超时，全被杀；已要求每台 ≤2 并发、只保留 6c58/901b4f × 000/002，19:00 先交已有数据。
 - 磁盘 7.7G 可用，稳定。
+
+## 19:00 a/c 线收尾（Opus，已收工）
+
+- 推荐项 = 已合入的 f4422e8（lean 加 science_exponent 1.8 + revisit_increment 1.0）。确认集 big-ac48v：a +96 [+75,+117] 23/24 胜、c +108 [+84,+135] 24/24 胜，CPU ×1.05/1.06。
+- **a 类可选优化**：revisit_increment 对 a 无增益（−13，CI 跨 0）却多花 7% CPU；可把它移到 very_lean_overrides（只作用 c）。按数据换算 a 约 +108、c 约 +108，每卡动作与已测变体相同。**20:45 决策项**：要不要为省 a 类 CPU 做这个拆分。
+- b 类叠 x18+ri（在 w48c 上）：big-b24v +54 [+26,+86]，CPU ×1.07；b 日志卡 8 张 +105 [−24,+241]。**候选 B1 仍有正下限**。
+- c 加宽 cw72/cw60 不推荐（−64 / −1，CPU ×1.22）。
+- trial-c 官方 runner 同机三方：164732 450.6 s、df7f 523.0 s、候选 513.8 s；推荐配置对 df7f 不增计费、对 164732 +14%。
+- 两个包在 /tmp/ac3/dist（6c58 与 901b4f），901b4f = HEAD + lean/mid 都开 pace_shrink 0.5。
+- **主代理接手压力卡计时**：gosim 空闲，串行跑 6c58 与 901b4f × formal-stress-r3-000/002（脚本 $CLAUDE_JOB_DIR/tmp/wait_fs.sh，日志 v-fs-6c58.log）。
