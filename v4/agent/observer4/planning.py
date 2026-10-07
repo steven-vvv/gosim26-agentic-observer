@@ -27,6 +27,7 @@ from .rates import RateProfile
 from .reach import Reach, spread_anchors
 from .sky import program_odds, visible_sky
 from .structure import card_structure
+from .valuation import science_gains
 
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
 # Priority factor after k recorded misses (k capped at 6): max(0.25, 0.80 ** k), elementwise.
@@ -597,13 +598,14 @@ class Planner:
             horizon = float(settings.get("tonight_horizon", 7200.0))
             closing = np.clip(1.0 - remaining / horizon, 0.0, 1.0)
             urgency = urgency * np.where(incomplete, 1.0 + tonight * closing, 1.0)
+        inc = float(settings.get("revisit_increment", 0))
         if settings.get("score_marginal", False):
             science = np.max(expected_science_gains(reach[None, :], task.weight, state.best_score,
                                                     probabilities, mult, mismatch)[:, 0, :], axis=0)
         else:
-            # Elementwise, so the anchor search reuses its entries for each neighbourhood.
             estimate_value = science_value(state.factor_estimate, exponent, science_cap)
-            science = task.weight * np.maximum(0, science_value(reach, exponent, science_cap) - estimate_value)
+            science = task.weight * science_gains(science_value(reach, exponent, science_cap), reach,
+                                                  state.factor_estimate, estimate_value, inc)
         upgrade = float(settings.get("upgrade_weight", 0.0))
         if upgrade > 0:
             # A complete target scored under a mismatched or weaker program can still gain the
@@ -676,8 +678,9 @@ class Planner:
         if profile is not None and fields:
             profile.prepare(np.concatenate([cropped for _, _, cropped in fields]))
         fields_checked = 0
+        open_factor = (1.0 - state.factor_estimate) * (state.factor_estimate > 0) if inc > 0 else None
         candidates = Durations(task, settings, left if cap is None else min(left, cap), rate, incomplete,
-                               request_thresholds, subset)
+                               request_thresholds, subset, open_factor)
         for anchor, near, cropped in fields:
             if not len(near):
                 continue
@@ -709,10 +712,8 @@ class Planner:
             else:
                 near_cap = science_cap[near] if science_cap is not None else None
                 power = exponent if np.ndim(exponent) == 0 else exponent[near]
-                # In place, in the order of weight * max(0, value - estimate).
-                science_gain = science_value(factors, power, near_cap)
-                science_gain -= estimate_value[near]
-                np.maximum(0, science_gain, out=science_gain)
+                science_gain = science_gains(science_value(factors, power, near_cap), factors,
+                                             state.factor_estimate[near], estimate_value[near], inc)
                 science_gain *= task.weight[near]
                 if upgrade > 0:
                     linear = np.maximum(

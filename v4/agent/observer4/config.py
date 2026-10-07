@@ -51,7 +51,7 @@ OVERRIDE_BOUNDS = {
     "neighbor_radius_deg": (1.0, 10), "cluster_radius_deg": (0.1, 5), "glass_margin_deg": (0, 0.25),
     "program_uncertainty_floor": (0, 1), "request_weight": (0, 100), "science_cap_quality": (0, 2),
     "anchors": (1, 128), "anchor_pool": (1, 4096), "cluster_anchors": (0, 128), "refine_top": (0, 32),
-    "refine_iterations": (1, 8), "pace_shrink": (0, 1),
+    "refine_iterations": (1, 8), "pace_shrink": (0, 1), "revisit_increment": (0, 1),
 }
 OVERRIDE_INTEGERS = frozenset({"anchors", "anchor_pool", "cluster_anchors", "refine_top", "refine_iterations"})
 STRUCTURE_GROUPS = ("late_overrides", "rich_overrides", "lean_overrides", "very_lean_overrides", "mid_overrides")
@@ -234,7 +234,8 @@ def validate(config: dict) -> None:
                 raise ValueError(f"invalid configuration field: policy.{name}")
     for name, (low, high) in {"rollout_top": (0, 2), "rollout_weight": (0, 2), "setting_boost": (0, 2),
                               "rising_weight": (0, 1), "upgrade_weight": (0, 2), "upgrade_factor": (0.5, 1),
-                              "season_weight": (0, 2), "window_weight": (0, 2)}.items():
+                              "season_weight": (0, 2), "window_weight": (0, 2),
+                              "revisit_increment": (0, 1)}.items():
         if name in config["policy"]:
             value = config["policy"][name]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
