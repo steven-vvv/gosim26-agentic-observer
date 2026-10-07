@@ -1032,5 +1032,15 @@
       "kind-big-r3-062"
     ],
     "source": "kind-big a/c cards 000-062 (the a/c part of big-abc48); screening only, never confirmation"
+  },
+  "lowlate-b3": {
+    "sealed": true,
+    "of": "kind-big",
+    "cards": [
+      "kind-big-r3-085",
+      "kind-big-r3-129",
+      "kind-big-r3-145"
+    ],
+    "source": "the three big-b24v b cards whose late_share is below the 0.34 late-override threshold (setting_boost 0.35 still active)"
   }
 }

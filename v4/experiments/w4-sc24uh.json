@@ -1,0 +1,1 @@
+{"scale": {"anchor_pool": 192, "anchors": 24, "cluster_anchors": 8, "refine_top": 3}, "policy": {"upgrade_weight": 0.5, "science_horizon_hours": 240.0}}

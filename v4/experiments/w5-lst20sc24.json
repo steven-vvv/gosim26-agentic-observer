@@ -1,0 +1,1 @@
+{"structure": {"late_share_threshold": 0.2}, "scale": {"anchor_pool": 192, "anchors": 24, "cluster_anchors": 8, "refine_top": 3}}
