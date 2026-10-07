@@ -147,7 +147,7 @@ def test_every_whitelisted_override_accepts_its_bounds_and_nothing_beyond():
         for value in (low - step, high + step):
             with pytest.raises(ValueError):
                 patched({"mid_overrides": {field: cast(value)}})
-    assert len(OVERRIDE_BOUNDS) == 30
+    assert len(OVERRIDE_BOUNDS) == 32
 
 
 def test_structure_override_bounds_match_policy_bounds():

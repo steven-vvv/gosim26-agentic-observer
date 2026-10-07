@@ -29,6 +29,7 @@ from .rates import RateProfile
 from .reach import Reach, spread_anchors
 from .sky import program_odds, visible_sky
 from .structure import card_structure
+from .transit import transit_weights
 from .valuation import science_gains
 
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
@@ -604,6 +605,11 @@ class Planner:
             later = (ha < 0) & (transit <= min(night.end, task.end))
             setting_boost = setting_boost * np.where(
                 later, 1.0 - rising * np.clip(-ha / np.maximum(1, task.hmax), 0.0, 1.0), 1.0)
+        transit = float(settings.get("transit_weight", 0.0))
+        if transit > 0:
+            # Prefer targets near their transit altitude while they have hours left (transit.py).
+            share = np.clip(self._remaining_hours(night_index) / float(settings.get("transit_hours", 100.0)), 0, 1)
+            setting_boost = setting_boost * transit_weights(task, altitude, transit, share)
         tonight = float(settings.get("tonight_weight", 0.0))
         if tonight > 0:
             # Required targets whose window tonight closes soon lose their chance for the

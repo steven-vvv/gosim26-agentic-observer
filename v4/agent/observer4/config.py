@@ -52,6 +52,7 @@ OVERRIDE_BOUNDS = {
     "program_uncertainty_floor": (0, 1), "request_weight": (0, 100), "science_cap_quality": (0, 2),
     "anchors": (1, 128), "anchor_pool": (1, 4096), "cluster_anchors": (0, 128), "refine_top": (0, 32),
     "refine_iterations": (1, 8), "pace_shrink": (0, 1), "revisit_increment": (0, 1), "extend_rate": (0, 1), "extend_ratio": (0, 1),
+    "transit_weight": (0, 4), "transit_hours": (1, 2000),
     "overexposure_gamma": (0, 4), "choice_gamma": (0, 4),
 }
 OVERRIDE_INTEGERS = frozenset({"anchors", "anchor_pool", "cluster_anchors", "refine_top", "refine_iterations"})
