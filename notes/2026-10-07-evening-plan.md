@@ -276,3 +276,26 @@
 - d 型报修门限缺陷（fault 线）、新种子鲁棒性（robust 线）、首拍开拍门槛（gate 线）在跑。
 
 **池子（10-08 01:36 校正后，按 cgroup 真实配额）**：gosim 52/128、adl1 12/32、adl2 32/32（节流）、adl3 20/32、adl4 17/32、epyc 22/32 —— 无节流（除 adl2）。
+
+## 10-08 02:30 两个重要核实：望远镜时间已满 + 评奖资格通过
+
+### 1. 望远镜时间**已满**，"空闲"是光纤位不是时间（纠正主代理 02:20 的假设）
+用 trial-a 的 `night_calendar` 与曝光时段实测：
+- 可观测总时长 944 h，**实际曝光占用 940 h（99.6%）**；123/123 夜都有观测；首末曝光间的空档合计仅 **3 h（0.3%）**，空档 >0.5 h 的夜只有 1 个。
+- 之前 acx 报的"a 卡空闲 18–19%"是**光纤时数口径**（每次曝光内未被指派的光纤位），不是望远镜时间。
+- 另有更准的浪费量度：按"这次曝光是否贡献了至少一个目标的最佳记录"分类，**真正零贡献（整场被取代）的曝光只占望远镜时间的 2.8%**（a 27 h / b 40 h / c 27 h，三卡一致）。
+- **推论**：不存在"免费时长"。任何延长曝光都是重新分配，净收益必须实测（"仅延长 QSO 到 3600 s 可回收 +2160"是不挤占的上界，不是净收益）。
+
+### 2. 评奖资格审计：**通过**（≥3 个环节真由 LLM 驱动）
+只读审计最终包 de30（解压后跑上游 `scripts/review-agent-usage.py` 的判据逐条核对代码路径 + 平台运行时证据）：
+| 环节 | 判定 | 机制 |
+|---|---|---|
+| 自然语言理解 | ✅ 强 | `logbook.py` 判读值班日志（中文 prompt）→ `faults/quiet/cancelled` → 驱动报修与等待 |
+| 数据解析 | ✅（同上路径） | 同一次 `duty_log` 调用解析出结构化预约/静默窗/地形 |
+| 任务规划 | ✅ | `advice.weekly()` 选 steady/required_push/science_push → 改写 required_bonus/safe_factor |
+| 行动决策 | ✅ 强 | `advice.action()` 在两候选 merit 差 <3% 时选一，**直接替换要执行的观测** |
+| 工具调用 | ❌ | 只有一次 chat 请求，无 function/tool 定义 |
+| 计划自适应 | ⚠️ 可算 | 周策略随预报重选 + 日志预约改规划视界 |
+- 关键前提已核实：包是**锁定 full 档**（`remote_config.locked=true`、`enabled=false`），所以 `model.enabled` 与 `logbook.enabled` **运行时真生效**。
+- 平台实测证据：5-a1-v5 `advisor.calls=24`、`model_request` 69 次（duty_log 45 + weekly 8 + action 16）、fallback 0；**行动决策确有模型推翻确定性选择并被采纳的实例**（`model_action_candidate:1`，`accepted_choice:C1` vs `deterministic_choice:C0`）。
+- 待办（零风险、纯文档）：`PACKAGE_README.md` 只列了 weekly 与 action 两个模型环节，**没提 logbook 这个 LLM 环节**；补一行可避免评审锚定只认两项。仅在重新打包时顺手做。
