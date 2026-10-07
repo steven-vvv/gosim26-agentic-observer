@@ -109,3 +109,8 @@
 - trial-c 官方 runner 同机三方：164732 450.6 s、df7f 523.0 s、候选 513.8 s；推荐配置对 df7f 不增计费、对 164732 +14%。
 - 两个包在 /tmp/ac3/dist（6c58 与 901b4f），901b4f = HEAD + lean/mid 都开 pace_shrink 0.5。
 - **主代理接手压力卡计时**：gosim 空闲，串行跑 6c58 与 901b4f × formal-stress-r3-000/002（脚本 $CLAUDE_JOB_DIR/tmp/wait_fs.sh，日志 v-fs-6c58.log）。
+
+## 19:14 巡检
+
+- 压力卡计时（6c58 × formal-stress-000/002，gosim 串行/两个进程）已跑 16 分钟仍在跑；预计 19:30 前后出，之后再自动串行跑 901b4f 那两个。
+- 磁盘 8.2G；子代理：algo1 同步补丁后重跑 trial-d、perf3-log 已提交第一项提速（317 测试）、perf3-core 实现第二批、richd 在 adl1 重排、logfp 继续。
