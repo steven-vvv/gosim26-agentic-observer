@@ -1096,5 +1096,21 @@
     "dutylog": {
       "every_nights": 3
     }
+  },
+  "acc8": {
+    "sealed": false,
+    "cards": [
+      "trial-a",
+      "trial-b",
+      "trial-c",
+      "trial-d",
+      "trial-a1",
+      "trial-b1",
+      "trial-c1",
+      "trial-d1"
+    ],
+    "sources": {
+      "trial-*": "acceptance: trial a-d plus a1-d1 (trial + flats + duty log)"
+    }
   }
 }

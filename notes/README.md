@@ -55,5 +55,14 @@
 ## 会话归档
 
 - [`2026-09-27-claude-e5e6a5dc.md`](2026-09-27-claude-e5e6a5dc.md)：记录外部会话对练习榜和模型资格的核对。
+- [`2026-10-07-richd.md`](2026-10-07-richd.md)：rich-d 参数筛选结论。
+- [`2026-10-08-d-fault-ceiling.md`](2026-10-08-d-fault-ceiling.md)：d 型故障上限实验结论。
+- [`2026-10-08-dome-knobs.md`](2026-10-08-dome-knobs.md)：穹顶策略开关实验结论。
+- [`2026-10-08-lexp-ac-exponent.md`](2026-10-08-lexp-ac-exponent.md)：a/c 科学指数与视野实验结论。
+- [`2026-10-08-season-end-completion.md`](2026-10-08-season-end-completion.md)：季末完成奖励实验结论。
+- [`2026-10-08-wexp-weather-convexity.md`](2026-10-08-wexp-weather-convexity.md)：天气凸性实验结论。
+- [`acx-progress.md`](acx-progress.md)：acx 计时权重实验结论。
+- [`2026-10-08-de30-ablation.md`](2026-10-08-de30-ablation.md)：de30 分量消融线的可复查结论。
+- [`2026-10-09-cleanup.md`](2026-10-09-cleanup.md)：worktree 与可再生产物清理记录。
 
 工作区目录和输出边界见 [`../docs/workspace-layout.md`](../docs/workspace-layout.md)。
