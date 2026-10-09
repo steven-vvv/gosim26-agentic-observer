@@ -676,6 +676,8 @@ def main() -> None:
     dispatch.add_argument("--chunk", type=int, default=8, help="max tasks handed to one host per round")
     dispatch.add_argument("--timeout", type=int, default=6 * 3600, help="re-queue a task running longer than this")
     dispatch.add_argument("--max-per-host", type=int, help="cap this invocation's running tasks on each host")
+    dispatch.add_argument("--host-cap", nargs="+", default=[], metavar="HOST=N",
+                          help="per-host override of --max-per-host, e.g. gosim=4 adl1=6")
     dispatch.add_argument("--no-pull", action="store_true")
     dispatch.add_argument("--status", action="store_true", help="print queue counts and exit (no ssh)")
 
@@ -706,7 +708,7 @@ def main() -> None:
             pool_dispatch.cmd_status(args.tags)
         else:
             pool_dispatch.cmd_dispatch(args.loop, args.tags, args.timeout, args.chunk, not args.no_pull,
-                                       args.max_per_host)
+                                       args.max_per_host, {k: int(v) for k, _, v in (x.partition("=") for x in args.host_cap)})
     elif args.command == "verify":
         cmd_verify(args.package, args.cards, args.host)
     elif args.command == "pull":

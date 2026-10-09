@@ -49,12 +49,13 @@ def patched(structure):
 def test_default_config_overrides_and_bands_are_unchanged():
     default = load(CONFIG)["structure"]
     lean = {"window_weight": 0.5, "upgrade_weight": 0.5, "science_horizon_hours": 120.0, "science_cap_quality": 0.6,
-            "refine_iterations": 2, "science_exponent": 1.8, "revisit_increment": 1.0}
+            "refine_iterations": 2, "science_exponent": 1.8, "revisit_increment": 1.0,
+            "overexposure_gamma": 0.25}
     wide = {"anchors": 72, "anchor_pool": 768, "cluster_anchors": 24, "refine_top": 8}
-    narrow = {"anchors": 48, "anchor_pool": 512, "cluster_anchors": 16, "refine_top": 6}
+    narrow = {"anchors": 48, "anchor_pool": 512, "cluster_anchors": 16, "refine_top": 6, "timing_weight": 0.5}
     mid = {"setting_boost": 0.0, "anchor_pool": 512, "anchors": 48, "cluster_anchors": 24, "refine_top": 6, "pace_shrink": 0.5,
            "upgrade_weight": 0.5, "science_horizon_hours": 240.0, "science_exponent": 1.8,
-           "revisit_increment": 1.0, "required_stretch": 4}
+           "revisit_increment": 1.0}
     expected = {"c": {**lean, **narrow}, "a": {**lean, **wide}, "b": mid, "d": {"upgrade_weight": 0.5}}
     bands = {"c": "very_lean", "a": "lean", "b": "mid", "d": "rich"}
     for name in KINDS:
@@ -147,7 +148,7 @@ def test_every_whitelisted_override_accepts_its_bounds_and_nothing_beyond():
         for value in (low - step, high + step):
             with pytest.raises(ValueError):
                 patched({"mid_overrides": {field: cast(value)}})
-    assert len(OVERRIDE_BOUNDS) == 34
+    assert len(OVERRIDE_BOUNDS) == 31
 
 
 def test_structure_override_bounds_match_policy_bounds():

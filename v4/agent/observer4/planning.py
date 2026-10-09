@@ -9,7 +9,6 @@ import numpy as np
 
 from .bound import surviving_durations
 from .durations import Durations
-from .extension import extend
 from .fibers import _segments, fiber_totals
 from .geometry import (
     RAD,
@@ -31,7 +30,7 @@ from .reach import Reach, spread_anchors
 from .required import stretched
 from .sky import program_odds, visible_sky
 from .structure import card_structure
-from .transit import transit_weights
+from .timing import QualityTiming
 from .valuation import science_gains
 
 PROGRAMS = ("DARK", "BRIGHT", "BACKUP")
@@ -598,6 +597,11 @@ class Planner:
                 typical = float(np.median(nights_left[up]))
                 scarce = np.clip(typical / np.maximum(nights_left, 1.0), 1.0, 4.0) - 1.0
                 urgency = urgency * (1.0 + window * np.where(up, scarce, 0.0))
+        timing = float(settings.get("timing_weight", 0.0))
+        if timing > 0:
+            self.timing = getattr(self, "timing", None) or QualityTiming()
+            urgency = urgency * self.timing.boost(
+                rate * np.minimum(np.minimum(task.maximum_exposure, setting_seconds), left), scale, timing)
         if self.opportunity is not None and self.instrument is not None:
             try:
                 chances = self.opportunity.urgency(night_index, self.instrument.sky_levels(), threshold,
@@ -614,11 +618,6 @@ class Planner:
             later = (ha < 0) & (transit <= min(night.end, task.end))
             setting_boost = setting_boost * np.where(
                 later, 1.0 - rising * np.clip(-ha / np.maximum(1, task.hmax), 0.0, 1.0), 1.0)
-        transit = float(settings.get("transit_weight", 0.0))
-        if transit > 0:
-            # Prefer targets near their transit altitude while they have hours left (transit.py).
-            share = np.clip(self._remaining_hours(night_index) / float(settings.get("transit_hours", 100.0)), 0, 1)
-            setting_boost = setting_boost * transit_weights(task, altitude, transit, share)
         tonight = float(settings.get("tonight_weight", 0.0))
         if tonight > 0:
             # Required targets whose window tonight closes soon lose their chance for the
@@ -842,14 +841,6 @@ class Planner:
         if not finalists:
             self.last_trace = {"reason": "no_profitable_field", "anchors": len(used), "fields": fields_checked}
             return None
-        lam, ratio = float(settings.get("extend_rate", 0.0)), float(settings.get("extend_ratio", 0.0))
-        if lam > 0 or ratio > 0:
-            # Lengthen the finalists at a shadow price of telescope time (extension.py).
-            free = getattr(task, "revision", 1) >= 2 and settings.get("free_center", True)
-            pick = lambda f, g, n, d: _fiber_choices(f, self._matched(g, d, n, rate), n)
-            for item in finalists:
-                limit = 1e9 if free else float(self._centers_up(np.array([item["alt"]]), np.array([item["az"]]), lst)[0])
-                extend(item, lam + ratio * item["merit"], task.grid, vectors, glass_margin, limit, pick)
         for item in finalists:
             selected = np.array([i for _, i in item["selected"]], dtype=np.int32)
             item_rate = self._rates(np.array([item["duration"]]), selected, rate)[0]
