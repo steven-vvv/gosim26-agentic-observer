@@ -18,7 +18,7 @@
 | 资源 / Resources | [zh/04-resources.md](zh/04-resources.md) | [en/04-resources.md](en/04-resources.md) | <https://create.gosim.org/survey26/platform/resources> |
 | 常见问题 / FAQ | [zh/05-faq.md](zh/05-faq.md) | [en/05-faq.md](en/05-faq.md) | <https://create.gosim.org/survey26/platform/faq> |
 
-赛事宣传文章（OpenCamp 公众号）见上级目录的 [AD.md](../AD.md)。
+赛事宣传文章（OpenCamp 公众号）见 [announcements/2026-09-23-launch-article.md](announcements/2026-09-23-launch-article.md)。
 
 ## 抓取与转换方式
 

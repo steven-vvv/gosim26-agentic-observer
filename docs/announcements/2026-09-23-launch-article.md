@@ -1,6 +1,6 @@
 # GOSIM 2026 巡天智能体黑客松正式启动：让 AI 决定巡天望远镜下一步看哪里，5,500 美元奖金池等你来战！
 
-> **来源：** [OpenCamp](https://mp.weixin.qq.com/s?__biz=MzIwMzcwODA2Mw==&mid=2247485774&idx=1&sn=ef696a9620b80117e00fe700c5182115&chksm=9743290b3d74a1382258318e63c22076f3f7e6f248fe577dfff00551632f535ebb4fcae140fb&mpshare=1&srcid=0922UB8N2RQpEx0vomMoKi0q&sharer_shareinfo=c247254afc0b184674ff318be5679c12&sharer_shareinfo_first=c247254afc0b184674ff318be5679c12&from=groupmessage&scene=1&subscene=10000&sessionid=1790128433&clicktime=1790145292&enterid=1790145292&ascene=1&fasttmpl_type=0&fasttmpl_fullversion=8446176-zh_CN-zip&fasttmpl_flag=0&realreporttime=1790145292473&devicetype=android-36&version=28004845&nettype=cmnet&lang=zh_CN&countrycode=CN&exportkey=n_ChQIAhIQBANdyBLgJ1CLTLTNye6f8RL3AQIE97dBBAEAAAAAAGmzFrvs8PsAAAAOpnltbLcz9gKNyK89dVj0VIRgheQ6yjDMT4yd%252Fizzr5p30B2HwRmRHnVExGibd%252F30u6GvZXbTGY8tHMT6rTkfvtA80vTrbQNkiWI7gF9SAMSs195nSfIr7Nd8eeGI4FTuZd6aLTcafT6aE4SRw%252FqrAPxbFOxRqvpwx5Q6Ecww28bYmfJKMYRPMb1R1k8zbA9JZvuskgz5WUJTo1IEe3FnmoQGzXPVQS9NVnvTq8VjJYK1SRjtGBMdy2IMVuFxLyzyCyhu5boS2xgRYndABinbHTyHAIIEFcKUbexMwcPpp8E%253D&pass_ticket=G8SNbu30DgN8Klkj5bpR1L%252BX915n1PHF8qNEqJjU5gyd0pQNTasnV4CIYeFGuRMR8eRF%252BOJaN7jzlEY%252BJE6wMg%253D%253D&wx_header=3&utm_source=gemini)
+> **来源：** [OpenCamp](https://mp.weixin.qq.com/s?__biz=MzIwMzcwODA2Mw==&mid=2247485774&idx=1&sn=ef696a9620b80117e00fe700c5182115)
 
 *斗转星移，变化万千，你的天文望远镜，应该看向哪里？*
 
@@ -107,6 +107,6 @@ Agent 的真正挑战在于“会持续决策”，而不仅仅是“会回答�
 
 ## 09 · 现在就加入
 
-* **竞赛官网：** [https://create.gosim.org/survey26/](https://create.gosim.org/survey26/?utm_source=gemini)
-* **大会官网：** [https://shenzhen2026.gosim.org/](https://shenzhen2026.gosim.org/?utm_source=gemini)
+* **竞赛官网：** [https://create.gosim.org/survey26/](https://create.gosim.org/survey26/)
+* **大会官网：** [https://shenzhen2026.gosim.org/](https://shenzhen2026.gosim.org/)
 * **联系邮箱：** hackathon@gosim.org

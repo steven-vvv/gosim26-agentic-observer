@@ -14,7 +14,7 @@
 | `v3/result_temp/` | 平台结果按日期/尝试归档，只跟踪本说明；迁移 manifest 保留完整校验信息但不进 Git。 |
 | `telemetry-worker/` | Worker 源码、迁移和测试进入 Git；本地 Wrangler 状态、依赖和密钥不进入 Git。 |
 
-`result_temp` 和 `/tmp` 的本轮整理由 `v3/tools/organize_workspace.py` 执行。它默认 dry-run；`--apply` 会逐项复制、校验 SHA-256 后才移除源文件。`/tmp` 只归档明确的 GOSIM26 实验和构建物，系统目录、Node/编辑器缓存以及其他项目工作区不动。归档位于 `/home/steven/.local/share/gosim26/archive/tmp/YYYY-MM-DD/`，不占用仓库历史。
+`result_temp` 和 `/tmp` 的本轮整理由 `v3/tools/organize_workspace.py` 执行。它默认 dry-run；`--apply` 会逐项复制、校验 SHA-256 后才移除源文件。`/tmp` 只归档明确的 GOSIM26 实验和构建物，系统目录、Node/编辑器缓存以及其他项目工作区不动。归档位于 `~/.local/share/gosim26/archive/tmp/YYYY-MM-DD/`，不占用仓库历史。
 
 今后的评测建议使用以下边界：
 

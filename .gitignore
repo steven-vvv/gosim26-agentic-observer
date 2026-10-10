@@ -73,3 +73,8 @@ v3/tools/omni/dp.so
 *.pem
 /server
 /servers
+
+# 本地凭据（平台令牌、模型与遥测密钥）只放在仓库外或下列被忽略的文件里
+secret
+.env
+*.env

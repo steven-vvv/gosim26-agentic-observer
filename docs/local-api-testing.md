@@ -1,6 +1,6 @@
 # 本机模型与遥测 API 配置
 
-本机凭据放在 `/home/steven/.config/gosim26-telemetry.env`，属于仓库外的私有文件，权限应为 `0600`。此文件已经含有遥测地址和令牌变量；后续填写时保留它们。不要在对话、提交、日志或结果报告中粘贴密钥，也不要用 `cat`、`sed`、`env` 等命令向工具输出完整文件或环境变量。
+本机凭据放在 `~/.config/gosim26-telemetry.env`，属于仓库外的私有文件，权限应为 `0600`。此文件已经含有遥测地址和令牌变量；后续填写时保留它们。不要在对话、提交、日志或结果报告中粘贴密钥，也不要用 `cat`、`sed`、`env` 等命令向工具输出完整文件或环境变量。
 
 在该文件中填写以下三个已有的空值，保留 shell 单引号；如果值本身包含单引号，需要按 shell 语法转义。
 
@@ -18,7 +18,7 @@ export OBSERVER_MODEL_NAME='服务商提供的模型标识'
 
 ```bash
 set -a
-. /home/steven/.config/gosim26-telemetry.env
+. ~/.config/gosim26-telemetry.env
 set +a
 uv run python v3/tools/smoke_model_api.py
 ```

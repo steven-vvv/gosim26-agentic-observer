@@ -139,7 +139,7 @@ pnpm exec wrangler secret put CONFIG_ADMIN_TOKEN
 pnpm exec wrangler secret put CONFIG_READ_TOKEN
 set +x
 set -a
-source /home/steven/.config/gosim26-telemetry.env
+source ~/.config/gosim26-telemetry.env
 set +a
 printf '%s' "$OBSERVER_MODEL_BASE_URL" | pnpm exec wrangler secret put LLM_UPSTREAM_URL
 printf '%s' "$OBSERVER_MODEL_API_KEY" | pnpm exec wrangler secret put LLM_UPSTREAM_API_KEY
