@@ -57,7 +57,7 @@ uv run ruff check v4 v3/agents v3/tools v3/tests
 ## 许可
 
 - 我们编写的代码与文档采用 [MIT License](LICENSE)。
-- 主办方提供的材料按 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 授权，版权归主办方，具体包括：`v3/kit/`、`v3/data/`、各处原样复制的 `protocol.py`、由官方生成器产生的场景数据，以及 `docs/` 与 `v3/runs/platform-2026-09-25/` 中的平台页面、规则和公告存档。使用时请引用 GOSIM 2026 Agentic Observer Hackathon（<https://create.gosim.org/survey26/>）。
+- 主办方提供的材料按 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 授权，版权归主办方（清单见 [NOTICE.md](NOTICE.md)），具体包括：`v3/kit/`、`v3/data/`、各处原样复制的 `protocol.py`、由官方生成器产生的场景数据，以及 `docs/` 与 `v3/runs/platform-2026-09-25/` 中的平台页面、规则和公告存档。使用时请引用 GOSIM 2026 Agentic Observer Hackathon（<https://create.gosim.org/survey26/>）。
 - 评测引擎不在本仓库中，按上游仓库的许可使用。
 
 ## English summary
@@ -67,4 +67,4 @@ This repository is our complete workspace for the [GOSIM 2026 Agentic Observer H
 - **Final submission**: `observer4-full-locked-697abf1fca70.zip` (SHA-256 `697abf1f…`). `uv run python -m v4.evaluation.package --locked-full --wheels <dir>` rebuilds it byte for byte from `v4/agent/`, given the NumPy 2.5.3 cp312 wheels.
 - **Agent** (`v4/agent/`, protocol `participant-agent-protocol-v4`): a deterministic core searches pointing, fibre assignment and exposure time jointly, values science with a time horizon, paces itself against the CPU budget and monitors instrument faults. LLM stages, called through an OpenAI-compatible API, choose the weekly survey strategy, break near-ties between candidate actions and read duty logs. Every call is bounded and falls back to the deterministic policy.
 - **Layout**: `v4/` holds the final implementation, `v3/` the retired v3-rule implementation, `notes/` the experiment log, `docs/` the archived platform pages, and `telemetry-worker/` the Worker.
-- **License**: our code is MIT. Material provided by the organizers (`v3/kit/`, `v3/data/`, verbatim `protocol.py` copies, generated scenarios and the archived platform pages) is CC BY-NC 4.0. The evaluation engine is fetched from [gosimfoundation/hackathon-survey26](https://github.com/gosimfoundation/hackathon-survey26) and is not included here.
+- **License**: our code is MIT. Material provided by the organizers (`v3/kit/`, `v3/data/`, verbatim `protocol.py` copies, generated scenarios and the archived platform pages) is CC BY-NC 4.0. The evaluation engine is fetched from [gosimfoundation/hackathon-survey26](https://github.com/gosimfoundation/hackathon-survey26) and is not included here. See [NOTICE.md](NOTICE.md).
